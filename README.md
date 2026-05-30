@@ -51,7 +51,7 @@ The default `hello_world` example now opens a real Vulkan window. Use `--headles
 
 ## Continuous integration
 
-- `.github/workflows/ci.yml` runs on `push` and `pull_request` for `main` and `develop`.
+- `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
 - The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto artifacts, and exercises `hello_world` through `--headless-smoke`.
 - Replay the same checks locally with:
 
