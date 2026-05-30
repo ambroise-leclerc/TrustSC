@@ -57,7 +57,6 @@ The default `hello_world` example now opens a real Vulkan window. Use `--headles
 
 ```bash
 source $HOME/.cargo/env
-cd MduX-rust
 cargo build --locked --workspace
 cargo test --locked --quiet
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
