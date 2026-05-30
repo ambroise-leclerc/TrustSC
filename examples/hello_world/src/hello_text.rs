@@ -1,34 +1,16 @@
 use mdux::{
-    compile_text_package, ApprovedString, CompiledGlyph, CompiledTextRun, FontAsset,
-    GlyphDrawCommand, MduxResult, RasterizedGlyph, TextCompilationInput, TextDirection,
-    TextPackage, TextRuntime, ValidationError,
+    default_standard_text_package, GlyphDrawCommand, MduxResult, TextPackage, TextRuntime,
+    ValidationError, DEFAULT_STANDARD_HELLO_WORLD_RUN_ID,
 };
+#[cfg(test)]
+use mdux::{DEFAULT_STANDARD_HELLO_WORLD_STRING_ID, DEFAULT_STANDARD_HELLO_WORLD_TEXT};
 
-pub const HELLO_WORLD_TEXT: &str = "Hello World !";
-pub const HELLO_WORLD_STRING_ID: &str = "STR-HELLO-WORLD";
-pub const HELLO_WORLD_RUN_ID: &str = "RUN-HELLO-WORLD";
+#[cfg(test)]
+pub const HELLO_WORLD_TEXT: &str = DEFAULT_STANDARD_HELLO_WORLD_TEXT;
+#[cfg(test)]
+pub const HELLO_WORLD_STRING_ID: &str = DEFAULT_STANDARD_HELLO_WORLD_STRING_ID;
+pub const HELLO_WORLD_RUN_ID: &str = DEFAULT_STANDARD_HELLO_WORLD_RUN_ID;
 pub const HELLO_WORLD_DRAW_COMMAND_COUNT: usize = 11;
-const HELLO_WORLD_ATLAS_WIDTH: u16 = 64;
-const HELLO_WORLD_ATLAS_PADDING: u16 = 1;
-const HELLO_WORLD_FONT_SHA256: &str =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-const HELLO_WORLD_BUILD_RECIPE: &str =
-    "embedded-16px-glyphs+deterministic-atlas+compiled-run:Hello World !";
-const HELLO_WORLD_GLYPHS: [(char, i32); 13] = [
-    ('H', 10),
-    ('e', 10),
-    ('l', 6),
-    ('l', 6),
-    ('o', 10),
-    (' ', 4),
-    ('W', 12),
-    ('o', 10),
-    ('r', 8),
-    ('l', 6),
-    ('d', 10),
-    (' ', 4),
-    ('!', 4),
-];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HelloWorldTextLayout {
@@ -37,7 +19,7 @@ pub struct HelloWorldTextLayout {
 }
 
 pub fn hello_world_text_package() -> MduxResult<TextPackage> {
-    compile_text_package(hello_world_text_compilation_input())
+    default_standard_text_package()
 }
 
 #[allow(dead_code)]
@@ -61,300 +43,86 @@ pub fn hello_world_text_layout(origin_x: i32, origin_y: i32) -> MduxResult<Hello
     Ok(HelloWorldTextLayout { package, commands })
 }
 
-fn hello_world_text_compilation_input() -> TextCompilationInput {
-    TextCompilationInput {
-        fonts: vec![FontAsset {
-            family: "Embedded Hello World Mono".to_string(),
-            source_path: "embedded://hello_world/16px".to_string(),
-            sha256: HELLO_WORLD_FONT_SHA256.to_string(),
-            face_index: 0,
-            pixel_height: 16,
-            locales: vec!["en-US".to_string()],
-        }],
-        approved_strings: vec![ApprovedString {
-            id: HELLO_WORLD_STRING_ID.to_string(),
-            locale: "en-US".to_string(),
-            value: HELLO_WORLD_TEXT.to_string(),
-            direction: TextDirection::LeftToRight,
-        }],
-        rasterized_glyphs: hello_world_rasterized_glyphs(),
-        runs: vec![hello_world_run()],
-        numeric_glyph_sets: Vec::new(),
-        numeric_templates: Vec::new(),
-        toolchain_id: "rust-embedded-hello-text-v1".to_string(),
-        unicode_version: "15.1.0".to_string(),
-        build_recipe: HELLO_WORLD_BUILD_RECIPE.to_string(),
-        atlas_width: HELLO_WORLD_ATLAS_WIDTH,
-        atlas_padding: HELLO_WORLD_ATLAS_PADDING,
-    }
-}
-
-fn hello_world_run() -> CompiledTextRun {
-    let mut cursor_x = 0;
-    let mut glyphs = Vec::with_capacity(HELLO_WORLD_GLYPHS.len());
-
-    for &(character, advance_x) in &HELLO_WORLD_GLYPHS {
-        glyphs.push(CompiledGlyph {
-            atlas_index: 0,
-            glyph_id: u32::from(character),
-            x: cursor_x,
-            y: 0,
-            advance_x,
-        });
-        cursor_x += advance_x;
-    }
-
-    CompiledTextRun {
-        id: HELLO_WORLD_RUN_ID.to_string(),
-        source_string_id: HELLO_WORLD_STRING_ID.to_string(),
-        locale: "en-US".to_string(),
-        bidi_level: 0,
-        glyphs,
-    }
-}
-
-fn hello_world_rasterized_glyphs() -> Vec<RasterizedGlyph> {
-    vec![
-        spacer_glyph(),
-        bitmap_glyph(
-            '!',
-            4,
-            &[
-                "##", "##", "##", "##", "##", "##", "##", "##", "##", "##", "  ", "  ", "  ",
-                "##", "##", "  ",
-            ],
-        ),
-        bitmap_glyph(
-            'H',
-            10,
-            &[
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "########",
-                "########",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-            ],
-        ),
-        bitmap_glyph(
-            'W',
-            12,
-            &[
-                "##      ##",
-                "##      ##",
-                "##      ##",
-                "##      ##",
-                "##      ##",
-                "##  ##  ##",
-                "##  ##  ##",
-                "## #### ##",
-                "####  ####",
-                "####  ####",
-                "###    ###",
-                "###    ###",
-                "##      ##",
-                "##      ##",
-                "##      ##",
-                "##      ##",
-            ],
-        ),
-        bitmap_glyph(
-            'd',
-            10,
-            &[
-                "      ##",
-                "      ##",
-                "      ##",
-                "      ##",
-                "  ######",
-                " #######",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                " #######",
-                "  ######",
-                "      ##",
-                "      ##",
-            ],
-        ),
-        bitmap_glyph(
-            'e',
-            10,
-            &[
-                "        ",
-                "        ",
-                "  ####  ",
-                " ###### ",
-                "##    ##",
-                "##      ",
-                "########",
-                "########",
-                "##      ",
-                "##      ",
-                "##      ",
-                "##    ##",
-                " ###### ",
-                "  ####  ",
-                "        ",
-                "        ",
-            ],
-        ),
-        bitmap_glyph(
-            'l',
-            6,
-            &[
-                " ## ", " ## ", " ## ", " ## ", " ## ", " ## ", " ## ", " ## ", " ## ", " ## ",
-                " ## ", " ## ", " ## ", " ## ", "####", "####",
-            ],
-        ),
-        bitmap_glyph(
-            'o',
-            10,
-            &[
-                "        ",
-                "        ",
-                "  ####  ",
-                " ###### ",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                "##    ##",
-                " ###### ",
-                "  ####  ",
-                "        ",
-                "        ",
-            ],
-        ),
-        bitmap_glyph(
-            'r',
-            8,
-            &[
-                "      ",
-                "      ",
-                "## ## ",
-                "######",
-                "###   ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "##    ",
-                "      ",
-                "      ",
-            ],
-        ),
-    ]
-}
-
-fn spacer_glyph() -> RasterizedGlyph {
-    RasterizedGlyph {
-        glyph_id: u32::from(' '),
-        width: 0,
-        height: 0,
-        bearing_x: 0,
-        bearing_y: 0,
-        advance_x: 4,
-        pixels: Vec::new(),
-    }
-}
-
-fn bitmap_glyph(character: char, advance_x: i32, rows: &[&str]) -> RasterizedGlyph {
-    let width = rows.first().map(|row| row.len()).unwrap_or_default();
-    let mut pixels = Vec::with_capacity(width * rows.len());
-
-    for row in rows {
-        assert_eq!(row.len(), width, "bitmap rows must have a stable width");
-        for pixel in row.bytes() {
-            pixels.push(if pixel == b'#' { u8::MAX } else { 0 });
-        }
-    }
-
-    RasterizedGlyph {
-        glyph_id: u32::from(character),
-        width: width as u16,
-        height: rows.len() as u16,
-        bearing_x: 0,
-        bearing_y: 0,
-        advance_x,
-        pixels,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdux::DEFAULT_STANDARD_FONT;
 
     #[test]
-    fn builds_deterministic_hello_world_text_package() {
-        let first = hello_world_text_package().expect("first package should compile");
-        let second = hello_world_text_package().expect("second package should compile");
+    fn loads_default_standard_roboto_package() {
+        let first = hello_world_text_package().expect("first package should load");
+        let second = hello_world_text_package().expect("second package should load");
+        let approved_string = first
+            .approved_strings
+            .iter()
+            .find(|approved_string| approved_string.id == HELLO_WORLD_STRING_ID)
+            .expect("hello world string should exist");
+        let run = first
+            .find_run(HELLO_WORLD_RUN_ID)
+            .expect("hello world run should exist");
 
-        assert_eq!(first.approved_strings.len(), 1);
-        assert_eq!(first.approved_strings[0].value, HELLO_WORLD_TEXT);
-        assert_eq!(first.runs[0].id, HELLO_WORLD_RUN_ID);
-        assert_eq!(first.runs[0].advance_width(), 100);
+        assert_eq!(first.fonts.len(), 1);
+        assert_eq!(first.fonts[0].family, DEFAULT_STANDARD_FONT.family);
+        assert_eq!(first.fonts[0].pixel_height, DEFAULT_STANDARD_FONT.pixel_height);
+        assert_eq!(first.fonts[0].source_path, "Roboto-Regular.ttf");
+        assert_eq!(approved_string.value, HELLO_WORLD_TEXT);
+        assert_eq!(run.source_string_id, HELLO_WORLD_STRING_ID);
+        assert_eq!(run.glyphs.len(), HELLO_WORLD_DRAW_COMMAND_COUNT + 1);
         assert_eq!(first.evidence.package_sha256, second.evidence.package_sha256);
         assert_eq!(first.atlases[0].pixels, second.atlases[0].pixels);
     }
 
     #[test]
-    fn emits_fixed_draw_commands_for_hello_world() {
-        let layout = hello_world_text_layout(10, 20).expect("layout should compile and render");
+    fn emits_draw_commands_for_generated_roboto_glyphs() {
+        let origin_x = 10;
+        let origin_y = 20;
+        let layout = hello_world_text_layout(origin_x, origin_y).expect("layout should compile and render");
+        let run = layout
+            .package
+            .find_run(HELLO_WORLD_RUN_ID)
+            .expect("hello world run should exist");
+        let expected_commands = run
+            .glyphs
+            .iter()
+            .filter_map(|glyph| {
+                let atlas_glyph = layout
+                    .package
+                    .find_glyph(glyph.atlas_index, glyph.glyph_id)
+                    .expect("compiled glyph should resolve to an atlas glyph");
+                (atlas_glyph.width > 0 && atlas_glyph.height > 0).then_some((
+                    glyph.glyph_id,
+                    origin_x + glyph.x,
+                    origin_y + glyph.y,
+                    atlas_glyph.width,
+                    atlas_glyph.height,
+                ))
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(layout.commands.len(), HELLO_WORLD_DRAW_COMMAND_COUNT);
+        assert_eq!(layout.commands.len(), expected_commands.len());
 
-        let glyph_ids: Vec<u32> = layout.commands.iter().map(|command| command.glyph_id).collect();
-        let x_positions: Vec<i32> = layout.commands.iter().map(|command| command.x).collect();
-        let widths: Vec<u16> = layout.commands.iter().map(|command| command.width).collect();
-
-        assert_eq!(
-            glyph_ids,
-            vec![
-                u32::from('H'),
-                u32::from('e'),
-                u32::from('l'),
-                u32::from('l'),
-                u32::from('o'),
-                u32::from('W'),
-                u32::from('o'),
-                u32::from('r'),
-                u32::from('l'),
-                u32::from('d'),
-                u32::from('!'),
-            ]
-        );
-        assert_eq!(x_positions, vec![10, 20, 30, 36, 42, 56, 68, 78, 86, 92, 106]);
-        assert_eq!(widths, vec![8, 8, 4, 4, 8, 10, 8, 6, 4, 8, 2]);
-        assert!(layout.commands.iter().all(|command| command.y == 20));
+        for (command, (glyph_id, x, y, width, height)) in
+            layout.commands.iter().zip(expected_commands.iter().copied())
+        {
+            assert_eq!(command.glyph_id, glyph_id);
+            assert_eq!(command.x, x);
+            assert_eq!(command.y, y);
+            assert_eq!(command.width, width);
+            assert_eq!(command.height, height);
+        }
     }
 
     #[test]
     fn convenience_command_helper_matches_layout_commands() {
         let layout = hello_world_text_layout(0, 0).expect("layout should render");
         let commands = hello_world_glyph_draw_commands(0, 0).expect("command helper should render");
+        let run = layout
+            .package
+            .find_run(HELLO_WORLD_RUN_ID)
+            .expect("hello world run should exist");
 
         assert_eq!(commands, layout.commands);
-        assert_eq!(layout.package.runs[0].glyphs.len(), HELLO_WORLD_GLYPHS.len());
+        assert_eq!(run.glyphs.len(), HELLO_WORLD_DRAW_COMMAND_COUNT + 1);
     }
 }

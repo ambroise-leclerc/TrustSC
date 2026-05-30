@@ -1,0 +1,14 @@
+{
+  "report_kind": "mdux-font-baker-report",
+  "package_sha256": "ee02d61a48e065f38da205c6621b66b6b71061b3befc56bcf7ba0997beeafb68",
+  "recipe_sha256": "a2652f6c12a3c8deb5ca7c4914af9ffa6e9bf48a5fbcc61eec3551ba35eab7a5",
+  "atlas_sha256": "6f3f03607ff718cd5b667879a9d1b14ae1ca1b284a24a60a8f9815d71810deb1",
+  "glyph_count": 24,
+  "approved_string_count": 3,
+  "run_count": 3,
+  "numeric_template_count": 1,
+  "font_manifest_path": "font-manifest.toml",
+  "font_source_path": "Roboto-Regular.ttf",
+  "font_sha256": "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d",
+  "pipeline": "font-intake -> catalog-compile -> deterministic-atlas -> package-verify"
+}

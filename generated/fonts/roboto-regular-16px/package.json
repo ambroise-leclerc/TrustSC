@@ -1,0 +1,564 @@
+{
+  "fonts": [
+    {
+      "family": "Roboto",
+      "source_path": "Roboto-Regular.ttf",
+      "sha256": "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d",
+      "face_index": 0,
+      "pixel_height": 16,
+      "locales": [
+        "en-US"
+      ]
+    }
+  ],
+  "approved_strings": [
+    {
+      "id": "STR-DOSE-PREFIX",
+      "locale": "en-US",
+      "value": "Dose ",
+      "direction": "ltr"
+    },
+    {
+      "id": "STR-DOSE-SUFFIX",
+      "locale": "en-US",
+      "value": " mg",
+      "direction": "ltr"
+    },
+    {
+      "id": "STR-HELLO-WORLD",
+      "locale": "en-US",
+      "value": "Hello World!",
+      "direction": "ltr"
+    }
+  ],
+  "atlases": [
+    {
+      "width": 128,
+      "height": 29,
+      "pixels_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000424e004c6b6b6b0a000000126682651100000000000015410000001c6c83671300000000001d6f82600c000000000000003a5f040000004f5f5f5f5f5f0100000000194f3b000000265f5f5f5f5f5f5f1b000000126783661100000000001a6f8150010000415f5f5e480e00000000414e00000000002a5f0500000000000000afce0089c1c1c113000021e7e2aee4e51e00000550b0fab100004ef6d4ade6ec2d0000004df6d1ade6df1b00000000001cf1ff0b000000e6faf5f5f5f50300000da4fdf08600000052cfcfcfcfcfddff37000028e9e3ade6e7250000003af2dab6f7b40300adf9dbdef6f479000000add1000000000071ff0f00000000000000abcb0000000000000000a2dc0c000ddf9e0000a6f5a3dbb10009eda0010010e2b3000005eaa100000fe7930000000000b3f4ff0b000003fd5a00000000000001bde44802000000000000000000008fd0000000abdd0c0010e2a7000000d5bc040039fc6600add10000066afa7d0000add1000000000071ff0f00000000000000a8c80000000000000000ec8200000087e70000360c00c1b10038f9380000009bda0000159b30000000b1c00000000059f182ff0b00001bff3e00000000000052fc2f000000000000000000000011f35e000000d69b000000a0d2000021ff4d000000b4be00add10000000081f91700add1000000000071ff0f00000000000000a5c4000000000000000eff5f00000065ff0800000000c1b100000000000000bdb10000000000000005db9900000014ea6867ff0b000035ff45635f1b000000a9b8266a661b00000000000000007be606000000b1c9010001cdac000034ff3800000088e500add1000000001dff6100add1000000000071ff0f00000000000000a2c10000000000000018ff570000005eff1300000000c1b100000000000044fe3f00000000005f6ec5d618000000a4c30167ff0b00004ffffbe3f9f8520000dbdbf6c6e6f43f00000000000008e87a0000000028e7b877bae324000017ff6600000099ef00add10000000000f78500ade87b7b7b7b7bb6ff0f000000000000009fbd0000000000000019ff570000005dff1300000000c1b1000000000022eb94000000000000c0d3fba00c00004af8280067ff0b0000217e1e0013c4ef0b00f2e5250008c4dc01000000000067f5120000000016beecc3eeb611000000b9e430096bfbe700add10000000000f18b00adf4bdbdbdbdbddbff0f000000000000009cba0000000000000016ff590000005fff0f00000000c1b10000000015dab905000000000000000021e49e000de27d000067ff0b000000000000003bff4400f68100000052ff240000000002da950000000000bcc60b000eccb50000001bcbffffc7afcc00add10000000005fc7c00add1000000000071ff0f0000000000000078900000000000000006fd6a0000006ffa0300000000c1b10000000bcac80b000000000000000000008be90080ffd7d1d1e4ffd4830000000000001cff5500e68a0000003aff320000000053fd250000000013ff5e00000063ff1000000000232100c79600add1000000003dff4a00add1000000000071ff0f0000000000000000000000000000000000d3a2000000a4ce0000000000c1b1000005b8d412000000000035ff4400000097dd00355b5b5b5b9eff633900b3b100000045ff3700aecd00000067fe1200000000c8b1000000000010fe690000006efe0d0000000000004bff3700add100000006c1df0500add1000000000071ff0f000000000000004663000000000000000070f9530c52f96e0000000000c1b10000a2f2492d2d2d2d120004dacd2c0b4cf38400000000000067ff0b000056fd640d2cd2d3020038fd89143ae5a9000000003eff3f000000000000b8e1390a3ce3b400000000224b92fa8a0000addc393d60cdf33a0000add1000000000071ff0f00000000000000a7dc00000000000000000293f9fff993020000000000c1b1000dffffffffffffff65000023c1fffff78f0400000000000067ff0b00000073f0ffffc52200000056e9fffdae0f00000000b4cc0000000000000014affdfffdac12000000009df1be54000000adfffffde59f24000000add1000000000071ff0f000000000000000307000000000000000000000b220b000000000000000000000000000000000000000000000012220800000000000000000000000000000004221400000000000004201000000000000000000000000000000000000d230d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002d5f020000002f5400000000434d0000000000000091df0000001476967210000000002d889048336700c7a9006935438e903c00358c9353000000001575977a1e000000693a5895180000003d8b95620700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004fff2d000000affd14000000daa30000000000000091df000029e8d19adddf15000044fad8a5dedfe300c7a900e9ded5a3d9fd95e8a5c1ff7300002eebd99acff4410000e7e3f3cf2600006ffcb2a0f1c8060000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000013fe68000005f2fe58000015ff650000000000000091df0000c6bf04000ee58c0000d8c6050009cae300c7a900e9be030009e5f31c0000b2d60000ccc8070002b0e40600e7d31100000000e896000041ff4d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d3a3000040feba9f00004eff270000002c88904791df0020ff530000009acd0022ff5c0000008fe300c7a900e987000000b9bf00000083ee0025ff5700000035ff4200e7890000000000d5c82400000703000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000096de000089ca64e5000089e800000042f9d7a5dee9df0042ffffffffffffe3003bff390000008fe300c7a900e987000000b7bb00000081ef0046ff2f0000000eff6200e78900000000002fccffda8d1e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000058ff1a00d17f1cff2d00c3ab000000d7c3040008c9df003cff5c2f2f2f2f2b0032ff400000008fe300c7a900e987000000b7bb00000081ef003bff370000001aff5c00e78900000000000000266ad1f02200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001aff541bff3400d47305f76d000023ff5800000091df0010fa780000000601000af87d00000098e300c7a900e987000000b7bb00000081ef000df77b0000005eff2600e78900000000239925000012ff6d000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000dc8f62e801008bba37ff2f00003dff3500000091df000093f55a0d2bbb8700009af250195df6e300c7a900e987000000b7bb00000081ef00008af4520c41e8ac0000e789000000000beab7200f6eff460000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009ec7aa9e000043f776ef02000035ff3c00000091df0000058ff7fffeb41600000bb0ffffd4b8e300c7a900e987000000b7bb00000081ef0000038cf7fffba20c0000e789000000000034d1fffff2790000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060eee853000006f4d4b30000000cf97900000099df00000000082210000000000000151c00a4d100c7a9000000000000000000000000000000000008220d00000000000000000000000000182205000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000022fffa0e000000b2ff75000000009af14f195df6df00000000000000000000007c7a050038f48400c7a9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e4bd000000006aff37000000000bafffffd3a5df000000000000000000000042e4f2e2ffaf0800c7a9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000151c000000000000000000000000000000053c4e28000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "atlas_glyphs": [
+    {
+      "atlas_index": 0,
+      "glyph_id": 5,
+      "x": 1,
+      "y": 1,
+      "width": 0,
+      "height": 0,
+      "bearing_x": 0,
+      "bearing_y": 0,
+      "advance_x": 4
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 6,
+      "x": 2,
+      "y": 1,
+      "width": 2,
+      "height": 13,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 4
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 18,
+      "x": 5,
+      "y": 1,
+      "width": 5,
+      "height": 2,
+      "bearing_x": 0,
+      "bearing_y": 6,
+      "advance_x": 4
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 21,
+      "x": 11,
+      "y": 1,
+      "width": 9,
+      "height": 13,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 22,
+      "x": 21,
+      "y": 1,
+      "width": 5,
+      "height": 12,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 23,
+      "x": 27,
+      "y": 1,
+      "width": 9,
+      "height": 12,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 24,
+      "x": 37,
+      "y": 1,
+      "width": 8,
+      "height": 13,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 25,
+      "x": 46,
+      "y": 1,
+      "width": 9,
+      "height": 12,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 26,
+      "x": 56,
+      "y": 1,
+      "width": 8,
+      "height": 13,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 27,
+      "x": 65,
+      "y": 1,
+      "width": 8,
+      "height": 13,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 28,
+      "x": 74,
+      "y": 1,
+      "width": 9,
+      "height": 12,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 29,
+      "x": 84,
+      "y": 1,
+      "width": 9,
+      "height": 13,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 30,
+      "x": 94,
+      "y": 1,
+      "width": 8,
+      "height": 13,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 41,
+      "x": 103,
+      "y": 1,
+      "width": 9,
+      "height": 12,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 10
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 45,
+      "x": 113,
+      "y": 1,
+      "width": 10,
+      "height": 12,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 11
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 60,
+      "x": 1,
+      "y": 15,
+      "width": 14,
+      "height": 12,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 14
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 73,
+      "x": 16,
+      "y": 15,
+      "width": 8,
+      "height": 13,
+      "bearing_x": 0,
+      "bearing_y": 12,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 74,
+      "x": 25,
+      "y": 15,
+      "width": 8,
+      "height": 10,
+      "bearing_x": 0,
+      "bearing_y": 9,
+      "advance_x": 8
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 76,
+      "x": 34,
+      "y": 15,
+      "width": 8,
+      "height": 13,
+      "bearing_x": 0,
+      "bearing_y": 9,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 81,
+      "x": 43,
+      "y": 15,
+      "width": 2,
+      "height": 12,
+      "bearing_x": 1,
+      "bearing_y": 12,
+      "advance_x": 4
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 82,
+      "x": 46,
+      "y": 15,
+      "width": 12,
+      "height": 9,
+      "bearing_x": 1,
+      "bearing_y": 9,
+      "advance_x": 14
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 84,
+      "x": 59,
+      "y": 15,
+      "width": 9,
+      "height": 10,
+      "bearing_x": 0,
+      "bearing_y": 9,
+      "advance_x": 9
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 87,
+      "x": 69,
+      "y": 15,
+      "width": 5,
+      "height": 9,
+      "bearing_x": 1,
+      "bearing_y": 9,
+      "advance_x": 5
+    },
+    {
+      "atlas_index": 0,
+      "glyph_id": 88,
+      "x": 75,
+      "y": 15,
+      "width": 8,
+      "height": 10,
+      "bearing_x": 0,
+      "bearing_y": 9,
+      "advance_x": 8
+    }
+  ],
+  "runs": [
+    {
+      "id": "RUN-DOSE-PREFIX",
+      "source_string_id": "STR-DOSE-PREFIX",
+      "locale": "en-US",
+      "bidi_level": 0,
+      "glyphs": [
+        {
+          "atlas_index": 0,
+          "glyph_id": 41,
+          "x": 1,
+          "y": -12,
+          "advance_x": 10
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 84,
+          "x": 10,
+          "y": -9,
+          "advance_x": 9
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 88,
+          "x": 19,
+          "y": -9,
+          "advance_x": 8
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 74,
+          "x": 27,
+          "y": -9,
+          "advance_x": 8
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 5,
+          "x": 35,
+          "y": 0,
+          "advance_x": 4
+        }
+      ]
+    },
+    {
+      "id": "RUN-DOSE-SUFFIX",
+      "source_string_id": "STR-DOSE-SUFFIX",
+      "locale": "en-US",
+      "bidi_level": 0,
+      "glyphs": [
+        {
+          "atlas_index": 0,
+          "glyph_id": 5,
+          "x": 0,
+          "y": 0,
+          "advance_x": 4
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 82,
+          "x": 5,
+          "y": -9,
+          "advance_x": 14
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 76,
+          "x": 18,
+          "y": -9,
+          "advance_x": 9
+        }
+      ]
+    },
+    {
+      "id": "RUN-HELLO-WORLD",
+      "source_string_id": "STR-HELLO-WORLD",
+      "locale": "en-US",
+      "bidi_level": 0,
+      "glyphs": [
+        {
+          "atlas_index": 0,
+          "glyph_id": 45,
+          "x": 1,
+          "y": -12,
+          "advance_x": 11
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 74,
+          "x": 11,
+          "y": -9,
+          "advance_x": 8
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 81,
+          "x": 20,
+          "y": -12,
+          "advance_x": 4
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 81,
+          "x": 24,
+          "y": -12,
+          "advance_x": 4
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 84,
+          "x": 27,
+          "y": -9,
+          "advance_x": 9
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 5,
+          "x": 36,
+          "y": 0,
+          "advance_x": 4
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 60,
+          "x": 40,
+          "y": -12,
+          "advance_x": 14
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 84,
+          "x": 54,
+          "y": -9,
+          "advance_x": 9
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 87,
+          "x": 64,
+          "y": -9,
+          "advance_x": 5
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 81,
+          "x": 69,
+          "y": -12,
+          "advance_x": 4
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 73,
+          "x": 72,
+          "y": -12,
+          "advance_x": 9
+        },
+        {
+          "atlas_index": 0,
+          "glyph_id": 6,
+          "x": 82,
+          "y": -12,
+          "advance_x": 4
+        }
+      ]
+    }
+  ],
+  "numeric_glyph_sets": [
+    {
+      "id": "SET-ASCII-DIGITS",
+      "locale": "en-US",
+      "entries": [
+        {
+          "character": "-",
+          "glyph_id": 18,
+          "atlas_index": 0,
+          "advance_x": 4
+        },
+        {
+          "character": "0",
+          "glyph_id": 21,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "1",
+          "glyph_id": 22,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "2",
+          "glyph_id": 23,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "3",
+          "glyph_id": 24,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "4",
+          "glyph_id": 25,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "5",
+          "glyph_id": 26,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "6",
+          "glyph_id": 27,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "7",
+          "glyph_id": 28,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "8",
+          "glyph_id": 29,
+          "atlas_index": 0,
+          "advance_x": 9
+        },
+        {
+          "character": "9",
+          "glyph_id": 30,
+          "atlas_index": 0,
+          "advance_x": 9
+        }
+      ]
+    }
+  ],
+  "numeric_templates": [
+    {
+      "id": "TPL-DOSE",
+      "locale": "en-US",
+      "prefix_run_id": "RUN-DOSE-PREFIX",
+      "suffix_run_id": "RUN-DOSE-SUFFIX",
+      "glyph_set_id": "SET-ASCII-DIGITS",
+      "max_chars": 5,
+      "allow_negative": true
+    }
+  ],
+  "evidence": {
+    "package_sha256": "ee02d61a48e065f38da205c6621b66b6b71061b3befc56bcf7ba0997beeafb68",
+    "toolchain_id": "mdux-font-baker-fixture-v1",
+    "unicode_version": "15.1.0",
+    "build_recipe_sha256": "a2652f6c12a3c8deb5ca7c4914af9ffa6e9bf48a5fbcc61eec3551ba35eab7a5"
+  }
+}

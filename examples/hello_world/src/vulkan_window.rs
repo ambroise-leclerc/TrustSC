@@ -1507,6 +1507,7 @@ mod tests {
             .package
             .find_glyph(layout.commands[0].atlas_index, layout.commands[0].glyph_id)
             .expect("first glyph should exist");
+        let first_command = &layout.commands[0];
         let last_command = layout.commands.last().expect("last command should exist");
         let last_glyph = layout
             .package
@@ -1523,7 +1524,7 @@ mod tests {
 
         assert_vertex(
             &vertices[0],
-            [-0.85, -0.625],
+            expected_position(first_command.x, first_command.y, extent),
             [
                 first_glyph.x as f32 / atlas.width as f32,
                 first_glyph.y as f32 / atlas.height as f32,
@@ -1531,7 +1532,11 @@ mod tests {
         );
         assert_vertex(
             &vertices[1],
-            [-0.8, -0.625],
+            expected_position(
+                first_command.x + i32::from(first_command.width),
+                first_command.y,
+                extent,
+            ),
             [
                 (first_glyph.x + first_glyph.width) as f32 / atlas.width as f32,
                 first_glyph.y as f32 / atlas.height as f32,
@@ -1539,7 +1544,11 @@ mod tests {
         );
         assert_vertex(
             &vertices[2],
-            [-0.8, -0.375],
+            expected_position(
+                first_command.x + i32::from(first_command.width),
+                first_command.y + i32::from(first_command.height),
+                extent,
+            ),
             [
                 (first_glyph.x + first_glyph.width) as f32 / atlas.width as f32,
                 (first_glyph.y + first_glyph.height) as f32 / atlas.height as f32,
@@ -1549,7 +1558,7 @@ mod tests {
         let last_quad = &vertices[vertices.len() - 6..];
         assert_vertex(
             &last_quad[0],
-            [-0.25, -0.625],
+            expected_position(last_command.x, last_command.y, extent),
             [
                 last_glyph.x as f32 / atlas.width as f32,
                 last_glyph.y as f32 / atlas.height as f32,
@@ -1557,7 +1566,11 @@ mod tests {
         );
         assert_vertex(
             &last_quad[1],
-            [-0.2375, -0.625],
+            expected_position(
+                last_command.x + i32::from(last_command.width),
+                last_command.y,
+                extent,
+            ),
             [
                 (last_glyph.x + last_glyph.width) as f32 / atlas.width as f32,
                 last_glyph.y as f32 / atlas.height as f32,
@@ -1565,7 +1578,11 @@ mod tests {
         );
         assert_vertex(
             &last_quad[5],
-            [-0.25, -0.375],
+            expected_position(
+                last_command.x,
+                last_command.y + i32::from(last_command.height),
+                extent,
+            ),
             [
                 last_glyph.x as f32 / atlas.width as f32,
                 (last_glyph.y + last_glyph.height) as f32 / atlas.height as f32,
@@ -1606,5 +1623,12 @@ mod tests {
                 vertex.tex_coord
             );
         }
+    }
+
+    fn expected_position(x: i32, y: i32, extent: vk::Extent2D) -> [f32; 2] {
+        [
+            (2.0 * x as f32 / extent.width as f32) - 1.0,
+            -1.0 + (2.0 * y as f32 / extent.height as f32),
+        ]
     }
 }

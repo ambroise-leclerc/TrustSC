@@ -1,0 +1,36 @@
+schema_version = 1
+manifest_kind = "mdux-font-asset"
+asset_family = "Roboto"
+asset_id = "roboto-regular-400"
+license = "Apache-2.0"
+license_files = ["LICENSE", "NOTICE"]
+notice_files = ["UPSTREAM-README.md", "HINTED-README.txt"]
+
+[face]
+family = "Roboto"
+subfamily = "Regular"
+style = "normal"
+weight = 400
+face_index = 0
+source_file = "Roboto-Regular.ttf"
+source_format = "ttf"
+source_sha256 = "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"
+source_bytes = 515100
+intended_baseline_pixel_heights = [16, 32]
+intended_usage = "Offline text-authoring input for deterministic atlas compilation"
+
+[provenance]
+upstream_repository = "https://github.com/googlefonts/roboto-2"
+upstream_commit = "38062f4b4a0be4346d07a928408da21602545e9e"
+upstream_path = "src/hinted/Roboto-Regular.ttf"
+upstream_download_url = "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/src/hinted/Roboto-Regular.ttf"
+upstream_blob_sha1 = "ddee473e02035bfce6244746d5d2a281616f7ff8"
+retrieved_utc = "2026-05-30T13:10:59Z"
+
+[yocto]
+package_name = "mdux-font-roboto-regular"
+install_subdir = "assets/fonts/roboto"
+license_expression = "Apache-2.0"
+lic_files = ["LICENSE", "NOTICE"]
+source_uri = "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/src/hinted/Roboto-Regular.ttf"
+source_sha256 = "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"

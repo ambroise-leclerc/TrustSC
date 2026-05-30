@@ -1,0 +1,65 @@
+schema_version = 1
+record_kind = "font-vendoring-provenance"
+asset_dir = "assets/fonts/roboto"
+retrieved_utc = "2026-05-30T13:10:59Z"
+selected_asset = "Roboto-Regular.ttf"
+selected_face = "Roboto Regular"
+selected_weight = 400
+selected_style = "normal"
+selection_scope = "Roboto Regular 400 only"
+selection_reason = "Selected for the Rust MdUX text system vendoring task; runtime integration intentionally deferred."
+
+[upstream]
+repository = "https://github.com/googlefonts/roboto-2"
+commit = "38062f4b4a0be4346d07a928408da21602545e9e"
+revision_status = "archived upstream repository containing Apache-2.0 static TTF artifacts"
+successor_repository = "https://github.com/googlefonts/roboto-3-classic"
+successor_note = "The archived roboto-2 README points to roboto-3-classic as the ongoing project, but this vendored artifact comes from the Apache-2.0 roboto-2 static TTF distribution."
+license = "Apache-2.0"
+
+[[sources]]
+role = "font"
+local_name = "Roboto-Regular.ttf"
+upstream_path = "src/hinted/Roboto-Regular.ttf"
+download_url = "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/src/hinted/Roboto-Regular.ttf"
+github_blob_sha1 = "ddee473e02035bfce6244746d5d2a281616f7ff8"
+sha256 = "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"
+bytes = 515100
+
+[[sources]]
+role = "license"
+local_name = "LICENSE"
+upstream_path = "LICENSE"
+download_url = "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/LICENSE"
+github_blob_sha1 = "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64"
+sha256 = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+bytes = 11357
+
+[[sources]]
+role = "notice-material"
+local_name = "UPSTREAM-README.md"
+upstream_path = "README.md"
+download_url = "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/README.md"
+github_blob_sha1 = "1fd37590bb8d0166271e5d81d569b54b9d27db23"
+sha256 = "01a607bbe8fa1cd493de7384020d185055e1bfb070ff3aeb9bd45dae690480f6"
+bytes = 1908
+
+[[sources]]
+role = "notice-material"
+local_name = "HINTED-README.txt"
+upstream_path = "src/hinted/README"
+download_url = "https://raw.githubusercontent.com/googlefonts/roboto-2/38062f4b4a0be4346d07a928408da21602545e9e/src/hinted/README"
+github_blob_sha1 = "c887636f0f6453702289ef6ac8c9bc4b290e401d"
+sha256 = "71bfea75fa59c3213b26cae053aa86bccfdfe8c5d534e4e023c783c67e86898e"
+bytes = 157
+
+[[derived_files]]
+role = "packaging-notice"
+local_name = "NOTICE"
+sha256 = "21d5e430529c9f6d3a5daa1c4c9ebd79d4c9e93e8070f9fefc747300976c1233"
+bytes = 633
+
+[validation]
+source_hash_algorithm = "sha256"
+font_manifest = "font-manifest.toml"
+font_manifest_source_sha256 = "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d"

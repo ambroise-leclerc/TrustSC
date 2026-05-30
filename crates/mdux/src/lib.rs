@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod standard_text;
+
 pub use mdux_core::{
     DeterminismPolicy, DeviceContext, FrameworkIdentity, MduxResult, SafetyClass, ValidationError,
 };
@@ -18,6 +20,11 @@ pub use mdux_text_schema::{
 };
 pub use mdux_ui::{
     FrameStatistics, GraphicsProfile, MedicalUiRuntime, PipelineMode, UiComponent, UiSdkConfig,
+};
+pub use standard_text::{
+    default_standard_text_package, StandardFontDefinition, DEFAULT_STANDARD_FONT,
+    DEFAULT_STANDARD_HELLO_WORLD_RUN_ID, DEFAULT_STANDARD_HELLO_WORLD_STRING_ID,
+    DEFAULT_STANDARD_HELLO_WORLD_TEXT, ROBOTO_REGULAR_400_16PX,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,7 +46,7 @@ impl Default for HelloWorldDemoConfig {
             product_name: "MduX-rust Hello World".to_string(),
             software_item: "hello-world-ui".to_string(),
             version: "0.1.0".to_string(),
-            greeting: "Hello world".to_string(),
+            greeting: DEFAULT_STANDARD_HELLO_WORLD_TEXT.to_string(),
             width: 800,
             height: 480,
             max_frame_time_ms: 16,

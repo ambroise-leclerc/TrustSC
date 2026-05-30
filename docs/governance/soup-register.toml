@@ -1,0 +1,106 @@
+schema_version = 1
+register_kind = "mdux-soup-register"
+scope = "host-only-font-tooling"
+owner = "MduX-rust text authoring maintainers"
+yocto_policy = "Future Yocto integration consumes approved font assets, notices, manifest metadata, and generated package outputs; it does not install the host baker or its third-party crates into the target image."
+
+[[entries]]
+component_id = "fontdue-0.9.3"
+name = "fontdue"
+version = "0.9.3"
+classification = "SOUP"
+supplier = "crates.io / fontdue maintainers"
+repository = "https://github.com/mooman219/fontdue"
+license = "MIT OR Apache-2.0 OR Zlib"
+usage = "Loads vendored TTF bytes, computes glyph metrics, and rasterizes glyph bitmaps during host-only Roboto atlas compilation."
+integration_path = "tools/mdux-font-baker"
+pinned_by = ["tools/mdux-font-baker/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Used only while baking approved text packages on engineering hosts. Device/runtime artifacts consume only reviewed generated package bytes and digests."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "Validate the vendored Roboto digest and byte length against assets/fonts/roboto/font-manifest.toml before rasterization.",
+    "Require deterministic rebuild verification against generated/fonts/roboto-regular-16px outputs.",
+]
+
+[[entries]]
+component_id = "serde-1.0.228"
+name = "serde"
+version = "1.0.228"
+classification = "SOUP"
+supplier = "crates.io / serde-rs maintainers"
+repository = "https://github.com/serde-rs/serde"
+license = "MIT OR Apache-2.0"
+usage = "Deserializes host-only bake recipes and serializes reviewed bake outputs."
+integration_path = "tools/mdux-font-baker"
+pinned_by = ["tools/mdux-font-baker/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to host authoring input/output handling; no serde API crosses into the runtime package contract."
+risk_controls = [
+    "Use deny_unknown_fields on bake-side schemas to prevent silent config drift.",
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
+
+[[entries]]
+component_id = "serde-json-1.0.150"
+name = "serde_json"
+version = "1.0.150"
+classification = "SOUP"
+supplier = "crates.io / serde-rs maintainers"
+repository = "https://github.com/serde-rs/json"
+license = "MIT OR Apache-2.0"
+usage = "Emits deterministic host-side package.json and report.json artifacts for review and reproducibility checks."
+integration_path = "tools/mdux-font-baker"
+pinned_by = ["tools/mdux-font-baker/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Only the generated JSON artifacts cross the boundary; the crate itself remains a host build dependency."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "Use byte-for-byte verification to confirm generated JSON artifacts match a fresh rebuild.",
+]
+
+[[entries]]
+component_id = "sha2-0.10.9"
+name = "sha2"
+version = "0.10.9"
+classification = "SOUP"
+supplier = "crates.io / RustCrypto maintainers"
+repository = "https://github.com/RustCrypto/hashes"
+license = "MIT OR Apache-2.0"
+usage = "Computes manifest, atlas, package, and report digests during deterministic host-side baking and verification."
+integration_path = "tools/mdux-font-baker"
+pinned_by = ["tools/mdux-font-baker/Cargo.toml", "crates/mdux-text-authoring/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Digest values are consumed as evidence, but the hashing crate stays in host-side tooling and authoring flows."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "Record resulting SHA-256 values in source manifests and generated reports for independent verification.",
+]
+
+[[entries]]
+component_id = "toml-1.1.2+spec-1.1.0"
+name = "toml"
+version = "1.1.2+spec-1.1.0"
+classification = "SOUP"
+supplier = "crates.io / toml-rs maintainers"
+repository = "https://github.com/toml-rs/toml"
+license = "MIT OR Apache-2.0"
+usage = "Parses font manifests and bake recipes that define approved Roboto source inputs and Yocto handoff metadata."
+integration_path = "tools/mdux-font-baker"
+pinned_by = ["tools/mdux-font-baker/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "TOML parsing is confined to host-side authoring configuration; target systems consume the already-reviewed outputs instead."
+risk_controls = [
+    "Fail parsing on invalid manifests or recipes rather than recovering silently.",
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
