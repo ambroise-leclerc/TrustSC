@@ -26,7 +26,10 @@ pub const ROBOTO_REGULAR_400_16PX: StandardFontDefinition = StandardFontDefiniti
 
 pub const DEFAULT_STANDARD_FONT: StandardFontDefinition = ROBOTO_REGULAR_400_16PX;
 
-include!(concat!(env!("OUT_DIR"), "/default_standard_text_package.rs"));
+include!(concat!(
+    env!("OUT_DIR"),
+    "/default_standard_text_package.rs"
+));
 
 pub fn default_standard_text_package() -> MduxResult<TextPackage> {
     let package = build_default_standard_text_package();
@@ -40,12 +43,19 @@ mod tests {
 
     #[test]
     fn loads_default_standard_roboto_package() {
-        let package = default_standard_text_package().expect("default standard package should load");
+        let package =
+            default_standard_text_package().expect("default standard package should load");
 
         assert_eq!(package.fonts.len(), 1);
         assert_eq!(package.fonts[0].family, DEFAULT_STANDARD_FONT.family);
-        assert_eq!(package.fonts[0].pixel_height, DEFAULT_STANDARD_FONT.pixel_height);
-        assert_eq!(package.fonts[0].source_path, DEFAULT_STANDARD_FONT_SOURCE_PATH);
+        assert_eq!(
+            package.fonts[0].pixel_height,
+            DEFAULT_STANDARD_FONT.pixel_height
+        );
+        assert_eq!(
+            package.fonts[0].source_path,
+            DEFAULT_STANDARD_FONT_SOURCE_PATH
+        );
         assert_eq!(DEFAULT_STANDARD_FONT.weight, 400);
 
         let approved_string = package

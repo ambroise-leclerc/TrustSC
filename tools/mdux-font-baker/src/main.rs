@@ -2,7 +2,7 @@ use std::env;
 use std::path::Path;
 use std::process;
 
-use mdux_font_baker::{bake, verify, CliInvocation};
+use mdux_font_baker::{CliInvocation, bake, verify};
 
 fn main() {
     if let Err(error) = run() {

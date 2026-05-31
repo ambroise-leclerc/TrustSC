@@ -109,9 +109,16 @@ fn builds_class_b_framework_and_exports_trace_matrix() {
 
     assert!(trace.contains("REQ-UI-001"));
     assert!(trace.contains("VER-UI-001"));
-    assert_eq!(framework.ui_runtime().config().graphics_profile, GraphicsProfile::Vulkan);
+    assert_eq!(
+        framework.ui_runtime().config().graphics_profile,
+        GraphicsProfile::Vulkan
+    );
     assert!(frame.dynamic_allocations > 0);
-    assert!(framework.audit_export().contains("framework build completed"));
+    assert!(
+        framework
+            .audit_export()
+            .contains("framework build completed")
+    );
 }
 
 #[test]
@@ -129,7 +136,13 @@ fn builds_class_c_vulkansc_framework_with_zero_runtime_allocations() {
     let framework = FrameworkBuilder::new()
         .with_device(device)
         .with_compliance(class_c_compliance_program())
-        .with_ui(UiSdkConfig::vulkansc_class_c(1280, 720, 12, 512 * 1024, 128))
+        .with_ui(UiSdkConfig::vulkansc_class_c(
+            1280,
+            720,
+            12,
+            512 * 1024,
+            128,
+        ))
         .add_component(
             UiComponent::new("screen-alarm", "Alarm Banner", vec![requirement_id])
                 .expect("component should be valid"),

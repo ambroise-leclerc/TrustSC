@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use mdux_core::{validate_non_empty, MduxResult, ValidationError, Validates};
+use mdux_core::{MduxResult, Validates, ValidationError, validate_non_empty};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextDirection {
@@ -379,7 +379,9 @@ impl Validates for TextPackage {
             "compiled run source_string_id/locale",
         )?;
         ensure_unique_ids(
-            self.numeric_glyph_sets.iter().map(|entry| entry.id.as_str()),
+            self.numeric_glyph_sets
+                .iter()
+                .map(|entry| entry.id.as_str()),
             "numeric glyph set",
         )?;
         ensure_unique_ids(
@@ -424,7 +426,10 @@ impl Validates for TextPackage {
                     "numeric template references an unknown run",
                 ));
             }
-            if self.find_numeric_glyph_set(&template.glyph_set_id).is_none() {
+            if self
+                .find_numeric_glyph_set(&template.glyph_set_id)
+                .is_none()
+            {
                 return Err(ValidationError::new(
                     "numeric template references an unknown numeric glyph set",
                 ));
@@ -435,10 +440,7 @@ impl Validates for TextPackage {
     }
 }
 
-fn ensure_unique_ids<'a>(
-    ids: impl IntoIterator<Item = &'a str>,
-    label: &str,
-) -> MduxResult<()> {
+fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) -> MduxResult<()> {
     let mut seen = BTreeSet::new();
     for id in ids {
         if !seen.insert(id.to_string()) {
@@ -463,7 +465,10 @@ fn ensure_unique_pairs<'a>(
 }
 
 fn is_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 #[cfg(test)]
@@ -534,14 +539,12 @@ mod tests {
             numeric_glyph_sets: vec![],
             numeric_templates: vec![],
             evidence: DeterminismEvidence {
-                package_sha256:
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                        .to_string(),
+                package_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
                 toolchain_id: "rust-1.87.0".to_string(),
                 unicode_version: "15.1.0".to_string(),
                 build_recipe_sha256:
-                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
-                        .to_string(),
+                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".to_string(),
             },
         };
 
