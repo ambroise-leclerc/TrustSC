@@ -6,12 +6,12 @@ pub use mdux_core::{
     DeterminismPolicy, DeviceContext, FrameworkIdentity, MduxResult, SafetyClass, ValidationError,
 };
 pub use mdux_governance::{
-    AuditCategory, AuditEvent, ComplianceProgram, Hazard, ProblemReport, Requirement, RequirementId,
-    VerificationCase, VerificationMethod,
+    AuditCategory, AuditEvent, ComplianceProgram, Hazard, ProblemReport, Requirement,
+    RequirementId, VerificationCase, VerificationMethod,
 };
 pub use mdux_text_authoring::{
-    compile_text_package, fingerprint_font_file, DeterministicAtlasBuilder, FontFingerprint,
-    RasterizedGlyph, TextCompilationInput,
+    DeterministicAtlasBuilder, FontFingerprint, RasterizedGlyph, TextCompilationInput,
+    compile_text_package, fingerprint_font_file,
 };
 pub use mdux_text_runtime::{GlyphDrawCommand, TextRuntime};
 pub use mdux_text_schema::{
@@ -22,10 +22,9 @@ pub use mdux_ui::{
     FrameStatistics, GraphicsProfile, MedicalUiRuntime, PipelineMode, UiComponent, UiSdkConfig,
 };
 pub use standard_text::{
-    default_standard_text_package, StandardFontDefinition, DEFAULT_STANDARD_FONT,
-    DEFAULT_STANDARD_FONT_SOURCE_PATH, DEFAULT_STANDARD_HELLO_WORLD_RUN_ID,
+    DEFAULT_STANDARD_FONT, DEFAULT_STANDARD_FONT_SOURCE_PATH, DEFAULT_STANDARD_HELLO_WORLD_RUN_ID,
     DEFAULT_STANDARD_HELLO_WORLD_STRING_ID, DEFAULT_STANDARD_HELLO_WORLD_TEXT,
-    ROBOTO_REGULAR_400_16PX,
+    ROBOTO_REGULAR_400_16PX, StandardFontDefinition, default_standard_text_package,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -148,9 +147,9 @@ impl FrameworkBuilder {
         let device = self
             .device
             .ok_or_else(|| ValidationError::new("framework builder requires a device context"))?;
-        let mut compliance = self
-            .compliance
-            .ok_or_else(|| ValidationError::new("framework builder requires a compliance program"))?;
+        let mut compliance = self.compliance.ok_or_else(|| {
+            ValidationError::new("framework builder requires a compliance program")
+        })?;
         let ui_config = self
             .ui_config
             .ok_or_else(|| ValidationError::new("framework builder requires a ui configuration"))?;

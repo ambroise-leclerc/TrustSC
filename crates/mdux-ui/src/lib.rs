@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use mdux_core::{DeterminismPolicy, MduxResult, ValidationError, Validates};
+use mdux_core::{DeterminismPolicy, MduxResult, Validates, ValidationError};
 use mdux_governance::RequirementId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -204,8 +204,8 @@ impl MedicalUiRuntime {
         } else {
             0
         };
-        let estimated_frame_time_ms = (draw_calls.max(1) * 2)
-            .min(self.config.determinism_policy.max_frame_time_ms);
+        let estimated_frame_time_ms =
+            (draw_calls.max(1) * 2).min(self.config.determinism_policy.max_frame_time_ms);
 
         FrameStatistics {
             frame_index,

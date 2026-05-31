@@ -1,9 +1,9 @@
-use mdux::{
-    default_standard_text_package, GlyphDrawCommand, MduxResult, TextPackage, TextRuntime,
-    ValidationError, DEFAULT_STANDARD_HELLO_WORLD_RUN_ID,
-};
 #[cfg(test)]
 use mdux::DEFAULT_STANDARD_FONT_SOURCE_PATH;
+use mdux::{
+    DEFAULT_STANDARD_HELLO_WORLD_RUN_ID, GlyphDrawCommand, MduxResult, TextPackage, TextRuntime,
+    ValidationError, default_standard_text_package,
+};
 #[cfg(test)]
 use mdux::{DEFAULT_STANDARD_HELLO_WORLD_STRING_ID, DEFAULT_STANDARD_HELLO_WORLD_TEXT};
 
@@ -65,12 +65,21 @@ mod tests {
 
         assert_eq!(first.fonts.len(), 1);
         assert_eq!(first.fonts[0].family, DEFAULT_STANDARD_FONT.family);
-        assert_eq!(first.fonts[0].pixel_height, DEFAULT_STANDARD_FONT.pixel_height);
-        assert_eq!(first.fonts[0].source_path, DEFAULT_STANDARD_FONT_SOURCE_PATH);
+        assert_eq!(
+            first.fonts[0].pixel_height,
+            DEFAULT_STANDARD_FONT.pixel_height
+        );
+        assert_eq!(
+            first.fonts[0].source_path,
+            DEFAULT_STANDARD_FONT_SOURCE_PATH
+        );
         assert_eq!(approved_string.value, HELLO_WORLD_TEXT);
         assert_eq!(run.source_string_id, HELLO_WORLD_STRING_ID);
         assert_eq!(run.glyphs.len(), HELLO_WORLD_DRAW_COMMAND_COUNT + 1);
-        assert_eq!(first.evidence.package_sha256, second.evidence.package_sha256);
+        assert_eq!(
+            first.evidence.package_sha256,
+            second.evidence.package_sha256
+        );
         assert_eq!(first.atlases[0].pixels, second.atlases[0].pixels);
     }
 
@@ -78,7 +87,8 @@ mod tests {
     fn emits_draw_commands_for_generated_roboto_glyphs() {
         let origin_x = 10;
         let origin_y = 20;
-        let layout = hello_world_text_layout(origin_x, origin_y).expect("layout should compile and render");
+        let layout =
+            hello_world_text_layout(origin_x, origin_y).expect("layout should compile and render");
         let run = layout
             .package
             .find_run(HELLO_WORLD_RUN_ID)
@@ -104,8 +114,10 @@ mod tests {
         assert_eq!(layout.commands.len(), HELLO_WORLD_DRAW_COMMAND_COUNT);
         assert_eq!(layout.commands.len(), expected_commands.len());
 
-        for (command, (glyph_id, x, y, width, height)) in
-            layout.commands.iter().zip(expected_commands.iter().copied())
+        for (command, (glyph_id, x, y, width, height)) in layout
+            .commands
+            .iter()
+            .zip(expected_commands.iter().copied())
         {
             assert_eq!(command.glyph_id, glyph_id);
             assert_eq!(command.x, x);

@@ -3,7 +3,7 @@
 use std::fmt::{self, Display};
 
 use mdux_core::{
-    validate_non_empty, DeviceContext, MduxResult, SafetyClass, ValidationError, Validates,
+    DeviceContext, MduxResult, SafetyClass, Validates, ValidationError, validate_non_empty,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -162,7 +162,11 @@ pub struct ProblemReport {
 }
 
 impl ProblemReport {
-    pub fn new(id: impl Into<String>, summary: impl Into<String>, closed: bool) -> MduxResult<Self> {
+    pub fn new(
+        id: impl Into<String>,
+        summary: impl Into<String>,
+        closed: bool,
+    ) -> MduxResult<Self> {
         let report = Self {
             id: id.into(),
             summary: summary.into(),
@@ -267,7 +271,10 @@ impl ComplianceProgram {
 
         program.record_event(
             AuditCategory::Lifecycle,
-            format!("created compliance program for {}", program.device.software_item),
+            format!(
+                "created compliance program for {}",
+                program.device.software_item
+            ),
         );
         program
     }
@@ -285,7 +292,9 @@ impl ComplianceProgram {
     }
 
     pub fn has_requirement(&self, requirement_id: &RequirementId) -> bool {
-        self.requirements.iter().any(|requirement| &requirement.id == requirement_id)
+        self.requirements
+            .iter()
+            .any(|requirement| &requirement.id == requirement_id)
     }
 
     pub fn add_requirement(&mut self, requirement: Requirement) {
@@ -297,7 +306,10 @@ impl ComplianceProgram {
     }
 
     pub fn add_hazard(&mut self, hazard: Hazard) {
-        self.record_event(AuditCategory::Lifecycle, format!("registered hazard {}", hazard.id));
+        self.record_event(
+            AuditCategory::Lifecycle,
+            format!("registered hazard {}", hazard.id),
+        );
         self.hazards.push(hazard);
     }
 
@@ -432,7 +444,9 @@ mod tests {
             .expect("verification should be valid"),
         );
 
-        let error = program.validate().expect_err("Class C should require a hazard");
+        let error = program
+            .validate()
+            .expect_err("Class C should require a hazard");
         assert_eq!(
             error.to_string(),
             "Class C programs must include at least one hazard definition"
