@@ -390,9 +390,9 @@ impl Validates for TextPackage {
         )?;
 
         for run in &self.runs {
-            if !self
+            if self
                 .find_approved_string(&run.source_string_id, &run.locale)
-                .is_some()
+                .is_none()
             {
                 return Err(ValidationError::new(
                     "compiled run references an unknown approved string for its locale",
