@@ -3,6 +3,7 @@ members = [
     "crates/mdux-core",
     "crates/mdux-governance",
     "crates/mdux-ui",
+    "crates/mdux-ui-dsl-authoring",
     "crates/mdux",
     "crates/mdux-text-schema",
     "crates/mdux-text-authoring",

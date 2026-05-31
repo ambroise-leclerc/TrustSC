@@ -22,9 +22,6 @@ use crate::hello_text;
 
 type BoxError = Box<dyn Error>;
 
-const TEXT_ORIGIN_X: i32 = 24;
-const TEXT_ORIGIN_Y: i32 = 24;
-
 const TEXT_VERT_SPV: &[u8] = include_bytes!(env!("HELLO_WORLD_TEXT_VERT_SPV"));
 const TEXT_FRAG_SPV: &[u8] = include_bytes!(env!("HELLO_WORLD_TEXT_FRAG_SPV"));
 
@@ -199,7 +196,7 @@ impl VulkanRenderer {
         let command_pool = create_command_pool(&device, queue_families.graphics)?;
         let (image_available_semaphore, render_finished_semaphore, in_flight_fence) =
             create_sync_objects(&device)?;
-        let text_layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
+        let text_layout = hello_text::hello_world_text_layout_from_dsl()
             .map_err(|error| box_error(format!("failed to prepare hello world text package: {error}")))?;
 
         let mut renderer = Self {
@@ -1495,7 +1492,7 @@ mod tests {
 
     #[test]
     fn builds_textured_quads_for_the_hello_world_overlay() {
-        let layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
+        let layout = hello_text::hello_world_text_layout_from_dsl()
             .expect("hello world layout should compile");
         let extent = vk::Extent2D {
             width: 320,
@@ -1592,7 +1589,7 @@ mod tests {
 
     #[test]
     fn rejects_text_vertex_generation_without_an_atlas() {
-        let mut layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
+        let mut layout = hello_text::hello_world_text_layout_from_dsl()
             .expect("hello world layout should compile");
         layout.package.atlases.clear();
 

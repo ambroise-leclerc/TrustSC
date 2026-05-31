@@ -7,6 +7,7 @@ Medical-device manufacturer framework with Class B/Class C compliance modeling a
 - `crates/mdux-core`: device metadata, safety classes, deterministic runtime policy
 - `crates/mdux-governance`: requirements, hazards, verifications, audit trail, trace matrix export
 - `crates/mdux-ui`: Vulkan / Vulkan SC UI policy and deterministic frame model
+- `crates/mdux-ui-dsl-authoring`: host-side `.medui` compiler for generated static screen packages
 - `crates/mdux-text-schema`: shared manifests and immutable compiled text-package schema
 - `crates/mdux-text-authoring`: host-side font intake, deterministic atlas compilation, and asset tooling
 - `crates/mdux-text-runtime`: no-allocation runtime text command generation from approved packages
@@ -49,6 +50,8 @@ cargo run -p mdux-text-authoring --bin mdux-textc -- describe-pipeline
 
 The default `hello_world` example now opens a real Vulkan window. Use `--headless-smoke` when validating the framework in a non-graphical environment.
 
+The same example also includes a minimal `.medui` source file compiled at build time into a static screen package. The generated package now drives the hello-world text key, the text origin used by the Vulkan overlay, the emitted golden-reference entries for the safety-critical button, and compile-time rejection when an approved translation would overflow the allocated UI bounds.
+
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
@@ -67,6 +70,8 @@ cargo run --locked -q -p hello_world -- --headless-smoke
 
 - `examples/hello_world/src/hello_text.rs` embeds a deterministic text package for the approved string `Hello World !`.
 - `examples/hello_world/src/vulkan_window.rs` uploads that atlas and renders textured glyph quads with the example's compiled text shaders.
+- `examples/hello_world/hello_world.medui` is compiled by `examples/hello_world/build.rs` into generated screen metadata consumed by the example at runtime.
+- `examples/hello_world/build.rs` also loads the approved text package during compilation so `.medui` text bounds are checked against the widest approved locale before code generation.
 - Use `cargo run -p hello_world -- --auto-close-ms=1000` to smoke-test the actual Vulkan text overlay path.
 - `cargo run -p hello_world -- --headless-smoke` is still useful for non-graphical environments, but it intentionally skips the windowed Vulkan text-rendering path.
 
@@ -77,6 +82,10 @@ cargo run --locked -q -p hello_world -- --headless-smoke
   - `ADR-005`: pure-Rust project boundary and dependency policy
   - `ADR-006`: Vulkan versus Vulkan SC profile strategy
   - `ADR-007`: ownership and lifecycle of compliance evidence and generated artifacts
+  - `ADR-008`: deterministic MedUI DSL boundary
+  - `ADR-009`: MedUI compilation and generated artifacts
+  - `ADR-010`: MedUI i18n and text-budget policy
+  - `ADR-011`: MedUI safety-monitor and VulkanViewport contract
 - Host-only third-party tooling used for the default Roboto bake path is tracked in `docs/governance/soup-register.toml`.
 
 ## Default Roboto asset governance

@@ -1,0 +1,11 @@
+[package]
+name = "mdux-ui-dsl-authoring"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+mdux-core = { path = "../mdux-core" }
+mdux-ui = { path = "../mdux-ui" }
+mdux-text-schema = { path = "../mdux-text-schema" }

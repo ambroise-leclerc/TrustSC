@@ -1,4 +1,5 @@
 pub(crate) mod hello_text;
+mod medui_screen;
 mod vulkan_window;
 
 use std::error::Error;
@@ -14,7 +15,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             .and_then(|value| value.parse::<u64>().ok())
             .map(std::time::Duration::from_millis)
     });
-    let run = run_hello_world_demo(HelloWorldDemoConfig::default())?;
+    let greeting = hello_text::hello_world_greeting_from_dsl()?;
+    let screen = medui_screen::hello_world_screen_package();
+    let run = run_hello_world_demo(HelloWorldDemoConfig {
+        greeting,
+        ..HelloWorldDemoConfig::default()
+    })?;
 
     let greeting = run
         .framework
@@ -25,6 +31,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or("Hello world");
 
     println!("{greeting} from MduX-rust");
+    println!(
+        "medui_screen id={} nodes={} golden_refs={}",
+        screen.screen_id,
+        screen.nodes.len(),
+        screen.golden_references.len()
+    );
     println!("{}", run.framework.release_summary());
     println!(
         "preview_frame index={} draw_calls={} frame_time_ms={} dynamic_allocations={}",

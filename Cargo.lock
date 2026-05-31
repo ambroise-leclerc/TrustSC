@@ -547,6 +547,7 @@ dependencies = [
  "ash",
  "ash-window",
  "mdux",
+ "mdux-ui-dsl-authoring",
  "raw-window-handle",
  "shaderc",
  "winit",
@@ -785,6 +786,15 @@ version = "0.1.0"
 dependencies = [
  "mdux-core",
  "mdux-governance",
+]
+
+[[package]]
+name = "mdux-ui-dsl-authoring"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+ "mdux-text-schema",
+ "mdux-ui",
 ]
 
 [[package]]
