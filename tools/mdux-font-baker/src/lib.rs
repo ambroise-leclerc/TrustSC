@@ -289,7 +289,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts
 }
 
 fn load_recipe(recipe_path: &Path) -> MduxResult<LoadedRecipe> {
-    let recipe_path = recipe_path.to_path_buf();
+    let recipe_path = canonical_existing_path(recipe_path)?;
     let recipe_text = fs::read_to_string(&recipe_path).map_err(|error| {
         ValidationError::new(format!(
             "failed to read bake recipe {}: {error}",
@@ -393,12 +393,12 @@ fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
 }
 
 fn load_font_context(loaded_recipe: &LoadedRecipe) -> MduxResult<FontContext> {
-    let manifest_path = resolve_path(
+    let manifest_path = canonical_existing_path(&resolve_path(
         loaded_recipe.recipe_path.parent().ok_or_else(|| {
             ValidationError::new("bake recipe path must have a parent directory")
         })?,
         &loaded_recipe.recipe.font.manifest,
-    );
+    ))?;
     let manifest_text = fs::read_to_string(&manifest_path).map_err(|error| {
         ValidationError::new(format!(
             "failed to read font manifest {}: {error}",
@@ -441,7 +441,7 @@ fn load_font_context(loaded_recipe: &LoadedRecipe) -> MduxResult<FontContext> {
     let manifest_dir = manifest_path.parent().ok_or_else(|| {
         ValidationError::new("font manifest path must have a parent directory")
     })?;
-    let font_path = manifest_dir.join(&manifest.face.source_file);
+    let font_path = canonical_existing_path(&manifest_dir.join(&manifest.face.source_file))?;
     let fingerprint = fingerprint_font_file(&font_path)?;
     if fingerprint.sha256 != manifest.face.source_sha256 {
         return Err(ValidationError::new(format!(
@@ -738,29 +738,42 @@ fn resolve_path(base: &Path, value: &str) -> PathBuf {
     }
 }
 
+fn canonical_existing_path(path: &Path) -> MduxResult<PathBuf> {
+    fs::canonicalize(path).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to canonicalize path {}: {error}",
+            path.display()
+        ))
+    })
+}
+
 fn relative_to_workspace_or_self(target: &Path, anchor: &Path) -> String {
+    let normalized_target = fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     if let Some(workspace_root) = find_workspace_root(anchor) {
-        if let Ok(relative) = target.strip_prefix(&workspace_root) {
+        if let Ok(relative) = normalized_target.strip_prefix(&workspace_root) {
             return relative.display().to_string();
         }
     }
 
-    target
+    normalized_target
         .file_name()
         .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|| target.display().to_string())
+        .unwrap_or_else(|| normalized_target.display().to_string())
 }
 
 fn find_workspace_root(anchor: &Path) -> Option<PathBuf> {
-    let start = if anchor.is_dir() {
-        anchor.to_path_buf()
+    let normalized_anchor = fs::canonicalize(anchor).unwrap_or_else(|_| anchor.to_path_buf());
+    let start = if normalized_anchor.is_dir() {
+        normalized_anchor
     } else {
-        anchor.parent()?.to_path_buf()
+        normalized_anchor.parent()?.to_path_buf()
     };
 
     for candidate in start.ancestors() {
         let cargo_toml = candidate.join("Cargo.toml");
-        let manifest = fs::read_to_string(&cargo_toml).ok()?;
+        let Ok(manifest) = fs::read_to_string(&cargo_toml) else {
+            continue;
+        };
         if manifest.contains("[workspace]") {
             return Some(candidate.to_path_buf());
         }
@@ -782,12 +795,14 @@ fn run_id_for(approved_string: &ApprovedStringRecipe) -> String {
 
 fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            ValidationError::new(format!(
-                "failed to create output directory {}: {error}",
-                parent.display()
-            ))
-        })?;
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|error| {
+                ValidationError::new(format!(
+                    "failed to create output directory {}: {error}",
+                    parent.display()
+                ))
+            })?;
+        }
     }
     fs::write(path, bytes).map_err(|error| {
         ValidationError::new(format!("failed to write {}: {error}", path.display()))
@@ -1086,6 +1101,23 @@ impl From<&TextPackage> for PackageDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let unique = format!(
+            "{}-{}-{}",
+            prefix,
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).expect("temporary directory should be creatable");
+        path
+    }
 
     fn fixture_recipe_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/roboto-demo.toml")
@@ -1121,5 +1153,67 @@ mod tests {
 
         fs::remove_file(package_output_path).expect("package output should be removable");
         fs::remove_file(report_output_path).expect("report output should be removable");
+    }
+
+    #[test]
+    fn find_workspace_root_skips_missing_manifests() {
+        let root = temp_dir("mdux-font-baker-workspace");
+        let nested = root.join("tools/mdux-font-baker/fixtures");
+        fs::create_dir_all(&nested).expect("nested directory should be creatable");
+        fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n")
+            .expect("workspace manifest should be writable");
+        let recipe_path = nested.join("roboto-demo.toml");
+        fs::write(&recipe_path, "toolchain_id = \"test\"\n")
+            .expect("recipe file should be writable");
+
+        let workspace_root = find_workspace_root(&recipe_path).expect("workspace root should resolve");
+
+        assert_eq!(workspace_root, root);
+        fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    }
+
+    #[test]
+    fn relative_to_workspace_or_self_normalizes_dotdot_segments() {
+        let root = temp_dir("mdux-font-baker-relative");
+        let font_dir = root.join("assets/fonts/roboto");
+        let recipe_dir = root.join("tools/mdux-font-baker/fixtures");
+        fs::create_dir_all(&font_dir).expect("font directory should be creatable");
+        fs::create_dir_all(&recipe_dir).expect("recipe directory should be creatable");
+        fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n")
+            .expect("workspace manifest should be writable");
+        fs::write(font_dir.join("Roboto-Regular.ttf"), b"font").expect("font file should be writable");
+        fs::write(recipe_dir.join("roboto-demo.toml"), "toolchain_id = \"test\"\n")
+            .expect("recipe file should be writable");
+
+        let relative = relative_to_workspace_or_self(
+            &font_dir.join("../roboto/Roboto-Regular.ttf"),
+            &recipe_dir.join("../fixtures/roboto-demo.toml"),
+        );
+
+        assert_eq!(normalize_separators(relative), "assets/fonts/roboto/Roboto-Regular.ttf");
+        fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    }
+
+    #[test]
+    fn write_bytes_accepts_plain_filename_outputs() {
+        static CURRENT_DIR_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+        let guard = CURRENT_DIR_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("current directory lock should be acquirable");
+        let root = temp_dir("mdux-font-baker-write-bytes");
+        let previous_dir = std::env::current_dir().expect("current directory should be readable");
+        std::env::set_current_dir(&root).expect("temporary directory should become current directory");
+
+        let write_result = write_bytes(Path::new("package.json"), b"{}");
+        let written = fs::read(root.join("package.json")).expect("plain filename output should be written");
+
+        std::env::set_current_dir(previous_dir).expect("original current directory should be restorable");
+        drop(guard);
+
+        write_result.expect("writing a plain filename should succeed");
+        assert_eq!(written, b"{}");
+        fs::remove_dir_all(root).expect("temporary workspace should be removable");
     }
 }

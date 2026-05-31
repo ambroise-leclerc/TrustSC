@@ -3,6 +3,8 @@ use mdux::{
     ValidationError, DEFAULT_STANDARD_HELLO_WORLD_RUN_ID,
 };
 #[cfg(test)]
+use mdux::DEFAULT_STANDARD_FONT_SOURCE_PATH;
+#[cfg(test)]
 use mdux::{DEFAULT_STANDARD_HELLO_WORLD_STRING_ID, DEFAULT_STANDARD_HELLO_WORLD_TEXT};
 
 #[cfg(test)]
@@ -64,7 +66,7 @@ mod tests {
         assert_eq!(first.fonts.len(), 1);
         assert_eq!(first.fonts[0].family, DEFAULT_STANDARD_FONT.family);
         assert_eq!(first.fonts[0].pixel_height, DEFAULT_STANDARD_FONT.pixel_height);
-        assert_eq!(first.fonts[0].source_path, "Roboto-Regular.ttf");
+        assert_eq!(first.fonts[0].source_path, DEFAULT_STANDARD_FONT_SOURCE_PATH);
         assert_eq!(approved_string.value, HELLO_WORLD_TEXT);
         assert_eq!(run.source_string_id, HELLO_WORLD_STRING_ID);
         assert_eq!(run.glyphs.len(), HELLO_WORLD_DRAW_COMMAND_COUNT + 1);
