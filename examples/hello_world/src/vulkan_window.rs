@@ -659,7 +659,13 @@ fn create_instance(
     #[cfg(target_os = "macos")]
     {
         let available_extensions = unsafe { entry.enumerate_instance_extension_properties(None)? };
-        if extension_names_contain(&available_extensions, khr::portability_enumeration::NAME) {
+        if extension_names_contain(&available_extensions, khr::portability_enumeration::NAME)
+            && extension_names_contain(
+                &available_extensions,
+                khr::get_physical_device_properties2::NAME,
+            )
+        {
+            required_extensions.push(khr::get_physical_device_properties2::NAME.as_ptr());
             required_extensions.push(khr::portability_enumeration::NAME.as_ptr());
             instance_flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
         }
@@ -1704,10 +1710,15 @@ mod tests {
     #[test]
     fn detects_supported_extension_names() {
         let properties = [
+            extension_property(b"VK_KHR_get_physical_device_properties2"),
             extension_property(b"VK_KHR_swapchain"),
             extension_property(b"VK_KHR_portability_subset"),
         ];
 
+        assert!(extension_names_contain(
+            &properties,
+            khr::get_physical_device_properties2::NAME
+        ));
         assert!(extension_names_contain(&properties, khr::swapchain::NAME));
         assert!(extension_names_contain(
             &properties,
