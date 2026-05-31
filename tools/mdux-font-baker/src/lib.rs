@@ -5,10 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use fontdue::{Font, FontSettings, Metrics};
-use mdux_core::{validate_non_empty, MduxResult, ValidationError};
+use mdux_core::{MduxResult, ValidationError, validate_non_empty};
 use mdux_text_authoring::{
-    compile_text_package, fingerprint_font_file, pipeline_description, RasterizedGlyph,
-    TextCompilationInput,
+    RasterizedGlyph, TextCompilationInput, compile_text_package, fingerprint_font_file,
+    pipeline_description,
 };
 use mdux_text_schema::{
     ApprovedString, CompiledGlyph, CompiledTextRun, FontAsset, NumericGlyphEntry, NumericGlyphSet,
@@ -394,9 +394,10 @@ fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
 
 fn load_font_context(loaded_recipe: &LoadedRecipe) -> MduxResult<FontContext> {
     let manifest_path = canonical_existing_path(&resolve_path(
-        loaded_recipe.recipe_path.parent().ok_or_else(|| {
-            ValidationError::new("bake recipe path must have a parent directory")
-        })?,
+        loaded_recipe
+            .recipe_path
+            .parent()
+            .ok_or_else(|| ValidationError::new("bake recipe path must have a parent directory"))?,
         &loaded_recipe.recipe.font.manifest,
     ))?;
     let manifest_text = fs::read_to_string(&manifest_path).map_err(|error| {
@@ -438,9 +439,9 @@ fn load_font_context(loaded_recipe: &LoadedRecipe) -> MduxResult<FontContext> {
         )));
     }
 
-    let manifest_dir = manifest_path.parent().ok_or_else(|| {
-        ValidationError::new("font manifest path must have a parent directory")
-    })?;
+    let manifest_dir = manifest_path
+        .parent()
+        .ok_or_else(|| ValidationError::new("font manifest path must have a parent directory"))?;
     let font_path = canonical_existing_path(&manifest_dir.join(&manifest.face.source_file))?;
     let fingerprint = fingerprint_font_file(&font_path)?;
     if fingerprint.sha256 != manifest.face.source_sha256 {
@@ -517,11 +518,7 @@ fn validate_locales(recipe: &BakeRecipe, font_context: &FontContext) -> MduxResu
         }
     }
 
-    let run_ids: BTreeSet<_> = recipe
-        .approved_strings
-        .iter()
-        .map(run_id_for)
-        .collect();
+    let run_ids: BTreeSet<_> = recipe.approved_strings.iter().map(run_id_for).collect();
     let glyph_set_ids: BTreeSet<_> = recipe
         .numeric_glyph_sets
         .iter()
@@ -548,7 +545,13 @@ fn validate_locales(recipe: &BakeRecipe, font_context: &FontContext) -> MduxResu
         }
     }
 
-    if font_context.font_path != font_context.manifest_path.parent().unwrap().join(&font_context.manifest.face.source_file) {
+    if font_context.font_path
+        != font_context
+            .manifest_path
+            .parent()
+            .unwrap()
+            .join(&font_context.manifest.face.source_file)
+    {
         return Err(ValidationError::new(
             "font source resolution is inconsistent with the manifest",
         ));
@@ -721,12 +724,15 @@ fn glyph_id_for_character(
     glyph_index_by_character: &BTreeMap<char, u16>,
     character: char,
 ) -> MduxResult<u16> {
-    glyph_index_by_character.get(&character).copied().ok_or_else(|| {
-        ValidationError::new(format!(
-            "font asset does not contain approved character {:?}",
-            character
-        ))
-    })
+    glyph_index_by_character
+        .get(&character)
+        .copied()
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "font asset does not contain approved character {:?}",
+                character
+            ))
+        })
 }
 
 fn resolve_path(base: &Path, value: &str) -> PathBuf {
@@ -1124,8 +1130,8 @@ mod tests {
     }
 
     fn target_output_paths() -> (PathBuf, PathBuf) {
-        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/mdux-font-baker-tests");
+        let base =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/mdux-font-baker-tests");
         (
             base.join("roboto-demo.package.json"),
             base.join("roboto-demo.report.json"),
@@ -1166,7 +1172,8 @@ mod tests {
         fs::write(&recipe_path, "toolchain_id = \"test\"\n")
             .expect("recipe file should be writable");
 
-        let workspace_root = find_workspace_root(&recipe_path).expect("workspace root should resolve");
+        let workspace_root =
+            find_workspace_root(&recipe_path).expect("workspace root should resolve");
 
         assert_eq!(workspace_root, root);
         fs::remove_dir_all(root).expect("temporary workspace should be removable");
@@ -1181,16 +1188,23 @@ mod tests {
         fs::create_dir_all(&recipe_dir).expect("recipe directory should be creatable");
         fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n")
             .expect("workspace manifest should be writable");
-        fs::write(font_dir.join("Roboto-Regular.ttf"), b"font").expect("font file should be writable");
-        fs::write(recipe_dir.join("roboto-demo.toml"), "toolchain_id = \"test\"\n")
-            .expect("recipe file should be writable");
+        fs::write(font_dir.join("Roboto-Regular.ttf"), b"font")
+            .expect("font file should be writable");
+        fs::write(
+            recipe_dir.join("roboto-demo.toml"),
+            "toolchain_id = \"test\"\n",
+        )
+        .expect("recipe file should be writable");
 
         let relative = relative_to_workspace_or_self(
             &font_dir.join("../roboto/Roboto-Regular.ttf"),
             &recipe_dir.join("../fixtures/roboto-demo.toml"),
         );
 
-        assert_eq!(normalize_separators(relative), "assets/fonts/roboto/Roboto-Regular.ttf");
+        assert_eq!(
+            normalize_separators(relative),
+            "assets/fonts/roboto/Roboto-Regular.ttf"
+        );
         fs::remove_dir_all(root).expect("temporary workspace should be removable");
     }
 
@@ -1204,12 +1218,15 @@ mod tests {
             .expect("current directory lock should be acquirable");
         let root = temp_dir("mdux-font-baker-write-bytes");
         let previous_dir = std::env::current_dir().expect("current directory should be readable");
-        std::env::set_current_dir(&root).expect("temporary directory should become current directory");
+        std::env::set_current_dir(&root)
+            .expect("temporary directory should become current directory");
 
         let write_result = write_bytes(Path::new("package.json"), b"{}");
-        let written = fs::read(root.join("package.json")).expect("plain filename output should be written");
+        let written =
+            fs::read(root.join("package.json")).expect("plain filename output should be written");
 
-        std::env::set_current_dir(previous_dir).expect("original current directory should be restorable");
+        std::env::set_current_dir(previous_dir)
+            .expect("original current directory should be restorable");
         drop(guard);
 
         write_result.expect("writing a plain filename should succeed");

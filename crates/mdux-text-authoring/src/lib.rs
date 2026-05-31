@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mdux_core::{validate_non_empty, MduxResult, ValidationError, Validates};
+use mdux_core::{MduxResult, Validates, ValidationError, validate_non_empty};
 use mdux_text_schema::{
     ApprovedString, AtlasGlyph, CompiledTextRun, DeterminismEvidence, FontAsset, NumericGlyphSet,
     NumericTemplate, TextPackage, TextureAtlas,
@@ -376,7 +376,10 @@ fn canonical_package_hash(
     }
 
     for glyph_set in numeric_glyph_sets {
-        canonical.push_str(&format!("glyph-set|{}|{}\n", glyph_set.id, glyph_set.locale));
+        canonical.push_str(&format!(
+            "glyph-set|{}|{}\n",
+            glyph_set.id, glyph_set.locale
+        ));
         for entry in &glyph_set.entries {
             canonical.push_str(&format!(
                 "glyph-entry|{}|{}|{}|{}\n",
@@ -456,10 +459,13 @@ mod tests {
         let first = compile_text_package(example_input()).expect("first compile should succeed");
         let mut reordered = example_input();
         reordered.rasterized_glyphs.reverse();
-        let second =
-            compile_text_package(reordered).expect("second compile with re-ordered glyphs should succeed");
+        let second = compile_text_package(reordered)
+            .expect("second compile with re-ordered glyphs should succeed");
 
-        assert_eq!(first.evidence.package_sha256, second.evidence.package_sha256);
+        assert_eq!(
+            first.evidence.package_sha256,
+            second.evidence.package_sha256
+        );
         assert_eq!(first.atlases[0].pixels, second.atlases[0].pixels);
     }
 

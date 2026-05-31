@@ -39,7 +39,10 @@ fn main() -> Result<(), DynError> {
     let compiler = shaderc::Compiler::new()?;
     let mut options = shaderc::CompileOptions::new()?;
     options.set_source_language(shaderc::SourceLanguage::GLSL);
-    options.set_target_env(shaderc::TargetEnv::Vulkan, shaderc::EnvVersion::Vulkan1_0 as u32);
+    options.set_target_env(
+        shaderc::TargetEnv::Vulkan,
+        shaderc::EnvVersion::Vulkan1_0 as u32,
+    );
     options.set_target_spirv(shaderc::SpirvVersion::V1_0);
     options.set_optimization_level(shaderc::OptimizationLevel::Performance);
     options.set_warnings_as_errors();
@@ -64,7 +67,10 @@ fn main() -> Result<(), DynError> {
         compile_shader(&compiler, &options, &shader_dir, &out_dir, shader)?;
     }
 
-    println!("cargo:rustc-env=HELLO_WORLD_SHADER_DIR={}", out_dir.display());
+    println!(
+        "cargo:rustc-env=HELLO_WORLD_SHADER_DIR={}",
+        out_dir.display()
+    );
     Ok(())
 }
 
@@ -89,6 +95,10 @@ fn compile_shader(
     fs::write(&output_path, artifact.as_binary_u8())?;
 
     println!("cargo:rerun-if-changed={}", source_path.display());
-    println!("cargo:rustc-env={}={}", shader.env_var, output_path.display());
+    println!(
+        "cargo:rustc-env={}={}",
+        shader.env_var,
+        output_path.display()
+    );
     Ok(())
 }

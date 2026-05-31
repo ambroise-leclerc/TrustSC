@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-const DEFAULT_STANDARD_PACKAGE_JSON: &str = "../../generated/fonts/roboto-regular-16px/package.json";
+const DEFAULT_STANDARD_PACKAGE_JSON: &str =
+    "../../generated/fonts/roboto-regular-16px/package.json";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);

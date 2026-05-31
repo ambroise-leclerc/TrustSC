@@ -3,12 +3,11 @@ use std::{
     ffi::CString,
     io::Cursor,
     mem::{size_of, size_of_val},
-    process,
-    ptr,
+    process, ptr,
     time::{Duration, Instant},
 };
 
-use ash::{khr, util::read_spv, vk, Entry, Instance};
+use ash::{Entry, Instance, khr, util::read_spv, vk};
 use mdux::HelloWorldDemoRun;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{
@@ -59,7 +58,10 @@ pub fn run(demo: HelloWorldDemoRun, auto_close_after: Option<Duration>) -> Resul
         event_loop_window_target.set_control_flow(ControlFlow::Poll);
 
         match event {
-            Event::WindowEvent { window_id: id, event } if id == window_id => match event {
+            Event::WindowEvent {
+                window_id: id,
+                event,
+            } if id == window_id => match event {
                 WindowEvent::CloseRequested => {
                     process::exit(0);
                 }
@@ -120,7 +122,10 @@ struct TextVertex {
 
 impl TextVertex {
     const fn new(position: [f32; 2], tex_coord: [f32; 2]) -> Self {
-        Self { position, tex_coord }
+        Self {
+            position,
+            tex_coord,
+        }
     }
 }
 
@@ -200,7 +205,11 @@ impl VulkanRenderer {
         let (image_available_semaphore, render_finished_semaphore, in_flight_fence) =
             create_sync_objects(&device)?;
         let text_layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
-            .map_err(|error| box_error(format!("failed to prepare hello world text package: {error}")))?;
+            .map_err(|error| {
+                box_error(format!(
+                    "failed to prepare hello world text package: {error}"
+                ))
+            })?;
 
         let mut renderer = Self {
             instance,
@@ -270,7 +279,9 @@ impl VulkanRenderer {
                 return Ok(());
             }
             Err(error) => {
-                return Err(box_error(format!("failed to acquire swapchain image: {error}")));
+                return Err(box_error(format!(
+                    "failed to acquire swapchain image: {error}"
+                )));
             }
         };
 
@@ -297,8 +308,10 @@ impl VulkanRenderer {
             .swapchains(&swapchains)
             .image_indices(&image_indices);
 
-        let present_result =
-            unsafe { self.swapchain_loader.queue_present(self.present_queue, &present_info) };
+        let present_result = unsafe {
+            self.swapchain_loader
+                .queue_present(self.present_queue, &present_info)
+        };
 
         match present_result {
             Ok(is_suboptimal) => {
@@ -359,14 +372,23 @@ impl VulkanRenderer {
 
         self.swapchain_image_views = images
             .iter()
-            .map(|&image| create_image_view(&self.device, image, surface_format.format, vk::ImageAspectFlags::COLOR))
+            .map(|&image| {
+                create_image_view(
+                    &self.device,
+                    image,
+                    surface_format.format,
+                    vk::ImageAspectFlags::COLOR,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         self.render_pass = create_render_pass(&self.device, surface_format.format)?;
         self.framebuffers = self
             .swapchain_image_views
             .iter()
-            .map(|&image_view| create_framebuffer(&self.device, self.render_pass, image_view, extent))
+            .map(|&image_view| {
+                create_framebuffer(&self.device, self.render_pass, image_view, extent)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         self.create_text_swapchain_resources(extent)?;
@@ -389,17 +411,13 @@ impl VulkanRenderer {
             self.graphics_queue,
             &self.text_layout.package,
         )?;
-        let (descriptor_set_layout, descriptor_pool, descriptor_set) = create_text_descriptor_resources(
-            &self.device,
-            &self.text_atlas,
-        )?;
+        let (descriptor_set_layout, descriptor_pool, descriptor_set) =
+            create_text_descriptor_resources(&self.device, &self.text_atlas)?;
         self.text_descriptor_set_layout = descriptor_set_layout;
         self.text_descriptor_pool = descriptor_pool;
         self.text_descriptor_set = descriptor_set;
-        self.text_pipeline_layout = create_text_pipeline_layout(
-            &self.device,
-            self.text_descriptor_set_layout,
-        )?;
+        self.text_pipeline_layout =
+            create_text_pipeline_layout(&self.device, self.text_descriptor_set_layout)?;
         Ok(())
     }
 
@@ -432,7 +450,8 @@ impl VulkanRenderer {
         for (index, command_buffer) in self.command_buffers.iter().enumerate() {
             let begin_info = vk::CommandBufferBeginInfo::default();
             unsafe {
-                self.device.begin_command_buffer(*command_buffer, &begin_info)?;
+                self.device
+                    .begin_command_buffer(*command_buffer, &begin_info)?;
             }
 
             let clear_values = [vk::ClearValue {
@@ -529,7 +548,8 @@ impl VulkanRenderer {
                 self.text_vertex_buffer = vk::Buffer::null();
             }
             if self.text_vertex_buffer_memory != vk::DeviceMemory::null() {
-                self.device.free_memory(self.text_vertex_buffer_memory, None);
+                self.device
+                    .free_memory(self.text_vertex_buffer_memory, None);
                 self.text_vertex_buffer_memory = vk::DeviceMemory::null();
             }
             self.text_vertex_count = 0;
@@ -553,7 +573,8 @@ impl VulkanRenderer {
             }
 
             if self.swapchain != vk::SwapchainKHR::null() {
-                self.swapchain_loader.destroy_swapchain(self.swapchain, None);
+                self.swapchain_loader
+                    .destroy_swapchain(self.swapchain, None);
                 self.swapchain = vk::SwapchainKHR::null();
             }
         }
@@ -582,7 +603,8 @@ impl VulkanRenderer {
                 self.text_atlas.sampler = vk::Sampler::null();
             }
             if self.text_atlas.image_view != vk::ImageView::null() {
-                self.device.destroy_image_view(self.text_atlas.image_view, None);
+                self.device
+                    .destroy_image_view(self.text_atlas.image_view, None);
                 self.text_atlas.image_view = vk::ImageView::null();
             }
             if self.text_atlas.image != vk::Image::null() {
@@ -630,11 +652,29 @@ fn create_instance(
         .engine_version(vk::make_api_version(0, 0, 1, 0))
         .api_version(vk::API_VERSION_1_0);
 
-    let required_extensions =
-        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?;
+    let mut required_extensions =
+        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec();
+    let mut instance_flags = vk::InstanceCreateFlags::empty();
+
+    #[cfg(target_os = "macos")]
+    {
+        let available_extensions = unsafe { entry.enumerate_instance_extension_properties(None)? };
+        if extension_names_contain(&available_extensions, khr::portability_enumeration::NAME)
+            && extension_names_contain(
+                &available_extensions,
+                khr::get_physical_device_properties2::NAME,
+            )
+        {
+            required_extensions.push(khr::get_physical_device_properties2::NAME.as_ptr());
+            required_extensions.push(khr::portability_enumeration::NAME.as_ptr());
+            instance_flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
+        }
+    }
+
     let instance_info = vk::InstanceCreateInfo::default()
+        .flags(instance_flags)
         .application_info(&app_info)
-        .enabled_extension_names(required_extensions);
+        .enabled_extension_names(&required_extensions);
 
     let instance = unsafe { entry.create_instance(&instance_info, None)? };
     Ok(instance)
@@ -720,7 +760,17 @@ fn create_logical_device(
         );
     }
 
-    let extensions = [khr::swapchain::NAME.as_ptr()];
+    let mut extensions = vec![khr::swapchain::NAME.as_ptr()];
+
+    #[cfg(target_os = "macos")]
+    {
+        let available_extensions =
+            unsafe { instance.enumerate_device_extension_properties(physical_device)? };
+        if extension_names_contain(&available_extensions, khr::portability_subset::NAME) {
+            extensions.push(khr::portability_subset::NAME.as_ptr());
+        }
+    }
+
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
         .enabled_extension_names(&extensions);
@@ -731,7 +781,10 @@ fn create_logical_device(
     Ok((device, graphics_queue, present_queue))
 }
 
-fn create_command_pool(device: &ash::Device, queue_family: u32) -> Result<vk::CommandPool, BoxError> {
+fn create_command_pool(
+    device: &ash::Device,
+    queue_family: u32,
+) -> Result<vk::CommandPool, BoxError> {
     let create_info = vk::CommandPoolCreateInfo::default()
         .queue_family_index(queue_family)
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
@@ -756,8 +809,9 @@ fn query_swapchain_support(
     surface_loader: &khr::surface::Instance,
     surface: vk::SurfaceKHR,
 ) -> Result<SwapchainSupport, BoxError> {
-    let capabilities =
-        unsafe { surface_loader.get_physical_device_surface_capabilities(physical_device, surface)? };
+    let capabilities = unsafe {
+        surface_loader.get_physical_device_surface_capabilities(physical_device, surface)?
+    };
     let formats =
         unsafe { surface_loader.get_physical_device_surface_formats(physical_device, surface)? };
     let present_modes = unsafe {
@@ -771,7 +825,9 @@ fn query_swapchain_support(
     })
 }
 
-fn choose_surface_format(formats: &[vk::SurfaceFormatKHR]) -> Result<vk::SurfaceFormatKHR, BoxError> {
+fn choose_surface_format(
+    formats: &[vk::SurfaceFormatKHR],
+) -> Result<vk::SurfaceFormatKHR, BoxError> {
     formats
         .iter()
         .copied()
@@ -798,12 +854,14 @@ fn choose_extent(capabilities: &vk::SurfaceCapabilitiesKHR, window: &Window) -> 
 
     let size = window.inner_size();
     vk::Extent2D {
-        width: size
-            .width
-            .clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width),
-        height: size
-            .height
-            .clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height),
+        width: size.width.clamp(
+            capabilities.min_image_extent.width,
+            capabilities.max_image_extent.width,
+        ),
+        height: size.height.clamp(
+            capabilities.min_image_extent.height,
+            capabilities.max_image_extent.height,
+        ),
     }
 }
 
@@ -828,7 +886,10 @@ fn create_image_view(
     Ok(image_view)
 }
 
-fn create_render_pass(device: &ash::Device, format: vk::Format) -> Result<vk::RenderPass, BoxError> {
+fn create_render_pass(
+    device: &ash::Device,
+    format: vk::Format,
+) -> Result<vk::RenderPass, BoxError> {
     let color_attachment = vk::AttachmentDescription::default()
         .format(format)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -959,7 +1020,12 @@ fn create_text_atlas_resources(
         device.free_memory(staging_memory, None);
     }
 
-    let image_view = create_image_view(device, image, vk::Format::R8_UNORM, vk::ImageAspectFlags::COLOR)?;
+    let image_view = create_image_view(
+        device,
+        image,
+        vk::Format::R8_UNORM,
+        vk::ImageAspectFlags::COLOR,
+    )?;
     let sampler_info = vk::SamplerCreateInfo::default()
         .mag_filter(vk::Filter::NEAREST)
         .min_filter(vk::Filter::NEAREST)
@@ -981,7 +1047,14 @@ fn create_text_atlas_resources(
 fn create_text_descriptor_resources(
     device: &ash::Device,
     text_atlas: &TextAtlasResources,
-) -> Result<(vk::DescriptorSetLayout, vk::DescriptorPool, vk::DescriptorSet), BoxError> {
+) -> Result<
+    (
+        vk::DescriptorSetLayout,
+        vk::DescriptorPool,
+        vk::DescriptorSet,
+    ),
+    BoxError,
+> {
     let layout_binding = vk::DescriptorSetLayoutBinding::default()
         .binding(0)
         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -1126,7 +1199,8 @@ fn create_text_pipeline(
         .logic_op_enable(false)
         .attachments(&color_blend_attachments);
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-    let dynamic_state = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    let dynamic_state =
+        vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
     let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
         .stages(&shader_stages)
@@ -1261,7 +1335,11 @@ fn create_buffer(
     Ok((buffer, memory))
 }
 
-fn write_buffer(device: &ash::Device, memory: vk::DeviceMemory, bytes: &[u8]) -> Result<(), BoxError> {
+fn write_buffer(
+    device: &ash::Device,
+    memory: vk::DeviceMemory,
+    bytes: &[u8],
+) -> Result<(), BoxError> {
     let size = vk::DeviceSize::try_from(bytes.len())?;
     unsafe {
         let mapped = device.map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?;
@@ -1332,10 +1410,7 @@ fn transition_image_layout(
             vk::PipelineStageFlags::TOP_OF_PIPE,
             vk::PipelineStageFlags::TRANSFER,
         ),
-        (
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        ) => (
+        (vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL) => (
             vk::AccessFlags::TRANSFER_WRITE,
             vk::AccessFlags::SHADER_READ,
             vk::PipelineStageFlags::TRANSFER,
@@ -1428,8 +1503,8 @@ fn begin_single_time_commands(
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(1);
     let command_buffer = unsafe { device.allocate_command_buffers(&allocate_info)? }[0];
-    let begin_info = vk::CommandBufferBeginInfo::default()
-        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+    let begin_info =
+        vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
     unsafe {
         device.begin_command_buffer(command_buffer, &begin_info)?;
     }
@@ -1459,7 +1534,8 @@ fn find_memory_type(
     type_filter: u32,
     properties: vk::MemoryPropertyFlags,
 ) -> Result<u32, BoxError> {
-    let memory_properties = unsafe { instance.get_physical_device_memory_properties(physical_device) };
+    let memory_properties =
+        unsafe { instance.get_physical_device_memory_properties(physical_device) };
 
     for index in 0..memory_properties.memory_type_count {
         let supported = (type_filter & (1 << index)) != 0;
@@ -1489,6 +1565,28 @@ fn box_error(message: impl Into<String>) -> BoxError {
     std::io::Error::other(message.into()).into()
 }
 
+fn extension_names_contain(
+    extension_properties: &[vk::ExtensionProperties],
+    extension_name: &std::ffi::CStr,
+) -> bool {
+    extension_properties
+        .iter()
+        .any(|property| extension_property_matches(property, extension_name))
+}
+
+fn extension_property_matches(
+    extension_property: &vk::ExtensionProperties,
+    extension_name: &std::ffi::CStr,
+) -> bool {
+    extension_property
+        .extension_name
+        .iter()
+        .copied()
+        .take_while(|character| *character != 0)
+        .map(|character| character as u8)
+        .eq(extension_name.to_bytes().iter().copied())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1501,7 +1599,8 @@ mod tests {
             width: 320,
             height: 128,
         };
-        let vertices = build_text_vertices(&layout, extent).expect("vertex generation should succeed");
+        let vertices =
+            build_text_vertices(&layout, extent).expect("vertex generation should succeed");
         let atlas = layout.package.atlases.first().expect("atlas should exist");
         let first_glyph = layout
             .package
@@ -1608,7 +1707,34 @@ mod tests {
         assert!(error.to_string().contains("does not contain an atlas"));
     }
 
-    fn assert_vertex(vertex: &TextVertex, expected_position: [f32; 2], expected_tex_coord: [f32; 2]) {
+    #[test]
+    fn detects_supported_extension_names() {
+        let properties = [
+            extension_property(b"VK_KHR_get_physical_device_properties2"),
+            extension_property(b"VK_KHR_swapchain"),
+            extension_property(b"VK_KHR_portability_subset"),
+        ];
+
+        assert!(extension_names_contain(
+            &properties,
+            khr::get_physical_device_properties2::NAME
+        ));
+        assert!(extension_names_contain(&properties, khr::swapchain::NAME));
+        assert!(extension_names_contain(
+            &properties,
+            khr::portability_subset::NAME
+        ));
+        assert!(!extension_names_contain(
+            &properties,
+            khr::portability_enumeration::NAME
+        ));
+    }
+
+    fn assert_vertex(
+        vertex: &TextVertex,
+        expected_position: [f32; 2],
+        expected_tex_coord: [f32; 2],
+    ) {
         for (actual, expected) in vertex.position.iter().zip(expected_position) {
             assert!(
                 (actual - expected).abs() < 0.000_1,
@@ -1630,5 +1756,17 @@ mod tests {
             (2.0 * x as f32 / extent.width as f32) - 1.0,
             -1.0 + (2.0 * y as f32 / extent.height as f32),
         ]
+    }
+
+    fn extension_property(name: &[u8]) -> vk::ExtensionProperties {
+        let mut extension_property = vk::ExtensionProperties::default();
+        for (slot, byte) in extension_property
+            .extension_name
+            .iter_mut()
+            .zip(name.iter().copied())
+        {
+            *slot = byte as std::ffi::c_char;
+        }
+        extension_property
     }
 }

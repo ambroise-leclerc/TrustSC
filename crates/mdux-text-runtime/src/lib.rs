@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use arrayvec::ArrayVec;
-use mdux_core::{MduxResult, ValidationError, Validates};
+use mdux_core::{MduxResult, Validates, ValidationError};
 use mdux_text_schema::{CompiledTextRun, NumericGlyphSet, NumericTemplate, TextPackage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,7 +66,8 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
             .find_run(&template.suffix_run_id)
             .ok_or_else(|| ValidationError::new("unknown suffix run"))?;
 
-        let mut cursor_x = self.append_run_commands(&mut commands, prefix_run, origin_x, origin_y)?;
+        let mut cursor_x =
+            self.append_run_commands(&mut commands, prefix_run, origin_x, origin_y)?;
         let numeric_chars = format_numeric_value(value, template)?;
         cursor_x = self.append_numeric_commands(
             &mut commands,
@@ -133,7 +134,9 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
             let atlas_glyph = self
                 .package
                 .find_glyph(entry.atlas_index, entry.glyph_id)
-                .ok_or_else(|| ValidationError::new("numeric glyph entry references unknown glyph"))?;
+                .ok_or_else(|| {
+                    ValidationError::new("numeric glyph entry references unknown glyph")
+                })?;
 
             if atlas_glyph.width > 0 && atlas_glyph.height > 0 {
                 commands
@@ -155,10 +158,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
     }
 }
 
-fn format_numeric_value(
-    value: i64,
-    template: &NumericTemplate,
-) -> MduxResult<ArrayVec<char, 32>> {
+fn format_numeric_value(value: i64, template: &NumericTemplate) -> MduxResult<ArrayVec<char, 32>> {
     if value < 0 && !template.allow_negative {
         return Err(ValidationError::new(
             "numeric template does not allow negative values",
@@ -415,14 +415,12 @@ mod tests {
                 allow_negative: false,
             }],
             evidence: DeterminismEvidence {
-                package_sha256:
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                        .to_string(),
+                package_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
                 toolchain_id: "rust-1.87.0".to_string(),
                 unicode_version: "15.1.0".to_string(),
                 build_recipe_sha256:
-                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
-                        .to_string(),
+                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".to_string(),
             },
         }
     }

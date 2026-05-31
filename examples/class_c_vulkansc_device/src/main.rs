@@ -47,7 +47,13 @@ fn main() {
     let framework = FrameworkBuilder::new()
         .with_device(device)
         .with_compliance(compliance)
-        .with_ui(UiSdkConfig::vulkansc_class_c(1280, 720, 12, 512 * 1024, 128))
+        .with_ui(UiSdkConfig::vulkansc_class_c(
+            1280,
+            720,
+            12,
+            512 * 1024,
+            128,
+        ))
         .add_component(
             UiComponent::new("screen-alarm", "Alarm Banner", vec![requirement_id])
                 .expect("component should be valid"),
