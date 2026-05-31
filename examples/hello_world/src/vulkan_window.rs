@@ -630,11 +630,20 @@ fn create_instance(
         .engine_version(vk::make_api_version(0, 0, 1, 0))
         .api_version(vk::API_VERSION_1_0);
 
-    let required_extensions =
-        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?;
+    let mut required_extensions =
+        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec();
+    let mut instance_flags = vk::InstanceCreateFlags::empty();
+
+    #[cfg(target_os = "macos")]
+    {
+        required_extensions.push(khr::portability_enumeration::NAME.as_ptr());
+        instance_flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
+    }
+
     let instance_info = vk::InstanceCreateInfo::default()
+        .flags(instance_flags)
         .application_info(&app_info)
-        .enabled_extension_names(required_extensions);
+        .enabled_extension_names(&required_extensions);
 
     let instance = unsafe { entry.create_instance(&instance_info, None)? };
     Ok(instance)
@@ -720,7 +729,13 @@ fn create_logical_device(
         );
     }
 
-    let extensions = [khr::swapchain::NAME.as_ptr()];
+    let mut extensions = vec![khr::swapchain::NAME.as_ptr()];
+
+    #[cfg(target_os = "macos")]
+    {
+        extensions.push(khr::portability_subset::NAME.as_ptr());
+    }
+
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
         .enabled_extension_names(&extensions);

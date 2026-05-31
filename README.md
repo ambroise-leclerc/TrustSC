@@ -2,6 +2,41 @@
 
 Medical-device manufacturer framework with Class B/Class C compliance modeling and a Vulkan / Vulkan SC-oriented UI SDK.
 
+## Vulkan prerequisites
+
+The primary development path for MduX is Vulkan-based medical UI work. Install a system Vulkan loader before running the windowed examples.
+
+### macOS
+
+```bash
+brew install vulkan-loader molten-vk vulkan-tools
+export VK_ICD_FILENAMES="$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json"
+export DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+vulkaninfo | head
+```
+
+`vulkan-loader` provides `libvulkan.dylib`, `molten-vk` supplies the Vulkan-on-Metal driver, and `vulkan-tools` provides `vulkaninfo`. The extra `DYLD_FALLBACK_LIBRARY_PATH` export makes Cargo-launched binaries find Homebrew's `libvulkan.dylib` on macOS.
+
+To make those variables permanent in the default macOS shell:
+
+```bash
+cat <<'EOF' >> ~/.zshrc
+export VK_ICD_FILENAMES="$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json"
+export DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+EOF
+source ~/.zshrc
+```
+
+### Ubuntu / Debian
+
+```bash
+sudo apt-get update
+sudo apt-get install libvulkan1 libvulkan-dev vulkan-tools
+vulkaninfo | head
+```
+
+If you only need non-graphical validation, `cargo run -p hello_world -- --headless-smoke` still works without the windowed Vulkan path.
+
 ## Workspace layout
 
 - `crates/mdux-core`: device metadata, safety classes, deterministic runtime policy
@@ -30,7 +65,7 @@ cargo test
 # run a single test
 cargo test builds_hello_world_demo_through_public_api
 
-# run the shortest demo (opens a Vulkan window)
+# run the shortest demo (opens a Vulkan window; requires a system Vulkan loader such as libvulkan.dylib / MoltenVK)
 cargo run -p hello_world
 
 # run it and close automatically after one second
@@ -47,7 +82,7 @@ cargo run -p class_c_vulkansc_device
 cargo run -p mdux-text-authoring --bin mdux-textc -- describe-pipeline
 ```
 
-The default `hello_world` example now opens a real Vulkan window. Use `--headless-smoke` when validating the framework in a non-graphical environment.
+The default `hello_world` example now opens a real Vulkan window and requires a system Vulkan loader. Install the Vulkan prerequisites above, or use `--headless-smoke` when validating the framework in a non-graphical environment.
 
 ## Continuous integration
 
@@ -67,7 +102,7 @@ cargo run --locked -q -p hello_world -- --headless-smoke
 
 - `examples/hello_world/src/hello_text.rs` embeds a deterministic text package for the approved string `Hello World !`.
 - `examples/hello_world/src/vulkan_window.rs` uploads that atlas and renders textured glyph quads with the example's compiled text shaders.
-- Use `cargo run -p hello_world -- --auto-close-ms=1000` to smoke-test the actual Vulkan text overlay path.
+- Use `cargo run -p hello_world -- --auto-close-ms=1000` to smoke-test the actual Vulkan text overlay path when a system Vulkan loader is available.
 - `cargo run -p hello_world -- --headless-smoke` is still useful for non-graphical environments, but it intentionally skips the windowed Vulkan text-rendering path.
 
 ## Architecture decision records
