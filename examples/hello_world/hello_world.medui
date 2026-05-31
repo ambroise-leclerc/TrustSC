@@ -1,0 +1,21 @@
+Screen HelloWorld {
+    layout: Vertical { spacing: 16px; padding: 24px; }
+
+    @safety_critical(cv_check: [Bounds, ColorHash])
+    CriticalButton {
+        id: hello-world-label;
+        requirement: "REQ-HELLO-001";
+        width: Fill;
+        height: 80px;
+        label: t("STR-HELLO-WORLD");
+        color: Theme.Colors.PrimaryAction;
+        on_press: SystemEvent.NoOp;
+    }
+
+    VulkanViewport {
+        id: hello-world-viewport;
+        width: Fill;
+        height: 280px;
+        stream_source: "HELLO_WORLD_SIM";
+    }
+}

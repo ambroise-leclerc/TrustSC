@@ -21,9 +21,6 @@ use crate::hello_text;
 
 type BoxError = Box<dyn Error>;
 
-const TEXT_ORIGIN_X: i32 = 24;
-const TEXT_ORIGIN_Y: i32 = 24;
-
 const TEXT_VERT_SPV: &[u8] = include_bytes!(env!("HELLO_WORLD_TEXT_VERT_SPV"));
 const TEXT_FRAG_SPV: &[u8] = include_bytes!(env!("HELLO_WORLD_TEXT_FRAG_SPV"));
 
@@ -204,7 +201,7 @@ impl VulkanRenderer {
         let command_pool = create_command_pool(&device, queue_families.graphics)?;
         let (image_available_semaphore, render_finished_semaphore, in_flight_fence) =
             create_sync_objects(&device)?;
-        let text_layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
+        let text_layout = hello_text::hello_world_text_layout_from_dsl()
             .map_err(|error| {
                 box_error(format!(
                     "failed to prepare hello world text package: {error}"
@@ -652,12 +649,11 @@ fn create_instance(
         .engine_version(vk::make_api_version(0, 0, 1, 0))
         .api_version(vk::API_VERSION_1_0);
 
-    let mut required_extensions =
-        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec();
-    let mut instance_flags = vk::InstanceCreateFlags::empty();
-
     #[cfg(target_os = "macos")]
-    {
+    let (required_extensions, instance_flags) = {
+        let mut required_extensions =
+            ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec();
+        let mut instance_flags = vk::InstanceCreateFlags::empty();
         let available_extensions = unsafe { entry.enumerate_instance_extension_properties(None)? };
         if extension_names_contain(&available_extensions, khr::portability_enumeration::NAME)
             && extension_names_contain(
@@ -669,7 +665,14 @@ fn create_instance(
             required_extensions.push(khr::portability_enumeration::NAME.as_ptr());
             instance_flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
         }
-    }
+        (required_extensions, instance_flags)
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let (required_extensions, instance_flags) = (
+        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec(),
+        vk::InstanceCreateFlags::empty(),
+    );
 
     let instance_info = vk::InstanceCreateInfo::default()
         .flags(instance_flags)
@@ -760,16 +763,19 @@ fn create_logical_device(
         );
     }
 
-    let mut extensions = vec![khr::swapchain::NAME.as_ptr()];
-
     #[cfg(target_os = "macos")]
-    {
+    let extensions = {
+        let mut extensions = vec![khr::swapchain::NAME.as_ptr()];
         let available_extensions =
             unsafe { instance.enumerate_device_extension_properties(physical_device)? };
         if extension_names_contain(&available_extensions, khr::portability_subset::NAME) {
             extensions.push(khr::portability_subset::NAME.as_ptr());
         }
-    }
+        extensions
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let extensions = vec![khr::swapchain::NAME.as_ptr()];
 
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
@@ -1565,6 +1571,7 @@ fn box_error(message: impl Into<String>) -> BoxError {
     std::io::Error::other(message.into()).into()
 }
 
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
 fn extension_names_contain(
     extension_properties: &[vk::ExtensionProperties],
     extension_name: &std::ffi::CStr,
@@ -1574,6 +1581,7 @@ fn extension_names_contain(
         .any(|property| extension_property_matches(property, extension_name))
 }
 
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
 fn extension_property_matches(
     extension_property: &vk::ExtensionProperties,
     extension_name: &std::ffi::CStr,
@@ -1593,7 +1601,7 @@ mod tests {
 
     #[test]
     fn builds_textured_quads_for_the_hello_world_overlay() {
-        let layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
+        let layout = hello_text::hello_world_text_layout_from_dsl()
             .expect("hello world layout should compile");
         let extent = vk::Extent2D {
             width: 320,
@@ -1691,7 +1699,7 @@ mod tests {
 
     #[test]
     fn rejects_text_vertex_generation_without_an_atlas() {
-        let mut layout = hello_text::hello_world_text_layout(TEXT_ORIGIN_X, TEXT_ORIGIN_Y)
+        let mut layout = hello_text::hello_world_text_layout_from_dsl()
             .expect("hello world layout should compile");
         layout.package.atlases.clear();
 

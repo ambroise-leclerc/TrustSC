@@ -3,6 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use mdux::{default_standard_text_package, DEFAULT_STANDARD_FONT};
+use mdux_ui_dsl_authoring::{CompileOptions, compile_medui_file_to_rust_module};
+
 type DynError = Box<dyn std::error::Error>;
 
 struct ShaderSpec {
@@ -29,12 +32,31 @@ const SHADERS: &[ShaderSpec] = &[
 
 fn main() -> Result<(), DynError> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("failed to determine workspace root from hello_world manifest dir")?;
     let shader_dir = manifest_dir.join("shaders");
+    let medui_path = manifest_dir.join("hello_world.medui");
+    let standard_text_package_path = workspace_root.join(DEFAULT_STANDARD_FONT.package_json_path);
     let out_dir = PathBuf::from(env::var("OUT_DIR")?).join("shaders");
+    let medui_out = PathBuf::from(env::var("OUT_DIR")?).join("hello_world_medui.rs");
 
     println!("cargo:rerun-if-changed={}", shader_dir.display());
+    println!("cargo:rerun-if-changed={}", medui_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        standard_text_package_path.display()
+    );
 
     fs::create_dir_all(&out_dir)?;
+    let text_package = default_standard_text_package()?;
+    compile_medui_file_to_rust_module(
+        &medui_path,
+        &medui_out,
+        CompileOptions::new(800, 480),
+        &text_package,
+    )?;
 
     let compiler = shaderc::Compiler::new()?;
     let mut options = shaderc::CompileOptions::new()?;

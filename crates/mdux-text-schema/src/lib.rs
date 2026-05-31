@@ -122,6 +122,24 @@ impl CompiledTextRun {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextRunBounds {
+    pub min_x: i32,
+    pub min_y: i32,
+    pub max_x: i32,
+    pub max_y: i32,
+}
+
+impl TextRunBounds {
+    pub fn width(&self) -> u32 {
+        self.max_x.saturating_sub(self.min_x) as u32
+    }
+
+    pub fn height(&self) -> u32 {
+        self.max_y.saturating_sub(self.min_y) as u32
+    }
+}
+
 impl Validates for CompiledTextRun {
     fn validate(&self) -> MduxResult<()> {
         validate_non_empty("compiled text run id", &self.id)?;
@@ -239,8 +257,20 @@ pub struct TextPackage {
 }
 
 impl TextPackage {
+    pub fn find_approved_string(&self, string_id: &str, locale: &str) -> Option<&ApprovedString> {
+        self.approved_strings
+            .iter()
+            .find(|entry| entry.id == string_id && entry.locale == locale)
+    }
+
     pub fn find_run(&self, run_id: &str) -> Option<&CompiledTextRun> {
         self.runs.iter().find(|run| run.id == run_id)
+    }
+
+    pub fn find_run_for_string(&self, string_id: &str, locale: &str) -> Option<&CompiledTextRun> {
+        self.runs
+            .iter()
+            .find(|run| run.source_string_id == string_id && run.locale == locale)
     }
 
     pub fn find_template(&self, template_id: &str) -> Option<&NumericTemplate> {
@@ -259,6 +289,36 @@ impl TextPackage {
         self.atlas_glyphs
             .iter()
             .find(|glyph| glyph.atlas_index == atlas_index && glyph.glyph_id == glyph_id)
+    }
+
+    pub fn measure_run_bounds(&self, run: &CompiledTextRun) -> MduxResult<TextRunBounds> {
+        let mut bounds = TextRunBounds {
+            min_x: 0,
+            min_y: 0,
+            max_x: run.advance_width(),
+            max_y: 0,
+        };
+
+        for glyph in &run.glyphs {
+            let atlas_glyph = self
+                .find_glyph(glyph.atlas_index, glyph.glyph_id)
+                .ok_or_else(|| ValidationError::new("compiled run references an unknown atlas glyph"))?;
+            let glyph_right = glyph
+                .x
+                .checked_add(i32::from(atlas_glyph.width))
+                .ok_or_else(|| ValidationError::new("text run width exceeds i32 range"))?;
+            let glyph_bottom = glyph
+                .y
+                .checked_add(i32::from(atlas_glyph.height))
+                .ok_or_else(|| ValidationError::new("text run height exceeds i32 range"))?;
+
+            bounds.min_x = bounds.min_x.min(glyph.x);
+            bounds.min_y = bounds.min_y.min(glyph.y);
+            bounds.max_x = bounds.max_x.max(glyph_right);
+            bounds.max_y = bounds.max_y.max(glyph_bottom);
+        }
+
+        Ok(bounds)
     }
 }
 
@@ -305,13 +365,18 @@ impl Validates for TextPackage {
         }
         self.evidence.validate()?;
 
-        ensure_unique_ids(
-            self.approved_strings.iter().map(|entry| entry.id.as_str()),
-            "approved string",
+        ensure_unique_pairs(
+            self.approved_strings
+                .iter()
+                .map(|entry| (entry.id.as_str(), entry.locale.as_str())),
+            "approved string id/locale",
         )?;
-        ensure_unique_ids(
-            self.runs.iter().map(|entry| entry.id.as_str()),
-            "compiled run",
+        ensure_unique_ids(self.runs.iter().map(|entry| entry.id.as_str()), "compiled run")?;
+        ensure_unique_pairs(
+            self.runs
+                .iter()
+                .map(|entry| (entry.source_string_id.as_str(), entry.locale.as_str())),
+            "compiled run source_string_id/locale",
         )?;
         ensure_unique_ids(
             self.numeric_glyph_sets
@@ -325,13 +390,12 @@ impl Validates for TextPackage {
         )?;
 
         for run in &self.runs {
-            if !self
-                .approved_strings
-                .iter()
-                .any(|approved_string| approved_string.id == run.source_string_id)
+            if self
+                .find_approved_string(&run.source_string_id, &run.locale)
+                .is_none()
             {
                 return Err(ValidationError::new(
-                    "compiled run references an unknown approved string",
+                    "compiled run references an unknown approved string for its locale",
                 ));
             }
 
@@ -381,6 +445,20 @@ fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) ->
     for id in ids {
         if !seen.insert(id.to_string()) {
             return Err(ValidationError::new(format!("{label} ids must be unique")));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_unique_pairs<'a>(
+    pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
+    label: &str,
+) -> MduxResult<()> {
+    let mut seen = BTreeSet::new();
+    for (left, right) in pairs {
+        let composite = format!("{left}\u{0}{right}");
+        if !seen.insert(composite) {
+            return Err(ValidationError::new(format!("{label} pairs must be unique")));
         }
     }
     Ok(())
@@ -471,5 +549,190 @@ mod tests {
         };
 
         assert!(package.validate().is_ok());
+    }
+
+    #[test]
+    fn validates_multiple_locales_for_the_same_translation_key() {
+        let mut package = TextPackage {
+            fonts: vec![FontAsset {
+                family: "Approved Sans".to_string(),
+                source_path: "fonts/approved.ttf".to_string(),
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+                face_index: 0,
+                pixel_height: 16,
+                locales: vec!["en-US".to_string(), "fr-FR".to_string()],
+            }],
+            approved_strings: vec![
+                ApprovedString {
+                    id: "STR-HELLO".to_string(),
+                    locale: "en-US".to_string(),
+                    value: "Hello".to_string(),
+                    direction: TextDirection::LeftToRight,
+                },
+                ApprovedString {
+                    id: "STR-HELLO".to_string(),
+                    locale: "fr-FR".to_string(),
+                    value: "Bonjour".to_string(),
+                    direction: TextDirection::LeftToRight,
+                },
+            ],
+            atlases: vec![TextureAtlas {
+                width: 2,
+                height: 2,
+                pixels: vec![1, 2, 3, 4],
+            }],
+            atlas_glyphs: vec![AtlasGlyph {
+                atlas_index: 0,
+                glyph_id: 1,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                bearing_x: 0,
+                bearing_y: 0,
+                advance_x: 8,
+            }],
+            runs: vec![
+                CompiledTextRun {
+                    id: "RUN-HELLO-EN".to_string(),
+                    source_string_id: "STR-HELLO".to_string(),
+                    locale: "en-US".to_string(),
+                    bidi_level: 0,
+                    glyphs: vec![CompiledGlyph {
+                        atlas_index: 0,
+                        glyph_id: 1,
+                        x: 0,
+                        y: 0,
+                        advance_x: 8,
+                    }],
+                },
+                CompiledTextRun {
+                    id: "RUN-HELLO-FR".to_string(),
+                    source_string_id: "STR-HELLO".to_string(),
+                    locale: "fr-FR".to_string(),
+                    bidi_level: 0,
+                    glyphs: vec![CompiledGlyph {
+                        atlas_index: 0,
+                        glyph_id: 1,
+                        x: 0,
+                        y: 0,
+                        advance_x: 8,
+                    }],
+                },
+            ],
+            numeric_glyph_sets: vec![],
+            numeric_templates: vec![],
+            evidence: DeterminismEvidence {
+                package_sha256:
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .to_string(),
+                toolchain_id: "rust-1.87.0".to_string(),
+                unicode_version: "15.1.0".to_string(),
+                build_recipe_sha256:
+                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                        .to_string(),
+            },
+        };
+
+        assert!(package.validate().is_ok());
+
+        package.runs[1].id = "RUN-HELLO-EN".to_string();
+        assert!(package.validate().is_err());
+    }
+
+    #[test]
+    fn measures_text_run_bounds_from_logical_and_pixel_extents() {
+        let package = TextPackage {
+            fonts: vec![FontAsset {
+                family: "Approved Sans".to_string(),
+                source_path: "fonts/approved.ttf".to_string(),
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+                face_index: 0,
+                pixel_height: 16,
+                locales: vec!["en-US".to_string()],
+            }],
+            approved_strings: vec![ApprovedString {
+                id: "STR-HELLO".to_string(),
+                locale: "en-US".to_string(),
+                value: "Hello".to_string(),
+                direction: TextDirection::LeftToRight,
+            }],
+            atlases: vec![TextureAtlas {
+                width: 4,
+                height: 4,
+                pixels: vec![1; 16],
+            }],
+            atlas_glyphs: vec![
+                AtlasGlyph {
+                    atlas_index: 0,
+                    glyph_id: 1,
+                    x: 0,
+                    y: 0,
+                    width: 4,
+                    height: 10,
+                    bearing_x: 0,
+                    bearing_y: 0,
+                    advance_x: 8,
+                },
+                AtlasGlyph {
+                    atlas_index: 0,
+                    glyph_id: 2,
+                    x: 0,
+                    y: 0,
+                    width: 6,
+                    height: 12,
+                    bearing_x: 0,
+                    bearing_y: 0,
+                    advance_x: 6,
+                },
+            ],
+            runs: vec![CompiledTextRun {
+                id: "RUN-HELLO".to_string(),
+                source_string_id: "STR-HELLO".to_string(),
+                locale: "en-US".to_string(),
+                bidi_level: 0,
+                glyphs: vec![
+                    CompiledGlyph {
+                        atlas_index: 0,
+                        glyph_id: 1,
+                        x: -1,
+                        y: 2,
+                        advance_x: 8,
+                    },
+                    CompiledGlyph {
+                        atlas_index: 0,
+                        glyph_id: 2,
+                        x: 8,
+                        y: 0,
+                        advance_x: 6,
+                    },
+                ],
+            }],
+            numeric_glyph_sets: vec![],
+            numeric_templates: vec![],
+            evidence: DeterminismEvidence {
+                package_sha256:
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .to_string(),
+                toolchain_id: "rust-1.87.0".to_string(),
+                unicode_version: "15.1.0".to_string(),
+                build_recipe_sha256:
+                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                        .to_string(),
+            },
+        };
+
+        let bounds = package
+            .measure_run_bounds(package.find_run("RUN-HELLO").expect("run should exist"))
+            .expect("run bounds should be measured");
+
+        assert_eq!(bounds.min_x, -1);
+        assert_eq!(bounds.min_y, 0);
+        assert_eq!(bounds.max_x, 14);
+        assert_eq!(bounds.max_y, 12);
+        assert_eq!(bounds.width(), 15);
+        assert_eq!(bounds.height(), 12);
     }
 }

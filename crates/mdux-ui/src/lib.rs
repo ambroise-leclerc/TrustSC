@@ -4,6 +4,12 @@ use mdux_core::{DeterminismPolicy, MduxResult, Validates, ValidationError};
 use mdux_governance::RequirementId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutKind {
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GraphicsProfile {
     Vulkan,
     VulkanSc,
@@ -13,6 +19,104 @@ pub enum GraphicsProfile {
 pub enum PipelineMode {
     Dynamic,
     OfflineCompiled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CvCheckKind {
+    Bounds,
+    ColorHash,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SystemEvent {
+    NoOp,
+    TriggerHalt,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LayoutSpec {
+    pub kind: LayoutKind,
+    pub spacing: u16,
+    pub padding: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CriticalButtonSpec {
+    pub requirement_id: &'static str,
+    pub text_key: &'static str,
+    pub color_token: &'static str,
+    pub on_press: SystemEvent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ViewportReservation {
+    pub stream_source: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompiledNodeKind {
+    CriticalButton(CriticalButtonSpec),
+    VulkanViewport(ViewportReservation),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompiledNode {
+    pub id: &'static str,
+    pub bounds: Rect,
+    pub kind: CompiledNodeKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GoldenReferenceEntry {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub text_key: Option<&'static str>,
+    pub color_token: Option<&'static str>,
+    pub cv_checks: &'static [CvCheckKind],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompiledScreenPackage {
+    pub screen_id: &'static str,
+    pub layout: LayoutSpec,
+    pub nodes: &'static [CompiledNode],
+    pub golden_references: &'static [GoldenReferenceEntry],
+}
+
+impl CompiledNodeKind {
+    pub fn requirement_id(&self) -> Option<&'static str> {
+        match self {
+            Self::CriticalButton(specification) => Some(specification.requirement_id),
+            Self::VulkanViewport(_) => None,
+        }
+    }
+
+    pub fn text_key(&self) -> Option<&'static str> {
+        match self {
+            Self::CriticalButton(specification) => Some(specification.text_key),
+            Self::VulkanViewport(_) => None,
+        }
+    }
+}
+
+impl CompiledScreenPackage {
+    pub fn find_node(&self, node_id: &str) -> Option<&CompiledNode> {
+        self.nodes.iter().find(|node| node.id == node_id)
+    }
+
+    pub fn first_critical_button(&self) -> Option<&CompiledNode> {
+        self.nodes
+            .iter()
+            .find(|node| matches!(node.kind, CompiledNodeKind::CriticalButton(_)))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -238,6 +342,58 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Vulkan SC requires explicit reserved memory and descriptor budgets"
+        );
+    }
+
+    #[test]
+    fn finds_first_critical_button_in_compiled_screen() {
+        const SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "Hello",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[
+                CompiledNode {
+                    id: "viewport",
+                    bounds: Rect {
+                        x: 16,
+                        y: 16,
+                        width: 200,
+                        height: 120,
+                    },
+                    kind: CompiledNodeKind::VulkanViewport(ViewportReservation {
+                        stream_source: "STREAM",
+                    }),
+                },
+                CompiledNode {
+                    id: "button",
+                    bounds: Rect {
+                        x: 16,
+                        y: 144,
+                        width: 200,
+                        height: 64,
+                    },
+                    kind: CompiledNodeKind::CriticalButton(CriticalButtonSpec {
+                        requirement_id: "REQ-TEST-001",
+                        text_key: "STR-HELLO-WORLD",
+                        color_token: "Theme.Colors.PrimaryAction",
+                        on_press: SystemEvent::NoOp,
+                    }),
+                },
+            ],
+            golden_references: &[],
+        };
+
+        let button = SCREEN
+            .first_critical_button()
+            .expect("critical button should exist");
+
+        assert_eq!(button.id, "button");
+        assert_eq!(
+            button.kind.text_key(),
+            Some("STR-HELLO-WORLD")
         );
     }
 }
