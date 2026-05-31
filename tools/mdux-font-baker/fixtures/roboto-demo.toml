@@ -1,0 +1,44 @@
+toolchain_id = "mdux-font-baker-fixture-v1"
+unicode_version = "15.1.0"
+atlas_width = 128
+atlas_padding = 1
+
+[font]
+manifest = "../../../assets/fonts/roboto/font-manifest.toml"
+pixel_height = 16
+locales = ["en-US"]
+
+[[approved_strings]]
+id = "STR-HELLO-WORLD"
+run_id = "RUN-HELLO-WORLD"
+locale = "en-US"
+value = "Hello World!"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-DOSE-PREFIX"
+run_id = "RUN-DOSE-PREFIX"
+locale = "en-US"
+value = "Dose "
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-DOSE-SUFFIX"
+run_id = "RUN-DOSE-SUFFIX"
+locale = "en-US"
+value = " mg"
+direction = "ltr"
+
+[[numeric_glyph_sets]]
+id = "SET-ASCII-DIGITS"
+locale = "en-US"
+characters = "0123456789-"
+
+[[numeric_templates]]
+id = "TPL-DOSE"
+locale = "en-US"
+prefix_run_id = "RUN-DOSE-PREFIX"
+suffix_run_id = "RUN-DOSE-SUFFIX"
+glyph_set_id = "SET-ASCII-DIGITS"
+max_chars = 5
+allow_negative = true

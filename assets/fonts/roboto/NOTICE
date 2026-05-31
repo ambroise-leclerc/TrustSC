@@ -1,0 +1,14 @@
+Roboto asset notice
+===================
+
+This directory vendors the unmodified upstream file `Roboto-Regular.ttf`
+from `googlefonts/roboto-2` commit `38062f4b4a0be4346d07a928408da21602545e9e`
+(path `src/hinted/Roboto-Regular.ttf`).
+
+Included upstream materials:
+- `LICENSE`: upstream Apache License 2.0 text.
+- `UPSTREAM-README.md`: upstream repository README captured at the same revision.
+- `HINTED-README.txt`: upstream note describing the `src/hinted/` font artifacts.
+
+The selected upstream revision does not publish a separate `NOTICE` file.
+This file records vendoring attribution and packaging context for future Yocto work.

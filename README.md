@@ -49,6 +49,20 @@ cargo run -p mdux-text-authoring --bin mdux-textc -- describe-pipeline
 
 The default `hello_world` example now opens a real Vulkan window. Use `--headless-smoke` when validating the framework in a non-graphical environment.
 
+## Continuous integration
+
+- `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
+- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto artifacts, and exercises `hello_world` through `--headless-smoke`.
+- Replay the same checks locally with:
+
+```bash
+source $HOME/.cargo/env
+cargo build --locked --workspace
+cargo test --locked --quiet
+cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
+cargo run --locked -q -p hello_world -- --headless-smoke
+```
+
 ## Hello World Vulkan text path
 
 - `examples/hello_world/src/hello_text.rs` embeds a deterministic text package for the approved string `Hello World !`.
@@ -63,6 +77,14 @@ The default `hello_world` example now opens a real Vulkan window. Use `--headles
   - `ADR-005`: pure-Rust project boundary and dependency policy
   - `ADR-006`: Vulkan versus Vulkan SC profile strategy
   - `ADR-007`: ownership and lifecycle of compliance evidence and generated artifacts
+- Host-only third-party tooling used for the default Roboto bake path is tracked in `docs/governance/soup-register.toml`.
+
+## Default Roboto asset governance
+
+- The default approved source asset lives under `assets/fonts/roboto/` and includes the vendored `Roboto-Regular.ttf`, `font-manifest.toml`, `provenance.toml`, and Apache-2.0 notice material (`LICENSE`, `NOTICE`, upstream readmes).
+- `assets/fonts/roboto/font-manifest.toml` is the source of truth for asset identity, digest pinning, and future Yocto-facing install and license fields (`package_name`, `install_subdir`, `license_expression`, `lic_files`, `source_uri`).
+- `generated/fonts/roboto-regular-16px/` contains deterministic generated artifacts (`package.json`, `report.json`) for the approved Roboto fixture. These files are evidence outputs and must be regenerated with `tools/mdux-font-baker/`, not edited by hand.
+- `tools/mdux-font-baker/` is host-only authoring tooling. Its SOUP dependencies stay outside the regulated runtime and outside future Yocto target images; only the reviewed source asset, notices, and generated package outputs cross into packaging or release evidence.
 
 ## Safety-critical text rendering
 

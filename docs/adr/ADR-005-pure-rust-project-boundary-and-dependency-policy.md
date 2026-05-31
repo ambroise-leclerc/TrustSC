@@ -16,6 +16,8 @@ Without an explicit boundary, native SDK wrappers, generated bindings, or foreig
 - These crates may depend only on workspace crates or version-pinned Rust dependencies whose determinism, maintenance, and licensing can be reviewed through the normal workspace process.
 - `unsafe` code, native SDK wrappers, and FFI-facing types are allowed only in edge adapters such as platform examples, harnesses, or future integration crates that translate into owned Rust data before crossing into the governed API boundary.
 - Foreign pointers, handles, and ABI-specific structs shall not appear in the public interfaces of the governed crates. If a new capability cannot satisfy that rule, it requires a new ADR or a separate adapter boundary.
+- Host-side helper binaries under `tools/` (including `tools/mdux-font-baker`) are outside the regulated runtime boundary. They may use additional reviewed third-party crates only when those dependencies are pinned, recorded in the SOUP register, and kept behind a file-based handoff into governed manifests or generated evidence.
+- Host-only tooling and its dependencies shall not be linked into device/runtime crates, installed into future Yocto target images, or treated as part of the validated runtime software item.
 
 ## Consequences
 
