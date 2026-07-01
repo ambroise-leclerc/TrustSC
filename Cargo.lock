@@ -764,6 +764,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-shader-baker"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shaderc",
+ "toml",
+]
+
+[[package]]
 name = "mdux-text-authoring"
 version = "0.1.0"
 dependencies = [

@@ -13,5 +13,6 @@ members = [
     "examples/class_b_device",
     "examples/class_c_vulkansc_device",
     "tools/mdux-font-baker",
+    "tools/mdux-shader-baker",
 ]
 resolver = "2"

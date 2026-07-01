@@ -1,0 +1,305 @@
+//! Host-only tool that compiles reviewed GLSL shader sources into committed SPIR-V evidence, per
+//! ADR-007 (generated-artifact ownership) and ADR-012 (presentation adapter crates and shader
+//! artifact evidence). `bake` produces `.spv` files plus a `report.json` recording per-artifact
+//! SHA-256 digests and the exact shaderc options used; `verify` recompiles from the same reviewed
+//! sources and fails loudly if the committed artifacts, or the toolchain that produced them,
+//! have drifted.
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use mdux_core::{MduxResult, ValidationError};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+const SCHEMA_VERSION: u32 = 1;
+/// Pinned in `tools/mdux-shader-baker/Cargo.toml`; recorded so `verify` can flag toolchain drift
+/// even though the `shaderc` crate does not expose its own version at runtime.
+const SHADERC_CRATE_VERSION: &str = "0.10.1";
+const VULKAN_TARGET_ENV: &str = "vulkan1_0";
+const SPIRV_TARGET_VERSION: &str = "1_0";
+const OPTIMIZATION_LEVEL: &str = "performance";
+
+#[derive(Debug, Deserialize)]
+struct Manifest {
+    /// Directory containing shader sources and their `#include`s, relative to the manifest file.
+    shader_dir: String,
+    shaders: Vec<ShaderEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ShaderEntry {
+    /// Source file name, relative to `shader_dir`.
+    source: String,
+    kind: ShaderKindSpec,
+    /// Output file name, relative to the output directory.
+    output: String,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum ShaderKindSpec {
+    Vertex,
+    Fragment,
+}
+
+impl ShaderKindSpec {
+    fn to_shaderc(self) -> shaderc::ShaderKind {
+        match self {
+            Self::Vertex => shaderc::ShaderKind::Vertex,
+            Self::Fragment => shaderc::ShaderKind::Fragment,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ArtifactRecord {
+    source: String,
+    output: String,
+    sha256: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Report {
+    schema_version: u32,
+    shaderc_crate_version: String,
+    vulkan_target_env: String,
+    spirv_target_version: String,
+    optimization: String,
+    warnings_as_errors: bool,
+    artifacts: Vec<ArtifactRecord>,
+}
+
+pub struct CliInvocation<'a> {
+    pub manifest_path: &'a Path,
+    pub output_dir: &'a Path,
+    pub report_path: &'a Path,
+}
+
+pub struct BakeSummary {
+    pub artifact_count: usize,
+}
+
+pub struct VerifySummary {
+    pub artifact_count: usize,
+}
+
+pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
+    let (manifest, manifest_dir) = load_manifest(invocation.manifest_path)?;
+    let shader_dir = manifest_dir.join(&manifest.shader_dir);
+
+    fs::create_dir_all(invocation.output_dir).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to create output directory {}: {error}",
+            invocation.output_dir.display()
+        ))
+    })?;
+
+    let mut artifacts = Vec::with_capacity(manifest.shaders.len());
+    for shader in &manifest.shaders {
+        let spirv = compile_shader(&shader_dir, shader)?;
+        let output_path = invocation.output_dir.join(&shader.output);
+        fs::write(&output_path, &spirv).map_err(|error| {
+            ValidationError::new(format!(
+                "failed to write compiled shader {}: {error}",
+                output_path.display()
+            ))
+        })?;
+
+        artifacts.push(ArtifactRecord {
+            source: shader.source.clone(),
+            output: shader.output.clone(),
+            sha256: hex_sha256(&spirv),
+        });
+    }
+
+    let report = Report {
+        schema_version: SCHEMA_VERSION,
+        shaderc_crate_version: SHADERC_CRATE_VERSION.to_string(),
+        vulkan_target_env: VULKAN_TARGET_ENV.to_string(),
+        spirv_target_version: SPIRV_TARGET_VERSION.to_string(),
+        optimization: OPTIMIZATION_LEVEL.to_string(),
+        warnings_as_errors: true,
+        artifacts,
+    };
+    write_report(invocation.report_path, &report)?;
+
+    Ok(BakeSummary {
+        artifact_count: report.artifacts.len(),
+    })
+}
+
+pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerifySummary> {
+    let (manifest, manifest_dir) = load_manifest(invocation.manifest_path)?;
+    let shader_dir = manifest_dir.join(&manifest.shader_dir);
+
+    let report_bytes = fs::read(invocation.report_path).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to read report {}: {error}",
+            invocation.report_path.display()
+        ))
+    })?;
+    let report: Report = serde_json::from_slice(&report_bytes).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to parse report {}: {error}",
+            invocation.report_path.display()
+        ))
+    })?;
+
+    if report.shaderc_crate_version != SHADERC_CRATE_VERSION {
+        return Err(ValidationError::new(format!(
+            "report was baked with shaderc {}, but this toolchain pins {}; rerun bake",
+            report.shaderc_crate_version, SHADERC_CRATE_VERSION
+        )));
+    }
+
+    if report.artifacts.len() != manifest.shaders.len() {
+        return Err(ValidationError::new(format!(
+            "report lists {} artifacts but the manifest declares {}; rerun bake",
+            report.artifacts.len(),
+            manifest.shaders.len()
+        )));
+    }
+
+    for (shader, recorded) in manifest.shaders.iter().zip(report.artifacts.iter()) {
+        if shader.source != recorded.source || shader.output != recorded.output {
+            return Err(ValidationError::new(format!(
+                "manifest entry for {} does not match the recorded artifact {}; rerun bake",
+                shader.source, recorded.source
+            )));
+        }
+
+        let freshly_compiled = compile_shader(&shader_dir, shader)?;
+        let fresh_sha256 = hex_sha256(&freshly_compiled);
+        if fresh_sha256 != recorded.sha256 {
+            return Err(ValidationError::new(format!(
+                "{} recompiled to a different SPIR-V digest (recorded {}, now {}); the shader \
+                 source or shaderc toolchain has drifted, rerun bake",
+                shader.source, recorded.sha256, fresh_sha256
+            )));
+        }
+
+        let committed_path = invocation.output_dir.join(&shader.output);
+        let committed_bytes = fs::read(&committed_path).map_err(|error| {
+            ValidationError::new(format!(
+                "failed to read committed artifact {}: {error}",
+                committed_path.display()
+            ))
+        })?;
+        if committed_bytes != freshly_compiled {
+            return Err(ValidationError::new(format!(
+                "committed artifact {} does not match a fresh bake byte-for-byte; rerun bake",
+                committed_path.display()
+            )));
+        }
+    }
+
+    Ok(VerifySummary {
+        artifact_count: report.artifacts.len(),
+    })
+}
+
+fn load_manifest(manifest_path: &Path) -> MduxResult<(Manifest, PathBuf)> {
+    let manifest_text = fs::read_to_string(manifest_path).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to read manifest {}: {error}",
+            manifest_path.display()
+        ))
+    })?;
+    let manifest: Manifest = toml::from_str(&manifest_text).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to parse manifest {}: {error}",
+            manifest_path.display()
+        ))
+    })?;
+    let manifest_dir = manifest_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+
+    Ok((manifest, manifest_dir))
+}
+
+fn compile_shader(shader_dir: &Path, shader: &ShaderEntry) -> MduxResult<Vec<u8>> {
+    let source_path = shader_dir.join(&shader.source);
+    let source_text = fs::read_to_string(&source_path).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to read shader source {}: {error}",
+            source_path.display()
+        ))
+    })?;
+
+    let compiler = shaderc::Compiler::new().map_err(|error| {
+        ValidationError::new(format!("failed to initialize the shaderc compiler: {error}"))
+    })?;
+    let mut options = shaderc::CompileOptions::new().map_err(|error| {
+        ValidationError::new(format!(
+            "failed to initialize shaderc compile options: {error}"
+        ))
+    })?;
+    options.set_source_language(shaderc::SourceLanguage::GLSL);
+    options.set_target_env(
+        shaderc::TargetEnv::Vulkan,
+        shaderc::EnvVersion::Vulkan1_0 as u32,
+    );
+    options.set_target_spirv(shaderc::SpirvVersion::V1_0);
+    options.set_optimization_level(shaderc::OptimizationLevel::Performance);
+    options.set_warnings_as_errors();
+
+    let shader_dir_for_include = shader_dir.to_path_buf();
+    options.set_include_callback(move |requested, _, source, _| {
+        let include_path = shader_dir_for_include.join(requested);
+        let content = fs::read_to_string(&include_path).map_err(|error| {
+            format!("failed to resolve shader include '{requested}' from '{source}': {error}")
+        })?;
+
+        Ok(shaderc::ResolvedInclude {
+            resolved_name: include_path.to_string_lossy().into_owned(),
+            content,
+        })
+    });
+
+    let artifact = compiler
+        .compile_into_spirv(
+            &source_text,
+            shader.kind.to_shaderc(),
+            source_path.to_string_lossy().as_ref(),
+            "main",
+            Some(&options),
+        )
+        .map_err(|error| {
+            ValidationError::new(format!(
+                "failed to compile shader {}: {error}",
+                source_path.display()
+            ))
+        })?;
+
+    Ok(artifact.as_binary_u8().to_vec())
+}
+
+fn write_report(report_path: &Path, report: &Report) -> MduxResult<()> {
+    if let Some(parent) = report_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            ValidationError::new(format!(
+                "failed to create report directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+
+    let json = serde_json::to_string_pretty(report)
+        .map_err(|error| ValidationError::new(format!("failed to serialize report: {error}")))?;
+    fs::write(report_path, format!("{json}\n")).map_err(|error| {
+        ValidationError::new(format!(
+            "failed to write report {}: {error}",
+            report_path.display()
+        ))
+    })
+}
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
