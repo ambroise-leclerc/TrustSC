@@ -44,6 +44,10 @@ macro_rules! include_medui_screen {
     };
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "use FrameworkBuilder::with_screen with a compiled MedUI screen package instead"
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HelloWorldDemoConfig {
     pub manufacturer: String,
@@ -56,6 +60,7 @@ pub struct HelloWorldDemoConfig {
     pub max_frame_time_ms: u32,
 }
 
+#[allow(deprecated)]
 impl Default for HelloWorldDemoConfig {
     fn default() -> Self {
         Self {
@@ -71,11 +76,20 @@ impl Default for HelloWorldDemoConfig {
     }
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "use FrameworkBuilder::with_screen with a compiled MedUI screen package instead"
+)]
 pub struct HelloWorldDemoRun {
     pub framework: Framework,
     pub frame: FrameStatistics,
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "use FrameworkBuilder::with_screen with a compiled MedUI screen package instead"
+)]
+#[allow(deprecated)]
 pub fn build_hello_world_demo(config: HelloWorldDemoConfig) -> MduxResult<Framework> {
     let device = DeviceContext::new(
         config.manufacturer,
@@ -116,6 +130,11 @@ pub fn build_hello_world_demo(config: HelloWorldDemoConfig) -> MduxResult<Framew
         .build()
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "use FrameworkBuilder::with_screen with a compiled MedUI screen package instead"
+)]
+#[allow(deprecated)]
 pub fn run_hello_world_demo(config: HelloWorldDemoConfig) -> MduxResult<HelloWorldDemoRun> {
     let framework = build_hello_world_demo(config)?;
     let frame = framework.render_preview_frame(1);
@@ -128,6 +147,8 @@ pub struct FrameworkBuilder {
     compliance: Option<ComplianceProgram>,
     ui_config: Option<UiSdkConfig>,
     ui_components: Vec<UiComponent>,
+    screen: Option<&'static CompiledScreenPackage>,
+    screen_locale: String,
 }
 
 impl FrameworkBuilder {
@@ -137,6 +158,8 @@ impl FrameworkBuilder {
             compliance: None,
             ui_config: None,
             ui_components: Vec::new(),
+            screen: None,
+            screen_locale: "en-US".to_string(),
         }
     }
 
@@ -160,7 +183,22 @@ impl FrameworkBuilder {
         self
     }
 
-    pub fn build(self) -> MduxResult<Framework> {
+    /// Derives a `UiComponent` for every requirement-bearing node in `screen` (currently every
+    /// `CriticalButton`), resolving its label from the standard approved text package for
+    /// `screen_locale` (default `en-US`, override with [`with_screen_locale`](Self::with_screen_locale)).
+    /// Components derived this way are appended to any added via
+    /// [`add_component`](Self::add_component).
+    pub fn with_screen(mut self, screen: &'static CompiledScreenPackage) -> Self {
+        self.screen = Some(screen);
+        self
+    }
+
+    pub fn with_screen_locale(mut self, locale: impl Into<String>) -> Self {
+        self.screen_locale = locale.into();
+        self
+    }
+
+    pub fn build(mut self) -> MduxResult<Framework> {
         let device = self
             .device
             .ok_or_else(|| ValidationError::new("framework builder requires a device context"))?;
@@ -185,6 +223,31 @@ impl FrameworkBuilder {
             return Err(ValidationError::new(
                 "Class C devices must use the Vulkan SC graphics profile",
             ));
+        }
+
+        if let Some(screen) = self.screen {
+            let text_package = default_standard_text_package()?;
+            for node in screen.nodes {
+                let (Some(text_key), Some(requirement_id)) =
+                    (node.kind.text_key(), node.kind.requirement_id())
+                else {
+                    continue;
+                };
+                let label = text_package
+                    .find_approved_string(text_key, &self.screen_locale)
+                    .map(|approved_string| approved_string.value.clone())
+                    .ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "approved text package does not contain approved string {text_key} for locale {}",
+                            self.screen_locale
+                        ))
+                    })?;
+                self.ui_components.push(UiComponent::new(
+                    node.id,
+                    label,
+                    vec![RequirementId::new(requirement_id)?],
+                )?);
+            }
         }
 
         for component in &self.ui_components {
