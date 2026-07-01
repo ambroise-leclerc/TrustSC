@@ -91,16 +91,3 @@ fn builds_hello_world_demo_through_public_api() {
     );
     assert_eq!(framework.ui_runtime().components()[0].id, "hello-world-label");
 }
-
-#[test]
-#[allow(deprecated)]
-fn deprecated_hello_world_demo_api_still_builds_during_transition() {
-    let run = mdux::run_hello_world_demo(mdux::HelloWorldDemoConfig::default())
-        .expect("deprecated hello world demo should still build and run");
-
-    assert_eq!(
-        run.framework.ui_runtime().config().graphics_profile,
-        GraphicsProfile::Vulkan
-    );
-    assert_eq!(run.frame.frame_index, 1);
-}

@@ -36,5 +36,8 @@ jobs:
       - name: Verify generated Roboto artifacts
         run: cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
 
+      - name: Verify committed SPIR-V shader artifacts
+        run: cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
+
       - name: Run headless hello world smoke test
         run: cargo run --locked -q -p hello_world -- --headless-smoke
