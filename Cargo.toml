@@ -5,6 +5,7 @@ members = [
     "crates/mdux-ui",
     "crates/mdux-ui-dsl-authoring",
     "crates/mdux",
+    "crates/mdux-build",
     "crates/mdux-text-schema",
     "crates/mdux-text-authoring",
     "crates/mdux-text-runtime",
