@@ -103,10 +103,9 @@ cargo run --locked -q -p hello_world -- --headless-smoke
 
 ## Hello World Vulkan text path
 
-- `examples/hello_world/src/hello_text.rs` embeds a deterministic text package for the approved string `Hello World !`.
-- `examples/hello_world/src/vulkan_window.rs` uploads that atlas and renders textured glyph quads with the example's compiled text shaders.
-- `examples/hello_world/hello_world.medui` is compiled by `examples/hello_world/build.rs` into generated screen metadata consumed by the example at runtime.
-- `examples/hello_world/build.rs` also loads the approved text package during compilation so `.medui` text bounds are checked against the widest approved locale before code generation.
+- `examples/hello_world/hello_world.medui` is the entire application-specific content; `examples/hello_world/build.rs` compiles it via `mdux-build`'s `MeduiScreen` into generated screen metadata, brought into scope with `mdux::include_medui_screen!()`.
+- `mdux::screen_text::ScreenTextLayout` (in `crates/mdux`) resolves the screen's approved text into glyph draw commands — this is generic, screen-agnostic logic reused by every application.
+- `adapters/mdux-vulkan-winit` owns everything platform-specific: it uploads the glyph atlas and renders textured quads using shaders precompiled to SPIR-V and committed under `adapters/mdux-vulkan-winit/shaders/generated/` (see `tools/mdux-shader-baker`), so applications need no `ash`/`winit`/`shaderc` dependency of their own.
 - Use `cargo run -p hello_world -- --auto-close-ms=1000` to smoke-test the actual Vulkan text overlay path when a system Vulkan loader is available.
 - `cargo run -p hello_world -- --headless-smoke` is still useful for non-graphical environments, but it intentionally skips the windowed Vulkan text-rendering path.
 

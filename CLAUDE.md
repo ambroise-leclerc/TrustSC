@@ -126,8 +126,10 @@ while still giving humans/LLMs a structured way to author screens.
 Full Unicode/shaping/bidi handling is entirely offline (`mdux-text-authoring`). The runtime
 (`mdux-text-runtime`) only ever consumes pre-compiled, immutable `TextPackage`s and bounded numeric
 templates — no shaping, fallback, or atlas generation on-device. `examples/hello_world` demonstrates
-the full path: `hello_text.rs` embeds the compiled package, `vulkan_window.rs` uploads the atlas and
-renders textured glyph quads via `shaders/hello_text.{vert,frag}`.
+the full path: `mdux::screen_text::ScreenTextLayout` (governed, in `crates/mdux`) resolves the
+compiled screen's approved text into glyph draw commands, and `adapters/mdux-vulkan-winit` uploads
+the atlas and renders textured glyph quads via its committed, precompiled shaders under
+`adapters/mdux-vulkan-winit/shaders/generated/`.
 
 ### Font/asset governance
 
