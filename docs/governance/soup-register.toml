@@ -1,8 +1,8 @@
 schema_version = 1
 register_kind = "mdux-soup-register"
-scope = "host-only-font-tooling"
+scope = "host-tooling-and-presentation-adapters"
 owner = "MduX-rust text authoring maintainers"
-yocto_policy = "Future Yocto integration consumes approved font assets, notices, manifest metadata, and generated package outputs; it does not install the host baker or its third-party crates into the target image."
+yocto_policy = "Future Yocto integration consumes approved font assets, notices, manifest metadata, and generated package outputs; it does not install host baker/shader-baker tooling or their third-party crates into the target image. Presentation-adapter dependencies (ash, ash-window, raw-window-handle, winit) are Class B host-bring-up dependencies reviewed per ADR-012; see each entry's runtime_deployment and integration_path fields."
 
 [[entries]]
 component_id = "fontdue-0.9.3"
@@ -103,4 +103,103 @@ boundary_rationale = "TOML parsing is confined to host-side authoring configurat
 risk_controls = [
     "Fail parsing on invalid manifests or recipes rather than recovering silently.",
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
+
+[[entries]]
+component_id = "ash-0.38.0+1.3.281"
+name = "ash"
+version = "0.38.0+1.3.281"
+classification = "SOUP"
+supplier = "crates.io / ash maintainers"
+repository = "https://github.com/ash-rs/ash"
+license = "MIT OR Apache-2.0"
+usage = "Vulkan 1.x bindings used by the mdux-vulkan-winit presentation adapter for instance/device/swapchain setup, pipeline creation, and frame submission."
+integration_path = "adapters/mdux-vulkan-winit"
+pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+runtime_deployment = true
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012; no ash::vk type crosses into a governed crate's public API."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "The adapter only accepts owned mdux types (Framework, CompiledScreenPackage, ScreenTextLayout) at its public boundary.",
+]
+
+[[entries]]
+component_id = "ash-window-0.13.0"
+name = "ash-window"
+version = "0.13.0"
+classification = "SOUP"
+supplier = "crates.io / ash maintainers"
+repository = "https://github.com/ash-rs/ash"
+license = "MIT OR Apache-2.0"
+usage = "Creates a Vulkan surface from a winit window handle in the mdux-vulkan-winit presentation adapter."
+integration_path = "adapters/mdux-vulkan-winit"
+pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+runtime_deployment = true
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
+
+[[entries]]
+component_id = "raw-window-handle-0.6.2"
+name = "raw-window-handle"
+version = "0.6.2"
+classification = "SOUP"
+supplier = "crates.io / rust-windowing maintainers"
+repository = "https://github.com/rust-windowing/raw-window-handle"
+license = "MIT OR Apache-2.0"
+usage = "Shared windowing-handle trait used to bridge winit windows into ash-window surface creation in the mdux-vulkan-winit presentation adapter."
+integration_path = "adapters/mdux-vulkan-winit"
+pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+runtime_deployment = true
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012; handle types never cross into governed crates."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
+
+[[entries]]
+component_id = "winit-0.29.15"
+name = "winit"
+version = "0.29.15"
+classification = "SOUP"
+supplier = "crates.io / rust-windowing maintainers"
+repository = "https://github.com/rust-windowing/winit"
+license = "MIT OR Apache-2.0"
+usage = "Cross-platform window creation and event-loop pump used by the mdux-vulkan-winit presentation adapter's App runner."
+integration_path = "adapters/mdux-vulkan-winit"
+pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+runtime_deployment = true
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012; no winit type crosses into a governed crate's public API."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "App::run_from_env keeps CLI/CI entry points (--headless-smoke) independent of window-system availability.",
+]
+
+[[entries]]
+component_id = "shaderc-0.10.1"
+name = "shaderc"
+version = "0.10.1"
+classification = "SOUP"
+supplier = "crates.io / google / shaderc-rs maintainers"
+repository = "https://github.com/google/shaderc-rs"
+license = "Apache-2.0"
+usage = "Compiles reviewed GLSL text-shader sources to SPIR-V during host-only baking; the committed .spv artifacts are the reviewed generated evidence, not this crate."
+integration_path = "tools/mdux-shader-baker"
+pinned_by = ["tools/mdux-shader-baker/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate wrapping the Google shaderc C++ library; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to tools/mdux-shader-baker per ADR-007/ADR-012; no application or the mdux-vulkan-winit adapter depends on shaderc directly."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "Record the shaderc version and compile options in report.json so verify can detect toolchain drift.",
+    "Require byte-identical verify against committed .spv artifacts before accepting a rebake.",
 ]
