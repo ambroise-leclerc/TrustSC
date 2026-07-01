@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "adapters/mdux-vulkan-winit",
     "crates/mdux-core",
     "crates/mdux-governance",
     "crates/mdux-ui",

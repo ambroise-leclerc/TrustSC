@@ -818,6 +818,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-vulkan-winit"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "ash-window",
+ "mdux",
+ "raw-window-handle",
+ "winit",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
