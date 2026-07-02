@@ -1,0 +1,8 @@
+[package]
+name = "mdux-build"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mdux = { path = "../mdux" }
+mdux-ui-dsl-authoring = { path = "../mdux-ui-dsl-authoring" }

@@ -731,6 +731,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-build"
+version = "0.1.0"
+dependencies = [
+ "mdux",
+ "mdux-ui-dsl-authoring",
+]
+
+[[package]]
 name = "mdux-core"
 version = "0.1.0"
 

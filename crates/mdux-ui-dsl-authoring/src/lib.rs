@@ -14,14 +14,24 @@ use mdux_ui::{CvCheckKind, LayoutKind, SystemEvent};
 pub struct CompileOptions {
     pub surface_width: u32,
     pub surface_height: u32,
+    pub crate_path: &'static str,
 }
 
 impl CompileOptions {
+    /// Generated code qualifies every type against `::mdux` by default, so the including file
+    /// needs no `use` statements (see `mdux::include_medui_screen!`). Call `with_crate_path` to
+    /// target a different root, e.g. in-crate tests that re-export the same types locally.
     pub const fn new(surface_width: u32, surface_height: u32) -> Self {
         Self {
             surface_width,
             surface_height,
+            crate_path: "::mdux",
         }
+    }
+
+    pub const fn with_crate_path(mut self, crate_path: &'static str) -> Self {
+        self.crate_path = crate_path;
+        self
     }
 }
 
@@ -145,7 +155,7 @@ pub fn compile_medui_source_to_rust(
 ) -> MduxResult<String> {
     let parsed = parse_screen(source)?;
     let compiled = compile_screen(parsed, options, text_package)?;
-    Ok(emit_rust_module(&compiled))
+    Ok(emit_rust_module(&compiled, options.crate_path))
 }
 
 fn parse_screen(source: &str) -> MduxResult<ScreenDefinition> {
@@ -756,45 +766,53 @@ fn resolve_axis_sizes(
         .collect())
 }
 
-fn emit_rust_module(compiled: &CompiledScreenSpec) -> String {
+fn emit_rust_module(compiled: &CompiledScreenSpec, crate_path: &str) -> String {
     let mut output = String::new();
-    let _ = writeln!(output, "pub const GENERATED_PRIMARY_TEXT_NODE_ID: &str = {:?};", compiled
+    let primary_text_node_id = compiled
         .nodes
         .iter()
-        .find_map(|node| matches!(node.kind, NodeKind::CriticalButton { .. }).then_some(node.id.as_str()))
-        .unwrap_or(""));
+        .find_map(|node| matches!(&node.kind, NodeKind::CriticalButton { .. }).then_some(node.id.as_str()))
+        .unwrap_or("");
     let _ = writeln!(
         output,
-        "pub const GENERATED_MEDUI_PACKAGE: CompiledScreenPackage = CompiledScreenPackage {{"
+        "pub const GENERATED_PRIMARY_TEXT_NODE_ID: &str = {primary_text_node_id:?};"
+    );
+    let _ = writeln!(
+        output,
+        "pub const GENERATED_MEDUI_PACKAGE: {crate_path}::CompiledScreenPackage = {crate_path}::CompiledScreenPackage {{"
     );
     let _ = writeln!(output, "    screen_id: {:?},", compiled.id);
     let _ = writeln!(
         output,
-        "    layout: LayoutSpec {{ kind: {}, spacing: {}, padding: {} }},",
-        emit_layout_kind(compiled.layout.kind),
+        "    layout: {crate_path}::LayoutSpec {{ kind: {}, spacing: {}, padding: {} }},",
+        emit_layout_kind(compiled.layout.kind, crate_path),
         compiled.layout.spacing,
         compiled.layout.padding
     );
     let _ = writeln!(output, "    nodes: &[");
     for node in &compiled.nodes {
-        let _ = writeln!(output, "        CompiledNode {{");
+        let _ = writeln!(output, "        {crate_path}::CompiledNode {{");
         let _ = writeln!(output, "            id: {:?},", node.id);
         let _ = writeln!(
             output,
-            "            bounds: Rect {{ x: {}, y: {}, width: {}, height: {} }},",
+            "            bounds: {crate_path}::Rect {{ x: {}, y: {}, width: {}, height: {} }},",
             node.bounds.x, node.bounds.y, node.bounds.width, node.bounds.height
         );
-        let _ = writeln!(output, "            kind: {},", emit_node_kind(&node.kind));
+        let _ = writeln!(
+            output,
+            "            kind: {},",
+            emit_node_kind(&node.kind, crate_path)
+        );
         let _ = writeln!(output, "        }},");
     }
     let _ = writeln!(output, "    ],");
     let _ = writeln!(output, "    golden_references: &[");
     for golden_reference in &compiled.golden_references {
-        let _ = writeln!(output, "        GoldenReferenceEntry {{");
+        let _ = writeln!(output, "        {crate_path}::GoldenReferenceEntry {{");
         let _ = writeln!(output, "            node_id: {:?},", golden_reference.node_id);
         let _ = writeln!(
             output,
-            "            bounds: Rect {{ x: {}, y: {}, width: {}, height: {} }},",
+            "            bounds: {crate_path}::Rect {{ x: {}, y: {}, width: {}, height: {} }},",
             golden_reference.bounds.x,
             golden_reference.bounds.y,
             golden_reference.bounds.width,
@@ -813,23 +831,31 @@ fn emit_rust_module(compiled: &CompiledScreenSpec) -> String {
         let _ = writeln!(
             output,
             "            cv_checks: {},",
-            emit_cv_checks(&golden_reference.cv_checks)
+            emit_cv_checks(&golden_reference.cv_checks, crate_path)
         );
         let _ = writeln!(output, "        }},");
     }
     let _ = writeln!(output, "    ],");
     let _ = writeln!(output, "}};");
+    let _ = writeln!(
+        output,
+        "pub fn screen() -> &'static {crate_path}::CompiledScreenPackage {{ &GENERATED_MEDUI_PACKAGE }}"
+    );
+    let _ = writeln!(
+        output,
+        "pub fn primary_text_node_id() -> &'static str {{ GENERATED_PRIMARY_TEXT_NODE_ID }}"
+    );
     output
 }
 
-fn emit_layout_kind(kind: LayoutKind) -> &'static str {
+fn emit_layout_kind(kind: LayoutKind, crate_path: &str) -> String {
     match kind {
-        LayoutKind::Vertical => "LayoutKind::Vertical",
-        LayoutKind::Horizontal => "LayoutKind::Horizontal",
+        LayoutKind::Vertical => format!("{crate_path}::LayoutKind::Vertical"),
+        LayoutKind::Horizontal => format!("{crate_path}::LayoutKind::Horizontal"),
     }
 }
 
-fn emit_node_kind(kind: &NodeKind) -> String {
+fn emit_node_kind(kind: &NodeKind, crate_path: &str) -> String {
     match kind {
         NodeKind::CriticalButton {
             requirement_id,
@@ -837,19 +863,19 @@ fn emit_node_kind(kind: &NodeKind) -> String {
             color_token,
             on_press,
         } => format!(
-            "CompiledNodeKind::CriticalButton(CriticalButtonSpec {{ requirement_id: {requirement_id:?}, text_key: {label_text_key:?}, color_token: {color_token:?}, on_press: {} }})",
-            emit_system_event(*on_press)
+            "{crate_path}::CompiledNodeKind::CriticalButton({crate_path}::CriticalButtonSpec {{ requirement_id: {requirement_id:?}, text_key: {label_text_key:?}, color_token: {color_token:?}, on_press: {} }})",
+            emit_system_event(*on_press, crate_path)
         ),
         NodeKind::VulkanViewport { stream_source } => format!(
-            "CompiledNodeKind::VulkanViewport(ViewportReservation {{ stream_source: {stream_source:?} }})"
+            "{crate_path}::CompiledNodeKind::VulkanViewport({crate_path}::ViewportReservation {{ stream_source: {stream_source:?} }})"
         ),
     }
 }
 
-fn emit_system_event(event: SystemEvent) -> &'static str {
+fn emit_system_event(event: SystemEvent, crate_path: &str) -> String {
     match event {
-        SystemEvent::NoOp => "SystemEvent::NoOp",
-        SystemEvent::TriggerHalt => "SystemEvent::TriggerHalt",
+        SystemEvent::NoOp => format!("{crate_path}::SystemEvent::NoOp"),
+        SystemEvent::TriggerHalt => format!("{crate_path}::SystemEvent::TriggerHalt"),
     }
 }
 
@@ -859,7 +885,7 @@ fn emit_optional_string(value: Option<&str>) -> String {
         .unwrap_or_else(|| "None".to_string())
 }
 
-fn emit_cv_checks(checks: &[CvCheckKind]) -> String {
+fn emit_cv_checks(checks: &[CvCheckKind], crate_path: &str) -> String {
     if checks.is_empty() {
         "&[]".to_string()
     } else {
@@ -868,8 +894,8 @@ fn emit_cv_checks(checks: &[CvCheckKind]) -> String {
             checks
                 .iter()
                 .map(|check| match check {
-                    CvCheckKind::Bounds => "CvCheckKind::Bounds",
-                    CvCheckKind::ColorHash => "CvCheckKind::ColorHash",
+                    CvCheckKind::Bounds => format!("{crate_path}::CvCheckKind::Bounds"),
+                    CvCheckKind::ColorHash => format!("{crate_path}::CvCheckKind::ColorHash"),
                 })
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -922,7 +948,11 @@ Screen HelloWorld {
         assert!(generated.contains("screen_id: \"HelloWorld\""));
         assert!(generated.contains("id: \"hello-world-label\""));
         assert!(generated.contains("stream_source: \"HELLO_WORLD_SIM\""));
-        assert!(generated.contains("cv_checks: &[CvCheckKind::Bounds, CvCheckKind::ColorHash]"));
+        assert!(generated.contains(
+            "cv_checks: &[::mdux::CvCheckKind::Bounds, ::mdux::CvCheckKind::ColorHash]"
+        ));
+        assert!(generated.contains("pub fn screen() -> &'static ::mdux::CompiledScreenPackage"));
+        assert!(generated.contains("pub fn primary_text_node_id() -> &'static str"));
     }
 
     #[test]
