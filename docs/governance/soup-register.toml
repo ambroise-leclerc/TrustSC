@@ -113,13 +113,13 @@ classification = "SOUP"
 supplier = "crates.io / ash maintainers"
 repository = "https://github.com/ash-rs/ash"
 license = "MIT OR Apache-2.0"
-usage = "Vulkan 1.x bindings used by the mdux-vulkan-winit presentation adapter for instance/device/swapchain setup, pipeline creation, and frame submission."
-integration_path = "adapters/mdux-vulkan-winit"
-pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+usage = "Vulkan 1.x bindings currently used directly by examples/hello_world for instance/device/swapchain setup, pipeline creation, and frame submission. ADR-012 plans to extract this into the mdux-vulkan-winit presentation adapter (adapters/mdux-vulkan-winit, not yet present)."
+integration_path = "examples/hello_world (planned: adapters/mdux-vulkan-winit)"
+pinned_by = ["examples/hello_world/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012; no ash::vk type crosses into a governed crate's public API."
+boundary_rationale = "Confined to the example application today; ADR-012 confines it to the mdux-vulkan-winit edge adapter once extracted. No ash::vk type crosses into a governed crate's public API."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
     "The adapter only accepts owned mdux types (Framework, CompiledScreenPackage, ScreenTextLayout) at its public boundary.",
@@ -133,13 +133,13 @@ classification = "SOUP"
 supplier = "crates.io / ash maintainers"
 repository = "https://github.com/ash-rs/ash"
 license = "MIT OR Apache-2.0"
-usage = "Creates a Vulkan surface from a winit window handle in the mdux-vulkan-winit presentation adapter."
-integration_path = "adapters/mdux-vulkan-winit"
-pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+usage = "Creates a Vulkan surface from a winit window handle, currently used directly by examples/hello_world. ADR-012 plans to extract this into the mdux-vulkan-winit presentation adapter (adapters/mdux-vulkan-winit, not yet present)."
+integration_path = "examples/hello_world (planned: adapters/mdux-vulkan-winit)"
+pinned_by = ["examples/hello_world/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012."
+boundary_rationale = "Confined to the example application today; ADR-012 confines it to the mdux-vulkan-winit edge adapter once extracted."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
 ]
@@ -152,13 +152,13 @@ classification = "SOUP"
 supplier = "crates.io / rust-windowing maintainers"
 repository = "https://github.com/rust-windowing/raw-window-handle"
 license = "MIT OR Apache-2.0"
-usage = "Shared windowing-handle trait used to bridge winit windows into ash-window surface creation in the mdux-vulkan-winit presentation adapter."
-integration_path = "adapters/mdux-vulkan-winit"
-pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+usage = "Shared windowing-handle trait used to bridge winit windows into ash-window surface creation, currently used directly by examples/hello_world. ADR-012 plans to extract this into the mdux-vulkan-winit presentation adapter (adapters/mdux-vulkan-winit, not yet present)."
+integration_path = "examples/hello_world (planned: adapters/mdux-vulkan-winit)"
+pinned_by = ["examples/hello_world/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012; handle types never cross into governed crates."
+boundary_rationale = "Confined to the example application today; ADR-012 confines it to the mdux-vulkan-winit edge adapter once extracted. Handle types never cross into governed crates."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
 ]
@@ -171,16 +171,16 @@ classification = "SOUP"
 supplier = "crates.io / rust-windowing maintainers"
 repository = "https://github.com/rust-windowing/winit"
 license = "MIT OR Apache-2.0"
-usage = "Cross-platform window creation and event-loop pump used by the mdux-vulkan-winit presentation adapter's App runner."
-integration_path = "adapters/mdux-vulkan-winit"
-pinned_by = ["adapters/mdux-vulkan-winit/Cargo.toml", "Cargo.lock"]
+usage = "Cross-platform window creation and event-loop pump, currently used directly by examples/hello_world. ADR-012 plans to extract this into the mdux-vulkan-winit presentation adapter's App runner (adapters/mdux-vulkan-winit, not yet present)."
+integration_path = "examples/hello_world (planned: adapters/mdux-vulkan-winit)"
+pinned_by = ["examples/hello_world/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter per ADR-005/ADR-012; no winit type crosses into a governed crate's public API."
+boundary_rationale = "Confined to the example application today; ADR-012 confines it to the mdux-vulkan-winit edge adapter once extracted. No winit type crosses into a governed crate's public API."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
-    "App::run_from_env keeps CLI/CI entry points (--headless-smoke) independent of window-system availability.",
+    "The planned App::run_from_env will keep CLI/CI entry points (--headless-smoke) independent of window-system availability.",
 ]
 
 [[entries]]
@@ -191,15 +191,15 @@ classification = "SOUP"
 supplier = "crates.io / google / shaderc-rs maintainers"
 repository = "https://github.com/google/shaderc-rs"
 license = "Apache-2.0"
-usage = "Compiles reviewed GLSL text-shader sources to SPIR-V during host-only baking; the committed .spv artifacts are the reviewed generated evidence, not this crate."
-integration_path = "tools/mdux-shader-baker"
-pinned_by = ["tools/mdux-shader-baker/Cargo.toml", "Cargo.lock"]
+usage = "Compiles GLSL text-shader sources to SPIR-V. Currently a direct build-dependency of examples/hello_world; ADR-012 plans to confine this to a host-only tools/mdux-shader-baker (not yet present) that bakes committed .spv artifacts as reviewed generated evidence."
+integration_path = "examples/hello_world (planned: tools/mdux-shader-baker)"
+pinned_by = ["examples/hello_world/Cargo.toml", "Cargo.lock"]
 runtime_deployment = false
 yocto_target_dependency = false
 support_model = "Community-maintained crate wrapping the Google shaderc C++ library; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to tools/mdux-shader-baker per ADR-007/ADR-012; no application or the mdux-vulkan-winit adapter depends on shaderc directly."
+boundary_rationale = "Currently a build-only dependency of the example application; ADR-012 confines it to tools/mdux-shader-baker per ADR-007 once extracted, so no application or the mdux-vulkan-winit adapter will depend on shaderc directly."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
-    "Record the shaderc version and compile options in report.json so verify can detect toolchain drift.",
-    "Require byte-identical verify against committed .spv artifacts before accepting a rebake.",
+    "Once extracted, record the shaderc version and compile options in report.json so verify can detect toolchain drift.",
+    "Once extracted, require byte-identical verify against committed .spv artifacts before accepting a rebake.",
 ]
