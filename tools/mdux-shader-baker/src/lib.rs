@@ -23,6 +23,7 @@ const SPIRV_TARGET_VERSION: &str = "1_0";
 const OPTIMIZATION_LEVEL: &str = "performance";
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Manifest {
     /// Directory containing shader sources and their `#include`s, relative to the manifest file.
     shader_dir: String,
@@ -30,6 +31,7 @@ struct Manifest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ShaderEntry {
     /// Source file name, relative to `shader_dir`.
     source: String,
@@ -101,6 +103,14 @@ pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
     for shader in &manifest.shaders {
         let spirv = compile_shader(&shader_dir, shader)?;
         let output_path = invocation.output_dir.join(&shader.output);
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                ValidationError::new(format!(
+                    "failed to create output directory {}: {error}",
+                    parent.display()
+                ))
+            })?;
+        }
         fs::write(&output_path, &spirv).map_err(|error| {
             ValidationError::new(format!(
                 "failed to write compiled shader {}: {error}",
@@ -148,11 +158,45 @@ pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerifySummary> {
         ))
     })?;
 
+    if report.schema_version != SCHEMA_VERSION {
+        return Err(ValidationError::new(format!(
+            "report schema_version is {}, but this toolchain expects {}; rerun bake",
+            report.schema_version, SCHEMA_VERSION
+        )));
+    }
+
     if report.shaderc_crate_version != SHADERC_CRATE_VERSION {
         return Err(ValidationError::new(format!(
             "report was baked with shaderc {}, but this toolchain pins {}; rerun bake",
             report.shaderc_crate_version, SHADERC_CRATE_VERSION
         )));
+    }
+
+    if report.vulkan_target_env != VULKAN_TARGET_ENV {
+        return Err(ValidationError::new(format!(
+            "report vulkan_target_env is {}, but this toolchain pins {}; rerun bake",
+            report.vulkan_target_env, VULKAN_TARGET_ENV
+        )));
+    }
+
+    if report.spirv_target_version != SPIRV_TARGET_VERSION {
+        return Err(ValidationError::new(format!(
+            "report spirv_target_version is {}, but this toolchain pins {}; rerun bake",
+            report.spirv_target_version, SPIRV_TARGET_VERSION
+        )));
+    }
+
+    if report.optimization != OPTIMIZATION_LEVEL {
+        return Err(ValidationError::new(format!(
+            "report optimization is {}, but this toolchain pins {}; rerun bake",
+            report.optimization, OPTIMIZATION_LEVEL
+        )));
+    }
+
+    if !report.warnings_as_errors {
+        return Err(ValidationError::new(
+            "report warnings_as_errors is false, but this toolchain requires true; rerun bake",
+        ));
     }
 
     if report.artifacts.len() != manifest.shaders.len() {
@@ -250,7 +294,19 @@ fn compile_shader(shader_dir: &Path, shader: &ShaderEntry) -> MduxResult<Vec<u8>
 
     let shader_dir_for_include = shader_dir.to_path_buf();
     options.set_include_callback(move |requested, _, source, _| {
-        let include_path = shader_dir_for_include.join(requested);
+        let requested_path = Path::new(requested);
+        if requested_path.is_absolute()
+            || requested_path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(format!(
+                "shader include '{requested}' from '{source}' must be a relative path within \
+                 the shader directory (absolute paths and '..' are not allowed)"
+            ));
+        }
+
+        let include_path = shader_dir_for_include.join(requested_path);
         let content = fs::read_to_string(&include_path).map_err(|error| {
             format!("failed to resolve shader include '{requested}' from '{source}': {error}")
         })?;
