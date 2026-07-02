@@ -50,20 +50,24 @@ impl ScreenTextLayout {
 
             let run = package.find_run_for_string(text_key, locale).ok_or_else(|| {
                 ValidationError::new(format!(
-                    "approved text package does not contain a compiled run for {text_key} in locale {locale}"
+                    "approved text package does not contain a compiled run for {text_key} in \
+                     locale {locale} (node {})",
+                    node.id
                 ))
             })?;
             let run_id = run.id.clone();
             let run_bounds = package.measure_run_bounds(run)?;
             let origin_x = node.bounds.x.checked_sub(run_bounds.min_x).ok_or_else(|| {
                 ValidationError::new(format!(
-                    "screen text origin x overflowed for node {} run {run_id} (bounds.x={}, run_bounds.min_x={})",
+                    "screen text origin x is out of i32 range for node {} run {run_id} \
+                     (bounds.x={}, run_bounds.min_x={})",
                     node.id, node.bounds.x, run_bounds.min_x
                 ))
             })?;
             let origin_y = node.bounds.y.checked_sub(run_bounds.min_y).ok_or_else(|| {
                 ValidationError::new(format!(
-                    "screen text origin y overflowed for node {} run {run_id} (bounds.y={}, run_bounds.min_y={})",
+                    "screen text origin y is out of i32 range for node {} run {run_id} \
+                     (bounds.y={}, run_bounds.min_y={})",
                     node.id, node.bounds.y, run_bounds.min_y
                 ))
             })?;
