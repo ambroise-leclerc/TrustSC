@@ -59,21 +59,22 @@ This is the central design constraint of the whole workspace. Crates split into 
 directories:
 
 - **`crates/`  — governed crates** — `mdux-core`, `mdux-governance`, `mdux-ui`, `mdux`,
-  `mdux-text-schema`, `mdux-text-authoring`, `mdux-text-runtime` (and `mdux-ui-dsl-authoring` /
-  `mdux-build`, host-side but feeding the governed model) — are pure Rust, `#![forbid(unsafe_code)]`,
-  depend only on each other or version-pinned, reviewable crates. No FFI types, native SDK handles, or
-  bindgen output may appear in their public APIs.
-- **`adapters/` — edge adapter crates** (ADR-012) — e.g. `mdux-vulkan-winit` — may use `unsafe`, native
-  SDK bindings (`ash`, `ash-window`, `raw-window-handle`, `winit`), etc. internally, but every public
-  function must take or return owned Rust data already defined by a governed crate (`Framework`,
-  `CompiledScreenPackage`, `ScreenTextLayout`, ...) — no foreign handle may cross that boundary.
-  Examples (`hello_world`, `class_b_device`, `class_c_vulkansc_device`) are also edge adapters in the
-  ADR-005 sense, but should consume a reusable `adapters/` crate rather than hand-writing platform code.
-- **`tools/` — host-only tooling** (e.g. `mdux-font-baker`, `mdux-shader-baker`) may use additional
-  reviewed third-party crates (`shaderc`, `fontdue`, ...) to bake generated evidence artifacts. This
-  tooling and its dependencies must never be linked into device/runtime crates or shipped in runtime
-  artifacts — they are tracked in `docs/governance/soup-register.toml`, not treated as part of the
-  validated software item.
+  `mdux-text-schema`, `mdux-text-authoring`, `mdux-text-runtime`, `mdux-ui-dsl-authoring` (host-side but
+  feeding the governed model; a planned `mdux-build` will join this list) — are pure Rust,
+  `#![forbid(unsafe_code)]`, depend only on each other or version-pinned, reviewable crates. No FFI
+  types, native SDK handles, or bindgen output may appear in their public APIs.
+- **`adapters/` — edge adapter crates** (ADR-012) — a planned `mdux-vulkan-winit` (not yet present) will
+  use `unsafe`, native SDK bindings (`ash`, `ash-window`, `raw-window-handle`, `winit`), etc. internally,
+  but every public function must take or return owned Rust data already defined by a governed crate
+  (`Framework`, `CompiledScreenPackage`, `ScreenTextLayout`, ...) — no foreign handle may cross that
+  boundary. Examples (`hello_world`, `class_b_device`, `class_c_vulkansc_device`) are also edge adapters
+  in the ADR-005 sense; `hello_world` currently hand-writes its platform code and is planned to migrate
+  to consume the reusable `adapters/` crate once it exists.
+- **`tools/` — host-only tooling** (currently `mdux-font-baker`; a planned `mdux-shader-baker` will join
+  it) may use additional reviewed third-party crates (`shaderc`, `fontdue`, ...) to bake generated
+  evidence artifacts. This tooling and its dependencies must never be linked into device/runtime crates
+  or shipped in runtime artifacts — they are tracked in `docs/governance/soup-register.toml`, not
+  treated as part of the validated software item.
 
 When adding a dependency, first ask which zone the crate lives in — that determines whether the
 dependency is even permissible without a new ADR.
