@@ -29,12 +29,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Preview frame execution in the host smoke demo",
     )?);
 
+    let screen = medui_screen::screen();
     let framework = FrameworkBuilder::new()
         .with_device(device)
         .with_compliance(compliance)
         .with_ui(UiSdkConfig::vulkan_class_b(800, 480, 16))
-        .with_screen(medui_screen::screen())
+        .with_screen(screen)
         .build()?;
 
-    mdux_vulkan_winit::App::new(framework, medui_screen::screen()).run_from_env()
+    mdux_vulkan_winit::App::new(framework, screen).run_from_env()
 }
