@@ -906,9 +906,20 @@ fn create_text_atlas_resources(
         vk::BufferUsageFlags::TRANSFER_SRC,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
     )?;
-    write_buffer(device, staging_memory, &atlas.pixels)?;
+    // From here on, every fallible step must destroy `staging_buffer`/`staging_memory` (and,
+    // once created, `image`/`memory`/`image_view`) before propagating an error: nothing owns
+    // these handles until this function returns `Ok`, so an early `?` would otherwise leak them.
+    let destroy_staging = |device: &ash::Device| unsafe {
+        device.destroy_buffer(staging_buffer, None);
+        device.free_memory(staging_memory, None);
+    };
 
-    let (image, memory) = create_image(
+    if let Err(error) = write_buffer(device, staging_memory, &atlas.pixels) {
+        destroy_staging(device);
+        return Err(error);
+    }
+
+    let (image, memory) = match create_image(
         instance,
         device,
         physical_device,
@@ -918,45 +929,68 @@ fn create_text_atlas_resources(
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
+    ) {
+        Ok(created) => created,
+        Err(error) => {
+            destroy_staging(device);
+            return Err(error);
+        }
+    };
+    let destroy_image = |device: &ash::Device| unsafe {
+        device.destroy_image(image, None);
+        device.free_memory(memory, None);
+    };
 
-    transition_image_layout(
+    let upload_result = transition_image_layout(
         device,
         command_pool,
         graphics_queue,
         image,
         vk::ImageLayout::UNDEFINED,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-    )?;
-    copy_buffer_to_image(
-        device,
-        command_pool,
-        graphics_queue,
-        staging_buffer,
-        image,
-        atlas.width.into(),
-        atlas.height.into(),
-    )?;
-    transition_image_layout(
-        device,
-        command_pool,
-        graphics_queue,
-        image,
-        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-    )?;
-
-    unsafe {
-        device.destroy_buffer(staging_buffer, None);
-        device.free_memory(staging_memory, None);
+    )
+    .and_then(|()| {
+        copy_buffer_to_image(
+            device,
+            command_pool,
+            graphics_queue,
+            staging_buffer,
+            image,
+            atlas.width.into(),
+            atlas.height.into(),
+        )
+    })
+    .and_then(|()| {
+        transition_image_layout(
+            device,
+            command_pool,
+            graphics_queue,
+            image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        )
+    });
+    if let Err(error) = upload_result {
+        destroy_image(device);
+        destroy_staging(device);
+        return Err(error);
     }
 
-    let image_view = create_image_view(
+    destroy_staging(device);
+
+    let image_view = match create_image_view(
         device,
         image,
         vk::Format::R8_UNORM,
         vk::ImageAspectFlags::COLOR,
-    )?;
+    ) {
+        Ok(view) => view,
+        Err(error) => {
+            destroy_image(device);
+            return Err(error);
+        }
+    };
+
     let sampler_info = vk::SamplerCreateInfo::default()
         .mag_filter(vk::Filter::NEAREST)
         .min_filter(vk::Filter::NEAREST)
@@ -965,7 +999,16 @@ fn create_text_atlas_resources(
         .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
         .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
         .max_lod(1.0);
-    let sampler = unsafe { device.create_sampler(&sampler_info, None)? };
+    let sampler = match unsafe { device.create_sampler(&sampler_info, None) } {
+        Ok(sampler) => sampler,
+        Err(error) => {
+            unsafe {
+                device.destroy_image_view(image_view, None);
+            }
+            destroy_image(device);
+            return Err(error.into());
+        }
+    };
 
     Ok(TextAtlasResources {
         image,
@@ -1146,15 +1189,17 @@ fn create_text_pipeline(
         .render_pass(render_pass)
         .subpass(0);
 
-    let pipeline = unsafe {
+    let pipeline_result = unsafe {
         device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
-    }
-    .map_err(|(_, error)| box_error(format!("failed to create text pipeline: {error}")))?[0];
+    };
 
     unsafe {
         device.destroy_shader_module(vertex_shader_module, None);
         device.destroy_shader_module(fragment_shader_module, None);
     }
+
+    let pipeline =
+        pipeline_result.map_err(|(_, error)| box_error(format!("failed to create text pipeline: {error}")))?[0];
 
     Ok(pipeline)
 }
