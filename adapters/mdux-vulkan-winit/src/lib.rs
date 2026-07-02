@@ -17,7 +17,6 @@ mod renderer;
 
 use std::{
     cell::RefCell,
-    mem,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -194,24 +193,16 @@ fn run_windowed(
     Ok(())
 }
 
-/// Takes `renderer` out of the `Option` and intentionally leaks it via [`mem::forget`] instead
-/// of letting it `Drop`, on every shutdown path (close request, render error, auto-close).
+/// Drops the renderer (releasing every Vulkan resource through `VulkanRenderer::drop`) while the
+/// window's platform resources are still alive, before asking the event loop to exit.
 ///
-/// `VulkanRenderer::drop` calls `vkDestroyDevice` after an already-presented swapchain, and on at
-/// least one real (non-virtualized) desktop this segfaults inside the NVIDIA driver 100% of the
-/// time — reproducible regardless of *when* the drop runs (mid-loop, in `LoopExiting`, or after
-/// `event_loop.run` returns) and even with zero frames rendered, so it is not a drop-ordering bug
-/// in this crate. `App::run`/`run_from_env` take `self` by value, so a single `App` can only run
-/// once, but nothing stops a caller from constructing and running several `App`s in one
-/// long-lived process (e.g. reopening a window after the user closes it); each run leaks its
-/// Vulkan instance/device/surface rather than releasing them, and the leaks accumulate for as
-/// long as the process stays alive. For a process that runs one `App` and then exits (the only
-/// usage this crate currently exercises), this has the same practical effect as the old
-/// `process::exit` — the OS reclaims everything on exit — just without hard-exiting the process.
-/// See <https://github.com/ambroise-leclerc/MduX-rust/issues/28> for root-causing the underlying
-/// driver/teardown interaction and removing this workaround.
+/// Historical note (issue #28): this used to `mem::forget` the renderer because dropping it
+/// segfaulted inside `vkDestroyDevice` on real hardware. The root cause was not a driver or
+/// teardown-ordering bug: `VulkanRenderer::new` let ash's `Entry` — which owns the dlopened
+/// libvulkan — drop at the end of the constructor, unmapping the Vulkan loader while direct-ICD
+/// device calls kept working. The first loader-trampoline call (`vkDestroyDevice`) then jumped
+/// into unmapped memory. The renderer now keeps the `Entry` alive for its whole lifetime, and
+/// normal drops are safe again.
 fn shutdown_renderer(renderer: &mut Option<VulkanRenderer>) {
-    if let Some(active_renderer) = renderer.take() {
-        mem::forget(active_renderer);
-    }
+    *renderer = None;
 }
