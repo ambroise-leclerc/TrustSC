@@ -41,6 +41,7 @@ impl ScreenTextLayout {
         locale: &str,
     ) -> MduxResult<Self> {
         let mut runs = Vec::new();
+        let runtime = TextRuntime::<MAX_GLYPH_COMMANDS_PER_RUN>::new(&package)?;
 
         for node in screen.nodes {
             let Some(text_key) = node.kind.text_key() else {
@@ -54,24 +55,23 @@ impl ScreenTextLayout {
             })?;
             let run_id = run.id.clone();
             let run_bounds = package.measure_run_bounds(run)?;
-            let origin_x = node
-                .bounds
-                .x
-                .checked_sub(run_bounds.min_x)
-                .ok_or_else(|| ValidationError::new("screen text origin x underflowed"))?;
-            let origin_y = node
-                .bounds
-                .y
-                .checked_sub(run_bounds.min_y)
-                .ok_or_else(|| ValidationError::new("screen text origin y underflowed"))?;
+            let origin_x = node.bounds.x.checked_sub(run_bounds.min_x).ok_or_else(|| {
+                ValidationError::new(format!(
+                    "screen text origin x overflowed for node {} run {run_id} (bounds.x={}, run_bounds.min_x={})",
+                    node.id, node.bounds.x, run_bounds.min_x
+                ))
+            })?;
+            let origin_y = node.bounds.y.checked_sub(run_bounds.min_y).ok_or_else(|| {
+                ValidationError::new(format!(
+                    "screen text origin y overflowed for node {} run {run_id} (bounds.y={}, run_bounds.min_y={})",
+                    node.id, node.bounds.y, run_bounds.min_y
+                ))
+            })?;
 
-            let commands = {
-                let runtime = TextRuntime::<MAX_GLYPH_COMMANDS_PER_RUN>::new(&package)?;
-                runtime
-                    .render_run(&run_id, origin_x, origin_y)?
-                    .into_iter()
-                    .collect::<Vec<_>>()
-            };
+            let commands = runtime
+                .render_run(&run_id, origin_x, origin_y)?
+                .into_iter()
+                .collect::<Vec<_>>();
 
             runs.push(ScreenTextRun {
                 node_id: node.id,
@@ -82,6 +82,7 @@ impl ScreenTextLayout {
             });
         }
 
+        drop(runtime);
         Ok(Self { package, runs })
     }
 
