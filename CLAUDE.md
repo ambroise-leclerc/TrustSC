@@ -44,6 +44,7 @@ cargo run -p mdux-text-authoring --bin mdux-textc -- describe-pipeline
 cargo build --locked --workspace
 cargo test --locked --quiet
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
+cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
 cargo run --locked -q -p hello_world -- --headless-smoke
 ```
 
@@ -95,13 +96,34 @@ dependency is even permissible without a new ADR.
   (`compile_text_package`), font fingerprinting; ships the `mdux-textc` binary.
 - `mdux-text-runtime` — no-allocation runtime consumer of compiled text packages
   (`TextRuntime`, `GlyphDrawCommand`). This is the only text code that runs on-device.
-- `mdux` — thin facade re-exporting the above plus `FrameworkBuilder`/`Framework`, the standard
-  Roboto text package (`standard_text.rs`), and the `hello_world` demo builder used by tests.
+- `mdux` — thin facade re-exporting the above plus `FrameworkBuilder`/`Framework`,
+  `mdux::screen_text::ScreenTextLayout` (resolves a compiled screen's approved text into glyph
+  draw commands), the standard Roboto text package (`standard_text.rs`), and the
+  `include_medui_screen!` macro.
+- `mdux-build` — host-side build-script helper (`MeduiScreen::new(path).surface(w, h).compile()`)
+  wrapping `mdux-ui-dsl-authoring` so an application's `build.rs` doesn't hand-roll `OUT_DIR`/
+  `rerun-if-changed` plumbing; pairs with `mdux::include_medui_screen!()`.
 
 `FrameworkBuilder` (`crates/mdux/src/lib.rs`) is the composition root: it wires a `DeviceContext` +
 `ComplianceProgram` + `UiSdkConfig` + `UiComponent`s together, cross-validates them (e.g. Class C
 devices are rejected unless the UI config uses the Vulkan SC profile, UI components must reference
 requirements that actually exist in the compliance program), and only then produces a `Framework`.
+`FrameworkBuilder::with_screen(&'static CompiledScreenPackage)` derives a `UiComponent` per
+requirement-bearing screen node automatically, resolving its label from the standard approved text
+package — this is what lets an application skip hand-writing `UiComponent`s for its screen.
+
+### Presentation adapters (`adapters/`) and host tooling (`tools/`)
+
+- `adapters/mdux-vulkan-winit` — the only crate in the workspace that depends on `ash`/`ash-window`/
+  `raw-window-handle`/`winit`. `App::new(framework, screen)` / `.with_locale(..)` /
+  `.run(RunOptions)` / `.run_from_env()` own the Vulkan instance/device/swapchain/pipeline, glyph
+  atlas upload, and the winit event loop; `run_from_env` parses `--headless-smoke` and
+  `--auto-close-ms=<millis>` so every application gets the same CI/manual-smoke behavior. Shaders
+  are precompiled SPIR-V committed under `shaders/generated/` — this crate has no `build.rs`.
+- `tools/mdux-shader-baker` — `bake`/`verify` CLI (mirrors `tools/mdux-font-baker`) that compiles
+  the GLSL sources in `adapters/mdux-vulkan-winit/shaders/` into the committed `.spv` +
+  `report.json` evidence under `shaders/generated/`; host-only, never linked into `adapters/` or
+  `crates/`.
 
 ### The MedUI DSL (ADR-008/009/010/011, `docs/dsl/`)
 
@@ -109,14 +131,17 @@ requirements that actually exist in the compliance program), and only then produ
 Flow (see `docs/dsl/build-integration.md`):
 
 1. author a `.medui` file (see `examples/hello_world/hello_world.medui`)
-2. the example's `build.rs` invokes `mdux-ui-dsl-authoring` to parse/validate it
+2. the example's `build.rs` calls `mdux_build::MeduiScreen::new(path).surface(w, h).compile()`,
+   which invokes `mdux-ui-dsl-authoring` to parse/validate it
 3. every `t("key")` reference is checked against the approved text package across *all* approved
    locales — a component is rejected at compile time if its allocated bounds are too small for the
    widest approved translation
-4. the compiler emits a generated Rust module (`OUT_DIR`) exposing a `CompiledScreenPackage`,
-   including golden-reference entries for any `@safety_critical` node
-5. the runtime only ever consumes the generated `CompiledScreenPackage` — no DSL parsing or dynamic
-   layout solving happens on-device
+4. the compiler emits a generated Rust module (`$OUT_DIR/mdux_medui_screen.rs`) exposing a
+   `CompiledScreenPackage` (via `screen()`) with every type qualified against `::mdux`, including
+   golden-reference entries for any `@safety_critical` node
+5. `mdux::include_medui_screen!()` brings that module into scope as `medui_screen`; the runtime
+   only ever consumes the generated `CompiledScreenPackage` — no DSL parsing or dynamic layout
+   solving happens on-device
 
 This narrow, compile-time-checked boundary is what keeps the runtime deterministic and allocation-free
 while still giving humans/LLMs a structured way to author screens.

@@ -2,6 +2,102 @@
 
 Medical-device manufacturer framework with Class B/Class C compliance modeling and a Vulkan / Vulkan SC-oriented UI SDK.
 
+## A complete medical UI app in ~60 lines
+
+This is the entire `examples/hello_world` application — a real IEC 62304 Class B device with a
+requirement, a verification case, an audit trail, and a Vulkan-rendered screen. No `ash`, `winit`,
+or `shaderc` dependency of its own.
+
+`hello_world.medui`:
+
+```
+Screen HelloWorld {
+    layout: Vertical { spacing: 16px; padding: 24px; }
+
+    @safety_critical(cv_check: [Bounds, ColorHash])
+    CriticalButton {
+        id: hello-world-label;
+        requirement: "REQ-HELLO-001";
+        width: Fill;
+        height: 80px;
+        label: t("STR-HELLO-WORLD");
+        color: Theme.Colors.PrimaryAction;
+        on_press: SystemEvent.NoOp;
+    }
+
+    VulkanViewport {
+        id: hello-world-viewport;
+        width: Fill;
+        height: 280px;
+        stream_source: "HELLO_WORLD_SIM";
+    }
+}
+```
+
+`build.rs`:
+
+```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mdux_build::MeduiScreen::new("hello_world.medui")
+        .surface(800, 480)
+        .compile()
+}
+```
+
+`src/main.rs`:
+
+```rust
+mdux::include_medui_screen!();
+
+use mdux::{
+    ComplianceProgram, DeviceContext, FrameworkBuilder, Requirement, RequirementId, SafetyClass,
+    UiSdkConfig, VerificationCase, VerificationMethod,
+};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let device = DeviceContext::new(
+        "Acme Medical",
+        "MduX-rust Hello World",
+        "hello-world-ui",
+        "0.1.0",
+        SafetyClass::B,
+    )?;
+    let requirement_id = RequirementId::new("REQ-HELLO-001")?;
+
+    let mut compliance = ComplianceProgram::new(device.clone());
+    compliance.add_requirement(Requirement::new(
+        requirement_id.clone(),
+        "Render the hello-world greeting",
+        "IEC62304-5.2",
+        "Verify the smoke demo renders a greeting component",
+    )?);
+    compliance.add_verification(VerificationCase::new(
+        "VER-HELLO-001",
+        requirement_id,
+        VerificationMethod::Test,
+        "Preview frame execution in the host smoke demo",
+    )?);
+
+    let framework = FrameworkBuilder::new()
+        .with_device(device)
+        .with_compliance(compliance)
+        .with_ui(UiSdkConfig::vulkan_class_b(800, 480, 16))
+        .with_screen(medui_screen::screen())
+        .build()?;
+
+    mdux_vulkan_winit::App::new(framework, medui_screen::screen()).run_from_env()
+}
+```
+
+`Cargo.toml` needs only `mdux` + `mdux-vulkan-winit` as dependencies and `mdux-build` as a
+build-dependency — see `examples/hello_world/Cargo.toml`. Run it with `cargo run -p hello_world`
+(opens a window), `-- --auto-close-ms=1000` (closes itself, useful for manual smoke checks), or
+`-- --headless-smoke` (no window, no Vulkan at all — for CI).
+
+Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit event loop, the
+glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
+application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
+
 ## Vulkan prerequisites
 
 The primary development path for MduX is Vulkan-based medical UI work. Install a system Vulkan loader before running the windowed examples.
@@ -46,8 +142,14 @@ If you only need non-graphical validation, `cargo run -p hello_world -- --headle
 - `crates/mdux-text-schema`: shared manifests and immutable compiled text-package schema
 - `crates/mdux-text-authoring`: host-side font intake, deterministic atlas compilation, and asset tooling
 - `crates/mdux-text-runtime`: no-allocation runtime text command generation from approved packages
-- `crates/mdux`: thin facade for building complete framework instances
-- `examples/hello_world`: smallest out-of-the-box smoke demo
+- `crates/mdux`: thin facade for building complete framework instances, plus `screen_text` and
+  `include_medui_screen!`
+- `crates/mdux-build`: build-script helper (`MeduiScreen`) wrapping the `.medui` compiler
+- `adapters/mdux-vulkan-winit`: the reusable Vulkan 1.0 + winit presentation adapter — the only
+  crate depending on `ash`/`winit`
+- `tools/mdux-font-baker`, `tools/mdux-shader-baker`: host-only bake/verify tools for the committed
+  font atlas and SPIR-V shader evidence
+- `examples/hello_world`: smallest out-of-the-box smoke demo (see above)
 - `examples/class_b_device`: Class B Vulkan example
 - `examples/class_c_vulkansc_device`: Class C Vulkan SC example
 
@@ -90,7 +192,7 @@ The same example also includes a minimal `.medui` source file compiled at build 
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
-- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto artifacts, and exercises `hello_world` through `--headless-smoke`.
+- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto and SPIR-V artifacts, and exercises `hello_world` through `--headless-smoke`.
 - Replay the same checks locally with:
 
 ```bash
@@ -98,6 +200,7 @@ source $HOME/.cargo/env
 cargo build --locked --workspace
 cargo test --locked --quiet
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
+cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
 cargo run --locked -q -p hello_world -- --headless-smoke
 ```
 
