@@ -201,10 +201,14 @@ fn run_windowed(
 /// least one real (non-virtualized) desktop this segfaults inside the NVIDIA driver 100% of the
 /// time — reproducible regardless of *when* the drop runs (mid-loop, in `LoopExiting`, or after
 /// `event_loop.run` returns) and even with zero frames rendered, so it is not a drop-ordering bug
-/// in this crate. The process is about to exit anyway on every path that calls this, so the OS
-/// reclaims the leaked instance/device/surface exactly as it did when this crate used
-/// `process::exit` directly; this just avoids doing so through a real segfault. See
-/// <https://github.com/ambroise-leclerc/MduX-rust/issues/28> for root-causing the underlying
+/// in this crate. `App::run`/`run_from_env` take `self` by value, so a single `App` can only run
+/// once, but nothing stops a caller from constructing and running several `App`s in one
+/// long-lived process (e.g. reopening a window after the user closes it); each run leaks its
+/// Vulkan instance/device/surface rather than releasing them, and the leaks accumulate for as
+/// long as the process stays alive. For a process that runs one `App` and then exits (the only
+/// usage this crate currently exercises), this has the same practical effect as the old
+/// `process::exit` — the OS reclaims everything on exit — just without hard-exiting the process.
+/// See <https://github.com/ambroise-leclerc/MduX-rust/issues/28> for root-causing the underlying
 /// driver/teardown interaction and removing this workaround.
 fn shutdown_renderer(renderer: &mut Option<VulkanRenderer>) {
     if let Some(active_renderer) = renderer.take() {

@@ -1212,6 +1212,13 @@ fn create_text_vertex_buffer(
     extent: vk::Extent2D,
 ) -> Result<(vk::Buffer, vk::DeviceMemory, u32), BoxError> {
     let vertices = build_text_vertices(text_layout, extent)?;
+    if vertices.is_empty() {
+        // A screen with no glyph commands (e.g. no text-bearing nodes) has nothing to upload.
+        // Vulkan buffer sizes must be > 0, so skip creation entirely rather than requesting a
+        // zero-sized VERTEX_BUFFER; draw_frame already gates drawing on text_vertex_count > 0.
+        return Ok((vk::Buffer::null(), vk::DeviceMemory::null(), 0));
+    }
+
     let buffer_size = vk::DeviceSize::try_from(size_of_val(vertices.as_slice()))?;
     let (buffer, memory) = create_buffer(
         instance,
@@ -1672,6 +1679,25 @@ mod tests {
                 (last_glyph.y + last_glyph.height) as f32 / atlas.height as f32,
             ],
         );
+    }
+
+    #[test]
+    fn builds_no_vertices_for_a_layout_with_no_text_runs() {
+        let mut layout = test_layout();
+        layout.runs.clear();
+
+        let vertices = build_text_vertices(
+            &layout,
+            vk::Extent2D {
+                width: 320,
+                height: 128,
+            },
+        )
+        .expect("empty layout should still produce a (empty) vertex list");
+
+        // create_text_vertex_buffer must special-case this: Vulkan buffer sizes must be > 0, so
+        // it skips create_buffer entirely rather than requesting a zero-sized VERTEX_BUFFER.
+        assert!(vertices.is_empty());
     }
 
     #[test]
