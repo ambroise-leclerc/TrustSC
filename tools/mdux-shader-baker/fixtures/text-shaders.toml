@@ -1,0 +1,11 @@
+shader_dir = "../../../adapters/mdux-vulkan-winit/shaders"
+
+[[shaders]]
+source = "hello_text.vert"
+kind = "vertex"
+output = "hello_text.vert.spv"
+
+[[shaders]]
+source = "hello_text.frag"
+kind = "fragment"
+output = "hello_text.frag.spv"
