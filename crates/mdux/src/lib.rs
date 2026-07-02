@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod screen_text;
 mod standard_text;
 
 pub use mdux_core::{
