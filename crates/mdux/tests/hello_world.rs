@@ -160,16 +160,3 @@ fn build_rejects_duplicate_ui_component_ids() {
     assert!(error.to_string().contains("duplicate"));
     assert!(error.to_string().contains("hello-world-label"));
 }
-
-#[test]
-#[allow(deprecated)]
-fn deprecated_hello_world_demo_api_still_builds_during_transition() {
-    let run = mdux::run_hello_world_demo(mdux::HelloWorldDemoConfig::default())
-        .expect("deprecated hello world demo should still build and run");
-
-    assert_eq!(
-        run.framework.ui_runtime().config().graphics_profile,
-        GraphicsProfile::Vulkan
-    );
-    assert_eq!(run.frame.frame_index, 1);
-}

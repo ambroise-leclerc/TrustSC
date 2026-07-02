@@ -4,13 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [build-dependencies]
-shaderc = { version = "0.10.1", features = ["build-from-source"] }
-mdux = { path = "../../crates/mdux" }
-mdux-ui-dsl-authoring = { path = "../../crates/mdux-ui-dsl-authoring" }
+mdux-build = { path = "../../crates/mdux-build" }
 
 [dependencies]
 mdux = { path = "../../crates/mdux" }
-ash = { version = "0.38", default-features = false, features = ["loaded"] }
-ash-window = "0.13"
-raw-window-handle = "0.6"
-winit = "0.29"
+mdux-vulkan-winit = { path = "../../adapters/mdux-vulkan-winit" }
