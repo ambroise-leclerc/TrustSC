@@ -4,9 +4,10 @@ Medical-device manufacturer framework with Class B/Class C compliance modeling a
 
 ## A complete medical UI app in ~60 lines
 
-This is the entire `examples/hello_world` application — a real IEC 62304 Class B device with a
-requirement, a verification case, an audit trail, and a Vulkan-rendered screen. No `ash`, `winit`,
-or `shaderc` dependency of its own.
+This is the entire `examples/hello_world` application — a demo that models a Class B device per
+IEC 62304 (a requirement, a verification case, an audit trail, and a Vulkan-rendered screen) using
+this framework's compliance APIs, not a certified medical device. No `ash`, `winit`, or `shaderc`
+dependency of its own.
 
 `hello_world.medui`:
 
