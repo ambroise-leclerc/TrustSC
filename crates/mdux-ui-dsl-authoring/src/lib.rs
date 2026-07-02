@@ -771,7 +771,7 @@ fn emit_rust_module(compiled: &CompiledScreenSpec, crate_path: &str) -> String {
     let primary_text_node_id = compiled
         .nodes
         .iter()
-        .find_map(|node| matches!(node.kind, NodeKind::CriticalButton { .. }).then_some(node.id.as_str()))
+        .find_map(|node| matches!(&node.kind, NodeKind::CriticalButton { .. }).then_some(node.id.as_str()))
         .unwrap_or("");
     let _ = writeln!(
         output,
