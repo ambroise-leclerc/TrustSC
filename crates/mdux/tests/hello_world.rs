@@ -31,7 +31,7 @@ const SCREEN: CompiledScreenPackage = CompiledScreenPackage {
 };
 
 #[test]
-fn builds_hello_world_demo_through_public_api() {
+fn builds_framework_from_screen_through_public_api() {
     let device = DeviceContext::new(
         "Acme Medical",
         "MduX-rust Hello World",

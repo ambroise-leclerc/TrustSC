@@ -166,7 +166,7 @@ cargo build
 cargo test
 
 # run a single test
-cargo test builds_hello_world_demo_through_public_api
+cargo test builds_framework_from_screen_through_public_api
 
 # run the shortest demo (opens a Vulkan window; requires a system Vulkan loader such as libvulkan.dylib / MoltenVK)
 cargo run -p hello_world

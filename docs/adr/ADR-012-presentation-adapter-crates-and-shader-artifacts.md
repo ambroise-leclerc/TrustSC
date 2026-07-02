@@ -32,8 +32,9 @@ renderer can be extracted into a shared crate without reopening ADR-005.
    states the exact platform stack it adapts (Vulkan 1.x windowed rendering via `winit`), leaving room for
    future siblings such as a Vulkan SC offline-pipeline adapter without overloading one crate's scope.
 3. **Committed SPIR-V binaries are generated evidence under the ADR-007 model.** The GLSL shader sources
-   are the reviewed input (already app-agnostic text-rendering shaders, moved to
-   `adapters/mdux-vulkan-winit/shaders/`). A new host-only tool, `tools/mdux-shader-baker`, owns
+   are the reviewed input (already app-agnostic text-rendering shaders, currently in
+   `examples/hello_world/shaders/` and planned to move to `adapters/mdux-vulkan-winit/shaders/` once that
+   crate exists). A new host-only tool, `tools/mdux-shader-baker`, owns
    `bake`/`verify` subcommands that compile GLSL to SPIR-V with pinned `shaderc` options and record a
    `report.json` (per-artifact SHA-256, `shaderc` version, compile options) next to the committed `.spv`
    files, mirroring the `tools/mdux-font-baker` → `generated/fonts/roboto-regular-16px/` pattern. CI runs

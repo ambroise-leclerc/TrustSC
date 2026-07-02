@@ -16,7 +16,9 @@
 mod renderer;
 
 use std::{
-    process,
+    cell::RefCell,
+    mem,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -143,6 +145,9 @@ fn run_windowed(
 
     let started_at = Instant::now();
     let window_id = window.id();
+    let render_error: Rc<RefCell<Option<BoxError>>> = Rc::new(RefCell::new(None));
+    let render_error_for_closure = Rc::clone(&render_error);
+
     event_loop.run(move |event, event_loop_window_target| {
         event_loop_window_target.set_control_flow(ControlFlow::Poll);
 
@@ -152,14 +157,17 @@ fn run_windowed(
                 event,
             } if id == window_id => match event {
                 WindowEvent::CloseRequested => {
-                    process::exit(0);
+                    shutdown_renderer(&mut renderer);
+                    event_loop_window_target.exit();
                 }
                 WindowEvent::Resized(_) => {}
                 WindowEvent::RedrawRequested => {
                     if let Some(active_renderer) = renderer.as_mut() {
                         if let Err(error) = active_renderer.draw_frame(&window) {
                             eprintln!("failed to render frame: {error}");
-                            process::exit(1);
+                            *render_error_for_closure.borrow_mut() = Some(error);
+                            shutdown_renderer(&mut renderer);
+                            event_loop_window_target.exit();
                         }
                     }
                 }
@@ -168,16 +176,38 @@ fn run_windowed(
             Event::AboutToWait => {
                 if let Some(auto_close_after) = auto_close_after {
                     if started_at.elapsed() >= auto_close_after {
-                        process::exit(0);
+                        shutdown_renderer(&mut renderer);
+                        event_loop_window_target.exit();
                     }
                 }
 
                 window.request_redraw();
             }
-            Event::LoopExiting => {}
             _ => {}
         }
     })?;
 
+    if let Some(error) = render_error.borrow_mut().take() {
+        return Err(error);
+    }
+
     Ok(())
+}
+
+/// Takes `renderer` out of the `Option` and intentionally leaks it via [`mem::forget`] instead
+/// of letting it `Drop`, on every shutdown path (close request, render error, auto-close).
+///
+/// `VulkanRenderer::drop` calls `vkDestroyDevice` after an already-presented swapchain, and on at
+/// least one real (non-virtualized) desktop this segfaults inside the NVIDIA driver 100% of the
+/// time — reproducible regardless of *when* the drop runs (mid-loop, in `LoopExiting`, or after
+/// `event_loop.run` returns) and even with zero frames rendered, so it is not a drop-ordering bug
+/// in this crate. The process is about to exit anyway on every path that calls this, so the OS
+/// reclaims the leaked instance/device/surface exactly as it did when this crate used
+/// `process::exit` directly; this just avoids doing so through a real segfault. See
+/// <https://github.com/ambroise-leclerc/MduX-rust/issues/28> for root-causing the underlying
+/// driver/teardown interaction and removing this workaround.
+fn shutdown_renderer(renderer: &mut Option<VulkanRenderer>) {
+    if let Some(active_renderer) = renderer.take() {
+        mem::forget(active_renderer);
+    }
 }
