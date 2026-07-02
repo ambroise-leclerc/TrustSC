@@ -85,11 +85,11 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Derives a `UiComponent` for every requirement-bearing node in `screen` (currently every
-    /// `CriticalButton`), resolving its label from the standard approved text package for
-    /// `screen_locale` (default `en-US`, override with [`with_screen_locale`](Self::with_screen_locale)).
-    /// Components derived this way are appended to any added via
-    /// [`add_component`](Self::add_component).
+    /// Derives a `UiComponent` for every node in `screen` whose kind exposes both a `text_key`
+    /// and a `requirement_id` (currently every `CriticalButton`), resolving its label from the
+    /// standard approved text package for `screen_locale` (default `en-US`, override with
+    /// [`with_screen_locale`](Self::with_screen_locale)). Components derived this way are
+    /// appended to any added via [`add_component`](Self::add_component).
     pub fn with_screen(mut self, screen: &'static CompiledScreenPackage) -> Self {
         self.screen = Some(screen);
         self
@@ -128,6 +128,12 @@ impl FrameworkBuilder {
         }
 
         if let Some(screen) = self.screen {
+            if self.screen_locale.trim().is_empty() {
+                return Err(ValidationError::new(
+                    "screen locale must not be empty or whitespace",
+                ));
+            }
+
             let text_package = default_standard_text_package()?;
             for node in screen.nodes {
                 let (Some(text_key), Some(requirement_id)) =
@@ -152,7 +158,15 @@ impl FrameworkBuilder {
             }
         }
 
+        let mut seen_component_ids = std::collections::HashSet::with_capacity(self.ui_components.len());
         for component in &self.ui_components {
+            if !seen_component_ids.insert(component.id.as_str()) {
+                return Err(ValidationError::new(format!(
+                    "duplicate ui component id {}",
+                    component.id
+                )));
+            }
+
             for requirement_id in &component.requirement_ids {
                 if !compliance.has_requirement(requirement_id) {
                     return Err(ValidationError::new(format!(

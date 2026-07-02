@@ -74,6 +74,7 @@ struct Report {
     artifacts: Vec<ArtifactRecord>,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct CliInvocation<'a> {
     pub manifest_path: &'a Path,
     pub output_dir: &'a Path,
@@ -258,12 +259,46 @@ fn load_manifest(manifest_path: &Path) -> MduxResult<(Manifest, PathBuf)> {
             manifest_path.display()
         ))
     })?;
+
+    // `shader_dir` is deliberately allowed to contain `..` (it commonly walks up from
+    // `tools/mdux-shader-baker/fixtures/` to a sibling like `adapters/*/shaders/`), but it must
+    // still be relative to the manifest file: `manifest_dir.join(absolute)` silently discards
+    // `manifest_dir`, so an absolute value would let the manifest point anywhere on disk.
+    if Path::new(&manifest.shader_dir).is_absolute() {
+        return Err(ValidationError::new(format!(
+            "manifest shader_dir {:?} must be relative to the manifest file, not absolute",
+            manifest.shader_dir
+        )));
+    }
+    for shader in &manifest.shaders {
+        ensure_relative_within_scope(&shader.source, "shaders[].source")?;
+        ensure_relative_within_scope(&shader.output, "shaders[].output")?;
+    }
+
     let manifest_dir = manifest_path
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_default();
 
     Ok((manifest, manifest_dir))
+}
+
+/// Rejects absolute paths and `..` components so `source`/`output` manifest entries can only
+/// name files inside the directory the caller already scoped them to (`shader_dir` for `source`,
+/// the output directory for `output`), never escape it via a crafted or typo'd manifest entry.
+fn ensure_relative_within_scope(value: &str, field: &str) -> MduxResult<()> {
+    let path = Path::new(value);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(ValidationError::new(format!(
+            "manifest {field} {value:?} must be a relative path with no '..' components"
+        )));
+    }
+
+    Ok(())
 }
 
 fn compile_shader(shader_dir: &Path, shader: &ShaderEntry) -> MduxResult<Vec<u8>> {
@@ -358,4 +393,128 @@ fn write_report(report_path: &Path, report: &Report) -> MduxResult<()> {
 fn hex_sha256(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let unique = format!(
+            "{}-{}-{}",
+            prefix,
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).expect("temporary directory should be creatable");
+        path
+    }
+
+    fn fixture_manifest_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/text-shaders.toml")
+    }
+
+    #[test]
+    fn bakes_and_verifies_fixture_manifest() {
+        let manifest_path = fixture_manifest_path();
+        let output_dir = temp_dir("mdux-shader-baker-bake");
+        let report_path = output_dir.join("report.json");
+        let invocation = CliInvocation {
+            manifest_path: &manifest_path,
+            output_dir: &output_dir,
+            report_path: &report_path,
+        };
+
+        let bake_summary = bake(invocation).expect("fixture manifest should bake successfully");
+        assert_eq!(bake_summary.artifact_count, 2);
+        assert!(report_path.exists());
+
+        let verify_summary =
+            verify(invocation).expect("freshly baked artifacts should verify successfully");
+        assert_eq!(verify_summary.artifact_count, bake_summary.artifact_count);
+
+        fs::remove_dir_all(output_dir).expect("temporary output directory should be removable");
+    }
+
+    #[test]
+    fn load_manifest_accepts_shader_dir_with_parent_dir_segments() {
+        // shader_dir legitimately walks up from a fixtures/ directory to a sibling adapter
+        // directory (see fixtures/text-shaders.toml); only an absolute shader_dir is rejected.
+        let (manifest, _) =
+            load_manifest(&fixture_manifest_path()).expect("fixture manifest should load");
+        assert!(manifest.shader_dir.contains(".."));
+    }
+
+    #[test]
+    fn load_manifest_rejects_absolute_shader_dir() {
+        let root = temp_dir("mdux-shader-baker-abs-shader-dir");
+        let manifest_path = root.join("manifest.toml");
+        fs::write(
+            &manifest_path,
+            "shader_dir = \"/etc\"\nshaders = []\n",
+        )
+        .expect("manifest should be writable");
+
+        let error =
+            load_manifest(&manifest_path).expect_err("absolute shader_dir should be rejected");
+        assert!(error.to_string().contains("shader_dir"));
+
+        fs::remove_dir_all(root).expect("temporary directory should be removable");
+    }
+
+    #[test]
+    fn load_manifest_rejects_parent_dir_in_source() {
+        let root = temp_dir("mdux-shader-baker-dotdot-source");
+        let manifest_path = root.join("manifest.toml");
+        fs::write(
+            &manifest_path,
+            "shader_dir = \".\"\n\n[[shaders]]\nsource = \"../Cargo.toml\"\nkind = \"vertex\"\noutput = \"out.spv\"\n",
+        )
+        .expect("manifest should be writable");
+
+        let error = load_manifest(&manifest_path)
+            .expect_err("'..' in shaders[].source should be rejected");
+        assert!(error.to_string().contains("source"));
+
+        fs::remove_dir_all(root).expect("temporary directory should be removable");
+    }
+
+    #[test]
+    fn load_manifest_rejects_absolute_output() {
+        let root = temp_dir("mdux-shader-baker-abs-output");
+        let manifest_path = root.join("manifest.toml");
+        fs::write(
+            &manifest_path,
+            "shader_dir = \".\"\n\n[[shaders]]\nsource = \"x.vert\"\nkind = \"vertex\"\noutput = \"/tmp/x.spv\"\n",
+        )
+        .expect("manifest should be writable");
+
+        let error =
+            load_manifest(&manifest_path).expect_err("absolute output should be rejected");
+        assert!(error.to_string().contains("output"));
+
+        fs::remove_dir_all(root).expect("temporary directory should be removable");
+    }
+
+    #[test]
+    fn load_manifest_rejects_unknown_fields() {
+        let root = temp_dir("mdux-shader-baker-unknown-field");
+        let manifest_path = root.join("manifest.toml");
+        fs::write(
+            &manifest_path,
+            "shader_dir = \".\"\nshader_dirr = \"typo\"\nshaders = []\n",
+        )
+        .expect("manifest should be writable");
+
+        let error =
+            load_manifest(&manifest_path).expect_err("unknown manifest field should be rejected");
+        assert!(error.to_string().contains("shader_dirr") || error.to_string().contains("unknown"));
+
+        fs::remove_dir_all(root).expect("temporary directory should be removable");
+    }
 }
