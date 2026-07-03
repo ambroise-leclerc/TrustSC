@@ -418,7 +418,12 @@ impl VulkanRenderer {
             vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
-        let view = create_image_view(&self.device, image, self.depth_format, vk::ImageAspectFlags::DEPTH)?;
+        let view = create_image_view(
+            &self.device,
+            image,
+            self.depth_format,
+            depth_aspect_mask(self.depth_format),
+        )?;
         self.depth_image = image;
         self.depth_image_memory = memory;
         self.depth_image_view = view;
@@ -1343,6 +1348,18 @@ fn find_depth_format(
         }
     }
     Err(box_error("no supported depth attachment format found"))
+}
+
+/// The image-view aspect mask matching `format`: depth-only formats need `DEPTH`, but
+/// depth-stencil formats (the fallback tier of `find_depth_format`) require `DEPTH | STENCIL` —
+/// a view that omits the stencil aspect of a depth-stencil image is invalid per the Vulkan spec.
+fn depth_aspect_mask(format: vk::Format) -> vk::ImageAspectFlags {
+    match format {
+        vk::Format::D32_SFLOAT_S8_UINT | vk::Format::D24_UNORM_S8_UINT => {
+            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        }
+        _ => vk::ImageAspectFlags::DEPTH,
+    }
 }
 
 fn create_framebuffer(
@@ -2362,6 +2379,19 @@ mod tests {
         .expect_err("missing atlas should fail vertex generation");
 
         assert!(error.to_string().contains("does not contain an atlas"));
+    }
+
+    #[test]
+    fn depth_stencil_formats_get_the_stencil_aspect() {
+        assert!(depth_aspect_mask(vk::Format::D32_SFLOAT) == vk::ImageAspectFlags::DEPTH);
+        assert!(
+            depth_aspect_mask(vk::Format::D32_SFLOAT_S8_UINT)
+                == vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        );
+        assert!(
+            depth_aspect_mask(vk::Format::D24_UNORM_S8_UINT)
+                == vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        );
     }
 
     #[test]
