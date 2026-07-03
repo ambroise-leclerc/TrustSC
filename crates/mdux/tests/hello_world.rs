@@ -160,3 +160,143 @@ fn build_rejects_duplicate_ui_component_ids() {
     assert!(error.to_string().contains("duplicate"));
     assert!(error.to_string().contains("hello-world-label"));
 }
+
+#[test]
+fn build_derives_components_for_dynamic_requirement_bearing_kinds() {
+    use mdux::{NumericDisplaySpec, StatusIndicatorSpec};
+
+    const MONITOR_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "MonitorDerivation",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 8,
+            padding: 16,
+        },
+        nodes: &[
+            CompiledNode {
+                id: "sedation-index",
+                bounds: Rect { x: 16, y: 72, width: 400, height: 120 },
+                kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                    requirement_id: "REQ-NS-001",
+                    template_id: "TPL-SEDATION-INDEX",
+                    source: "SEDATION_INDEX",
+                    color_token: "Theme.Colors.ScoreDigits",
+                }),
+            },
+            CompiledNode {
+                id: "system-status",
+                bounds: Rect { x: 16, y: 16, width: 200, height: 48 },
+                kind: CompiledNodeKind::StatusIndicator(StatusIndicatorSpec {
+                    requirement_id: "REQ-NS-003",
+                    source: "MONITOR_STATUS",
+                    state_text_keys: &["STR-NS-NOMINAL", "STR-NS-ALERT", "STR-NS-FAULT"],
+                    color_tokens: &["Theme.Colors.A", "Theme.Colors.B", "Theme.Colors.C"],
+                }),
+            },
+        ],
+        golden_references: &[],
+    };
+
+    let device = DeviceContext::new(
+        "Acme Medical",
+        "NeuroSense 500",
+        "neurosense-ui",
+        "0.1.0",
+        SafetyClass::B,
+    )
+    .expect("device context should validate");
+
+    let mut compliance = ComplianceProgram::new(device.clone());
+    for (requirement_id, title) in [
+        ("REQ-NS-001", "Display the sedation index"),
+        ("REQ-NS-003", "System status always visible"),
+    ] {
+        let id = RequirementId::new(requirement_id).expect("id should parse");
+        compliance.add_requirement(
+            Requirement::new(id.clone(), title, "IEC62304-5.2", "Verified by test")
+                .expect("requirement should validate"),
+        );
+        compliance.add_verification(
+            VerificationCase::new(
+                format!("VER-{requirement_id}"),
+                id,
+                VerificationMethod::Test,
+                "Integration test",
+            )
+            .expect("verification should validate"),
+        );
+    }
+
+    let framework = FrameworkBuilder::new()
+        .with_device(device)
+        .with_compliance(compliance)
+        .with_ui(UiSdkConfig::vulkan_class_b(800, 480, 16))
+        .with_screen(&MONITOR_SCREEN)
+        .build()
+        .expect("framework should derive components for dynamic kinds");
+
+    let components = framework.ui_runtime().components();
+    assert_eq!(components.len(), 2);
+    let sedation_index = components
+        .iter()
+        .find(|component| component.id == "sedation-index")
+        .expect("sedation-index component should be derived");
+    assert_eq!(sedation_index.label, "sedation-index"); // descriptive label = node id
+    let system_status = components
+        .iter()
+        .find(|component| component.id == "system-status")
+        .expect("system-status component should be derived");
+    assert_eq!(system_status.label, "NOMINAL"); // first state's approved en-US label
+    assert!(framework.trace_matrix_export().contains("REQ-NS-001"));
+    assert!(framework.trace_matrix_export().contains("REQ-NS-003"));
+}
+
+#[test]
+fn record_runtime_event_lands_in_the_audit_export() {
+    let device = DeviceContext::new(
+        "Acme Medical",
+        "MduX-rust Hello World",
+        "hello-world-ui",
+        "0.1.0",
+        SafetyClass::B,
+    )
+    .expect("device context should validate");
+    let requirement_id = RequirementId::new("REQ-HELLO-001").expect("id should parse");
+    let mut compliance = ComplianceProgram::new(device.clone());
+    compliance.add_requirement(
+        Requirement::new(
+            requirement_id.clone(),
+            "Render the hello-world greeting",
+            "IEC62304-5.2",
+            "Verify rendering",
+        )
+        .expect("requirement should validate"),
+    );
+    compliance.add_verification(
+        VerificationCase::new(
+            "VER-HELLO-001",
+            requirement_id,
+            VerificationMethod::Test,
+            "Preview frame",
+        )
+        .expect("verification should validate"),
+    );
+
+    let mut framework = FrameworkBuilder::new()
+        .with_device(device)
+        .with_compliance(compliance)
+        .with_ui(UiSdkConfig::vulkan_class_b(800, 480, 16))
+        .with_screen(&SCREEN)
+        .build()
+        .expect("framework should build");
+
+    framework.record_runtime_event(
+        "vulkan sc host preview: rendering on standard Vulkan for development only",
+    );
+
+    assert!(
+        framework
+            .audit_export()
+            .contains("runtime|vulkan sc host preview")
+    );
+}

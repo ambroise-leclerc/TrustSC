@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod realtime;
 pub mod screen_text;
 mod standard_text;
 
@@ -139,25 +140,64 @@ impl FrameworkBuilder {
 
             let text_package = default_standard_text_package()?;
             for node in screen.nodes {
-                let (Some(text_key), Some(requirement_id)) =
+                // Static requirement-bearing nodes (currently CriticalButton): label resolved
+                // from the approved string the node renders.
+                if let (Some(text_key), Some(requirement_id)) =
                     (node.kind.text_key(), node.kind.requirement_id())
-                else {
+                {
+                    let label = text_package
+                        .find_approved_string(text_key, &self.screen_locale)
+                        .map(|approved_string| approved_string.value.clone())
+                        .ok_or_else(|| {
+                            ValidationError::new(format!(
+                                "approved text package does not contain approved string {text_key} for locale {}",
+                                self.screen_locale
+                            ))
+                        })?;
+                    self.ui_components.push(UiComponent::new(
+                        node.id,
+                        label,
+                        vec![RequirementId::new(requirement_id)?],
+                    )?);
                     continue;
-                };
-                let label = text_package
-                    .find_approved_string(text_key, &self.screen_locale)
-                    .map(|approved_string| approved_string.value.clone())
-                    .ok_or_else(|| {
-                        ValidationError::new(format!(
-                            "approved text package does not contain approved string {text_key} for locale {}",
-                            self.screen_locale
-                        ))
-                    })?;
-                self.ui_components.push(UiComponent::new(
-                    node.id,
-                    label,
-                    vec![RequirementId::new(requirement_id)?],
-                )?);
+                }
+
+                // Dynamic requirement-bearing nodes render varying content, so their traced
+                // component uses a stable descriptive label instead of an approved string: the
+                // node id for a numeric display, the first state's approved label for a status
+                // indicator.
+                match &node.kind {
+                    CompiledNodeKind::NumericDisplay(spec) => {
+                        self.ui_components.push(UiComponent::new(
+                            node.id,
+                            node.id,
+                            vec![RequirementId::new(spec.requirement_id)?],
+                        )?);
+                    }
+                    CompiledNodeKind::StatusIndicator(spec) => {
+                        let first_state_key = spec.state_text_keys.first().ok_or_else(|| {
+                            ValidationError::new(format!(
+                                "status indicator {} declares no states",
+                                node.id
+                            ))
+                        })?;
+                        let label = text_package
+                            .find_approved_string(first_state_key, &self.screen_locale)
+                            .map(|approved_string| approved_string.value.clone())
+                            .ok_or_else(|| {
+                                ValidationError::new(format!(
+                                    "approved text package does not contain approved string {first_state_key} for locale {}",
+                                    self.screen_locale
+                                ))
+                            })?;
+                        self.ui_components.push(UiComponent::new(
+                            node.id,
+                            label,
+                            vec![RequirementId::new(spec.requirement_id)?],
+                        )?);
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -243,5 +283,13 @@ impl Framework {
 
     pub fn render_preview_frame(&self, frame_index: u64) -> FrameStatistics {
         self.ui.render_frame(frame_index)
+    }
+
+    /// Records a `Runtime`-category event on the compliance audit trail. The only
+    /// post-`build()` mutation the facade exposes, introduced by ADR-013 so the presentation
+    /// adapter can make host-preview executions self-documenting in the exported audit log.
+    pub fn record_runtime_event(&mut self, message: impl Into<String>) {
+        self.compliance
+            .record_event(AuditCategory::Runtime, message);
     }
 }
