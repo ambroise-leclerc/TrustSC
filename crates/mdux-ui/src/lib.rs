@@ -61,10 +61,59 @@ pub struct ViewportReservation {
     pub stream_source: &'static str,
 }
 
+/// Static approved text with no interaction and no requirement of its own (titles, units).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LabelSpec {
+    pub text_key: &'static str,
+    pub color_token: &'static str,
+}
+
+/// Wall-clock format rendered by the platform adapter from the system clock.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClockFormat {
+    /// `HH:MM:SS`
+    TimeSeconds,
+    /// `YYYY-MM-DD HH:MM:SS`
+    DateTimeSeconds,
+}
+
+/// Realtime clock display. Content comes from the platform clock via the adapter — the
+/// application writes no code for it — so it carries neither an approved text key nor a
+/// requirement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClockSpec {
+    pub format: ClockFormat,
+}
+
+/// Realtime numeric value bound to an approved `NumericTemplate` and a named data source fed
+/// by the application each frame. Requirement-bearing and eligible for `@safety_critical`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NumericDisplaySpec {
+    pub requirement_id: &'static str,
+    pub template_id: &'static str,
+    pub source: &'static str,
+    pub color_token: &'static str,
+}
+
+/// Enumerated device-state display: `state_text_keys[i]` is the approved label shown when the
+/// application selects state `i`, tinted with `color_tokens[i]`. Requirement-bearing and
+/// eligible for `@safety_critical`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StatusIndicatorSpec {
+    pub requirement_id: &'static str,
+    pub source: &'static str,
+    pub state_text_keys: &'static [&'static str],
+    pub color_tokens: &'static [&'static str],
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompiledNodeKind {
     CriticalButton(CriticalButtonSpec),
     VulkanViewport(ViewportReservation),
+    Label(LabelSpec),
+    Clock(ClockSpec),
+    NumericDisplay(NumericDisplaySpec),
+    StatusIndicator(StatusIndicatorSpec),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -92,17 +141,30 @@ pub struct CompiledScreenPackage {
 }
 
 impl CompiledNodeKind {
+    /// The requirement implemented by this node, when it is a traced interactive/critical
+    /// element. `Label` and `Clock` are deliberately untraced (decorative / platform-fed).
     pub fn requirement_id(&self) -> Option<&'static str> {
         match self {
             Self::CriticalButton(specification) => Some(specification.requirement_id),
-            Self::VulkanViewport(_) => None,
+            Self::NumericDisplay(specification) => Some(specification.requirement_id),
+            Self::StatusIndicator(specification) => Some(specification.requirement_id),
+            Self::VulkanViewport(_) | Self::Label(_) | Self::Clock(_) => None,
         }
     }
 
+    /// The approved string rendered *statically* by this node. Dynamic kinds (`Clock`,
+    /// `NumericDisplay`, `StatusIndicator`) return `None`: their glyphs come from the realtime
+    /// path each frame, not from the startup `ScreenTextLayout`. Consequently `build()`'s
+    /// existing dual-`Some` derivation skips them — deriving their `UiComponent`s is the
+    /// realtime bindings layer's job.
     pub fn text_key(&self) -> Option<&'static str> {
         match self {
             Self::CriticalButton(specification) => Some(specification.text_key),
-            Self::VulkanViewport(_) => None,
+            Self::Label(specification) => Some(specification.text_key),
+            Self::VulkanViewport(_)
+            | Self::Clock(_)
+            | Self::NumericDisplay(_)
+            | Self::StatusIndicator(_) => None,
         }
     }
 }
@@ -343,6 +405,85 @@ mod tests {
             error.to_string(),
             "Vulkan SC requires explicit reserved memory and descriptor budgets"
         );
+    }
+
+    #[test]
+    fn monitor_node_kinds_are_const_constructible_with_documented_accessors() {
+        const MONITOR_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "MonitorKinds",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[
+                CompiledNode {
+                    id: "title",
+                    bounds: Rect { x: 16, y: 16, width: 340, height: 48 },
+                    kind: CompiledNodeKind::Label(LabelSpec {
+                        text_key: "STR-NS-TITLE",
+                        color_token: "Theme.Colors.Title",
+                    }),
+                },
+                CompiledNode {
+                    id: "wall-clock",
+                    bounds: Rect { x: 372, y: 16, width: 400, height: 48 },
+                    kind: CompiledNodeKind::Clock(ClockSpec {
+                        format: ClockFormat::DateTimeSeconds,
+                    }),
+                },
+                CompiledNode {
+                    id: "sedation-index",
+                    bounds: Rect { x: 16, y: 80, width: 400, height: 120 },
+                    kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                        requirement_id: "REQ-NS-001",
+                        template_id: "TPL-SEDATION-INDEX",
+                        source: "SEDATION_INDEX",
+                        color_token: "Theme.Colors.ScoreDigits",
+                    }),
+                },
+                CompiledNode {
+                    id: "system-status",
+                    bounds: Rect { x: 432, y: 80, width: 200, height: 48 },
+                    kind: CompiledNodeKind::StatusIndicator(StatusIndicatorSpec {
+                        requirement_id: "REQ-NS-003",
+                        source: "MONITOR_STATUS",
+                        state_text_keys: &["STR-NS-NOMINAL", "STR-NS-ALERT", "STR-NS-FAULT"],
+                        color_tokens: &[
+                            "Theme.Colors.Nominal",
+                            "Theme.Colors.Alert",
+                            "Theme.Colors.Fault",
+                        ],
+                    }),
+                },
+            ],
+            golden_references: &[],
+        };
+
+        let label = MONITOR_SCREEN.find_node("title").expect("label exists");
+        assert_eq!(label.kind.text_key(), Some("STR-NS-TITLE"));
+        assert_eq!(label.kind.requirement_id(), None);
+
+        let clock = MONITOR_SCREEN.find_node("wall-clock").expect("clock exists");
+        assert_eq!(clock.kind.text_key(), None);
+        assert_eq!(clock.kind.requirement_id(), None);
+
+        let number = MONITOR_SCREEN
+            .find_node("sedation-index")
+            .expect("numeric display exists");
+        assert_eq!(number.kind.text_key(), None);
+        assert_eq!(number.kind.requirement_id(), Some("REQ-NS-001"));
+
+        let status = MONITOR_SCREEN
+            .find_node("system-status")
+            .expect("status indicator exists");
+        assert_eq!(status.kind.text_key(), None);
+        assert_eq!(status.kind.requirement_id(), Some("REQ-NS-003"));
+        if let CompiledNodeKind::StatusIndicator(spec) = status.kind {
+            assert_eq!(spec.state_text_keys.len(), spec.color_tokens.len());
+        } else {
+            panic!("status node should be a StatusIndicator");
+        }
     }
 
     #[test]

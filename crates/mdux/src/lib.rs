@@ -20,10 +20,10 @@ pub use mdux_text_schema::{
     NumericGlyphEntry, NumericGlyphSet, NumericTemplate, TextDirection, TextPackage, TextureAtlas,
 };
 pub use mdux_ui::{
-    CompiledNode, CompiledNodeKind, CompiledScreenPackage, CriticalButtonSpec, CvCheckKind,
-    FrameStatistics, GoldenReferenceEntry, GraphicsProfile, LayoutKind, LayoutSpec,
-    MedicalUiRuntime, PipelineMode, Rect, SystemEvent, UiComponent, UiSdkConfig,
-    ViewportReservation,
+    ClockFormat, ClockSpec, CompiledNode, CompiledNodeKind, CompiledScreenPackage,
+    CriticalButtonSpec, CvCheckKind, FrameStatistics, GoldenReferenceEntry, GraphicsProfile,
+    LabelSpec, LayoutKind, LayoutSpec, MedicalUiRuntime, NumericDisplaySpec, PipelineMode, Rect,
+    StatusIndicatorSpec, SystemEvent, UiComponent, UiSdkConfig, ViewportReservation,
 };
 pub use standard_text::{
     DEFAULT_STANDARD_FONT, DEFAULT_STANDARD_FONT_SOURCE_PATH, DEFAULT_STANDARD_HELLO_WORLD_RUN_ID,
