@@ -196,8 +196,12 @@ impl Validates for NumericGlyphSet {
 pub struct NumericTemplate {
     pub id: String,
     pub locale: String,
-    pub prefix_run_id: String,
-    pub suffix_run_id: String,
+    /// Optional approved run rendered before the digits. `None` means the digits start the
+    /// rendering — required for pure numeric displays (scores, clocks), since approved strings
+    /// cannot be empty or whitespace and therefore cannot stand in for an absent affix.
+    pub prefix_run_id: Option<String>,
+    /// Optional approved run rendered after the digits (same rationale as `prefix_run_id`).
+    pub suffix_run_id: Option<String>,
     pub glyph_set_id: String,
     pub max_chars: u8,
     pub allow_negative: bool,
@@ -207,8 +211,12 @@ impl Validates for NumericTemplate {
     fn validate(&self) -> MduxResult<()> {
         validate_non_empty("numeric template id", &self.id)?;
         validate_non_empty("numeric template locale", &self.locale)?;
-        validate_non_empty("numeric template prefix_run_id", &self.prefix_run_id)?;
-        validate_non_empty("numeric template suffix_run_id", &self.suffix_run_id)?;
+        if let Some(prefix_run_id) = &self.prefix_run_id {
+            validate_non_empty("numeric template prefix_run_id", prefix_run_id)?;
+        }
+        if let Some(suffix_run_id) = &self.suffix_run_id {
+            validate_non_empty("numeric template suffix_run_id", suffix_run_id)?;
+        }
         validate_non_empty("numeric template glyph_set_id", &self.glyph_set_id)?;
         if self.max_chars == 0 {
             return Err(ValidationError::new(
@@ -419,9 +427,15 @@ impl Validates for TextPackage {
         }
 
         for template in &self.numeric_templates {
-            if self.find_run(&template.prefix_run_id).is_none()
-                || self.find_run(&template.suffix_run_id).is_none()
-            {
+            let prefix_missing = template
+                .prefix_run_id
+                .as_deref()
+                .is_some_and(|run_id| self.find_run(run_id).is_none());
+            let suffix_missing = template
+                .suffix_run_id
+                .as_deref()
+                .is_some_and(|run_id| self.find_run(run_id).is_none());
+            if prefix_missing || suffix_missing {
                 return Err(ValidationError::new(
                     "numeric template references an unknown run",
                 ));

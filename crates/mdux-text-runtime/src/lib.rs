@@ -57,17 +57,29 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
             .ok_or_else(|| ValidationError::new("unknown numeric glyph set"))?;
 
         let mut commands = ArrayVec::new();
-        let prefix_run = self
-            .package
-            .find_run(&template.prefix_run_id)
-            .ok_or_else(|| ValidationError::new("unknown prefix run"))?;
-        let suffix_run = self
-            .package
-            .find_run(&template.suffix_run_id)
-            .ok_or_else(|| ValidationError::new("unknown suffix run"))?;
+        let prefix_run = template
+            .prefix_run_id
+            .as_deref()
+            .map(|run_id| {
+                self.package
+                    .find_run(run_id)
+                    .ok_or_else(|| ValidationError::new("unknown prefix run"))
+            })
+            .transpose()?;
+        let suffix_run = template
+            .suffix_run_id
+            .as_deref()
+            .map(|run_id| {
+                self.package
+                    .find_run(run_id)
+                    .ok_or_else(|| ValidationError::new("unknown suffix run"))
+            })
+            .transpose()?;
 
-        let mut cursor_x =
-            self.append_run_commands(&mut commands, prefix_run, origin_x, origin_y)?;
+        let mut cursor_x = origin_x;
+        if let Some(prefix_run) = prefix_run {
+            cursor_x = self.append_run_commands(&mut commands, prefix_run, cursor_x, origin_y)?;
+        }
         let numeric_chars = format_numeric_value(value, template)?;
         cursor_x = self.append_numeric_commands(
             &mut commands,
@@ -76,8 +88,103 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
             cursor_x,
             origin_y,
         )?;
-        self.append_run_commands(&mut commands, suffix_run, cursor_x, origin_y)?;
+        if let Some(suffix_run) = suffix_run {
+            self.append_run_commands(&mut commands, suffix_run, cursor_x, origin_y)?;
+        }
 
+        Ok(commands)
+    }
+
+    /// Renders a wall-clock time as `HH:MM:SS` (eight glyphs, zero-padded) from a numeric glyph
+    /// set that must contain the ten digits and `:`. Bounded like every other runtime path: no
+    /// allocation, capacity enforced by `MAX_COMMANDS`.
+    pub fn render_clock(
+        &self,
+        glyph_set_id: &str,
+        hours: u8,
+        minutes: u8,
+        seconds: u8,
+        origin_x: i32,
+        origin_y: i32,
+    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+        if hours > 23 {
+            return Err(ValidationError::new("clock hours must be in 0..=23"));
+        }
+        if minutes > 59 || seconds > 59 {
+            return Err(ValidationError::new(
+                "clock minutes and seconds must be in 0..=59",
+            ));
+        }
+
+        let characters: ArrayVec<char, 8> = [
+            digit_char(hours / 10),
+            digit_char(hours % 10),
+            ':',
+            digit_char(minutes / 10),
+            digit_char(minutes % 10),
+            ':',
+            digit_char(seconds / 10),
+            digit_char(seconds % 10),
+        ]
+        .into_iter()
+        .collect();
+
+        self.render_glyph_set_characters(glyph_set_id, &characters, origin_x, origin_y)
+    }
+
+    /// Renders a civil date as `YYYY-MM-DD` (ten glyphs, zero-padded) from a numeric glyph set
+    /// that must contain the ten digits and `-`. Bounded; years outside 0..=9999 are rejected.
+    pub fn render_date(
+        &self,
+        glyph_set_id: &str,
+        year: u16,
+        month: u8,
+        day: u8,
+        origin_x: i32,
+        origin_y: i32,
+    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+        if year > 9999 {
+            return Err(ValidationError::new("date year must be in 0..=9999"));
+        }
+        if !(1..=12).contains(&month) {
+            return Err(ValidationError::new("date month must be in 1..=12"));
+        }
+        if !(1..=31).contains(&day) {
+            return Err(ValidationError::new("date day must be in 1..=31"));
+        }
+
+        let characters: ArrayVec<char, 10> = [
+            digit_char((year / 1000) as u8),
+            digit_char((year / 100 % 10) as u8),
+            digit_char((year / 10 % 10) as u8),
+            digit_char((year % 10) as u8),
+            '-',
+            digit_char(month / 10),
+            digit_char(month % 10),
+            '-',
+            digit_char(day / 10),
+            digit_char(day % 10),
+        ]
+        .into_iter()
+        .collect();
+
+        self.render_glyph_set_characters(glyph_set_id, &characters, origin_x, origin_y)
+    }
+
+    fn render_glyph_set_characters(
+        &self,
+        glyph_set_id: &str,
+        characters: &[char],
+        origin_x: i32,
+        origin_y: i32,
+    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+        let glyph_set = self
+            .package
+            .find_numeric_glyph_set(glyph_set_id)
+            .ok_or_else(|| ValidationError::new("unknown numeric glyph set"))?;
+
+        let mut commands = ArrayVec::new();
+        self.append_numeric_commands(&mut commands, glyph_set, characters, origin_x, origin_y)?;
         Ok(commands)
     }
 
@@ -201,6 +308,10 @@ fn format_numeric_value(value: i64, template: &NumericTemplate) -> MduxResult<Ar
     Ok(formatted)
 }
 
+fn digit_char(value: u8) -> char {
+    char::from(b'0' + (value % 10))
+}
+
 #[cfg(test)]
 mod tests {
     use mdux_text_schema::{
@@ -248,6 +359,88 @@ mod tests {
             .expect_err("over-budget numeric value should fail");
 
         assert!(error.to_string().contains("max_chars"));
+    }
+
+    #[test]
+    fn renders_affixless_template_digits_only() {
+        let package = example_package();
+        let runtime = TextRuntime::<16>::new(&package).expect("package should validate");
+
+        let commands = runtime
+            .render_numeric_template("TPL-SCORE", 42, 100, 50)
+            .expect("digits-only template should render");
+
+        let glyph_ids: Vec<u32> = commands.iter().map(|command| command.glyph_id).collect();
+        assert_eq!(glyph_ids, vec![13, 11]); // '4' then '2', no affix glyphs
+        assert_eq!(commands[0].x, 100); // digits start exactly at the origin
+        assert_eq!(commands[1].x, 106);
+        assert_eq!(commands[0].y, 50);
+    }
+
+    #[test]
+    fn renders_clock_as_eight_zero_padded_glyphs() {
+        let package = example_package();
+        let runtime = TextRuntime::<16>::new(&package).expect("package should validate");
+
+        let commands = runtime
+            .render_clock("DIGITS", 7, 5, 30, 0, 0)
+            .expect("clock rendering should succeed");
+
+        // "07:05:30" — glyph ids: 0→20, 7→16, :→3, 0→20, 5→14, :→3, 3→12, 0→20
+        let glyph_ids: Vec<u32> = commands.iter().map(|command| command.glyph_id).collect();
+        assert_eq!(glyph_ids, vec![20, 16, 3, 20, 14, 3, 12, 20]);
+        let xs: Vec<i32> = commands.iter().map(|command| command.x).collect();
+        assert_eq!(xs, vec![0, 6, 12, 18, 24, 30, 36, 42]); // fixed 8-glyph advance
+    }
+
+    #[test]
+    fn renders_date_as_ten_zero_padded_glyphs() {
+        let package = example_package();
+        let runtime = TextRuntime::<16>::new(&package).expect("package should validate");
+
+        let commands = runtime
+            .render_date("DIGITS", 2026, 7, 3, 0, 0)
+            .expect("date rendering should succeed");
+
+        // "2026-07-03" — '2'→11, '0'→20, '2'→11, '6'→15, '-'→2, '0'→20, '7'→16, '-'→2, '0'→20, '3'→12
+        let glyph_ids: Vec<u32> = commands.iter().map(|command| command.glyph_id).collect();
+        assert_eq!(glyph_ids, vec![11, 20, 11, 15, 2, 20, 16, 2, 20, 12]);
+    }
+
+    #[test]
+    fn rejects_out_of_range_clock_and_date_values() {
+        let package = example_package();
+        let runtime = TextRuntime::<16>::new(&package).expect("package should validate");
+
+        let error = runtime
+            .render_clock("DIGITS", 24, 0, 0, 0, 0)
+            .expect_err("hour 24 should be rejected");
+        assert!(error.to_string().contains("0..=23"));
+
+        let error = runtime
+            .render_clock("DIGITS", 0, 60, 0, 0, 0)
+            .expect_err("minute 60 should be rejected");
+        assert!(error.to_string().contains("0..=59"));
+
+        let error = runtime
+            .render_date("DIGITS", 2026, 13, 1, 0, 0)
+            .expect_err("month 13 should be rejected");
+        assert!(error.to_string().contains("1..=12"));
+    }
+
+    #[test]
+    fn rejects_clock_when_glyph_set_lacks_a_character() {
+        let mut package = example_package();
+        package.numeric_glyph_sets[0]
+            .entries
+            .retain(|entry| entry.character != ':');
+        let runtime = TextRuntime::<16>::new(&package).expect("package should validate");
+
+        let error = runtime
+            .render_clock("DIGITS", 1, 2, 3, 0, 0)
+            .expect_err("missing ':' glyph should be rejected");
+
+        assert!(error.to_string().contains("':'"));
     }
 
     fn example_package() -> TextPackage {
@@ -403,17 +596,34 @@ mod tests {
                         atlas_index: 0,
                         advance_x: 6,
                     },
+                    NumericGlyphEntry {
+                        character: ':',
+                        glyph_id: 3,
+                        atlas_index: 0,
+                        advance_x: 6,
+                    },
                 ],
             }],
-            numeric_templates: vec![NumericTemplate {
-                id: "TPL-DOSE".to_string(),
-                locale: "en-US".to_string(),
-                prefix_run_id: "RUN-PREFIX".to_string(),
-                suffix_run_id: "RUN-SUFFIX".to_string(),
-                glyph_set_id: "DIGITS".to_string(),
-                max_chars: 4,
-                allow_negative: false,
-            }],
+            numeric_templates: vec![
+                NumericTemplate {
+                    id: "TPL-DOSE".to_string(),
+                    locale: "en-US".to_string(),
+                    prefix_run_id: Some("RUN-PREFIX".to_string()),
+                    suffix_run_id: Some("RUN-SUFFIX".to_string()),
+                    glyph_set_id: "DIGITS".to_string(),
+                    max_chars: 4,
+                    allow_negative: false,
+                },
+                NumericTemplate {
+                    id: "TPL-SCORE".to_string(),
+                    locale: "en-US".to_string(),
+                    prefix_run_id: None,
+                    suffix_run_id: None,
+                    glyph_set_id: "DIGITS".to_string(),
+                    max_chars: 2,
+                    allow_negative: false,
+                },
+            ],
             evidence: DeterminismEvidence {
                 package_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     .to_string(),
