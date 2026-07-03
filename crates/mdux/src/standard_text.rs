@@ -31,11 +31,20 @@ pub const ROBOTO_DISPLAY_400_48PX: StandardFontDefinition = StandardFontDefiniti
     package_json_path: "generated/fonts/roboto-display-48px/package.json",
 };
 
+pub const ROBOTO_DISPLAY_400_160PX: StandardFontDefinition = StandardFontDefinition {
+    family: "Roboto",
+    weight: 400,
+    pixel_height: 160,
+    package_json_path: "generated/fonts/roboto-display-160px/package.json",
+};
+
 pub const DEFAULT_STANDARD_FONT: StandardFontDefinition = ROBOTO_REGULAR_400_16PX;
 pub const DEFAULT_DISPLAY_FONT: StandardFontDefinition = ROBOTO_DISPLAY_400_48PX;
 
 /// Digit glyph set id of the display package (48 px, digits only).
 pub const DEFAULT_DISPLAY_DIGITS_GLYPH_SET_ID: &str = "SET-DISPLAY-DIGITS-48";
+/// Digit glyph set id of the large display package (160 px = 120 pt, digits only, ADR-014).
+pub const DISPLAY_160_DIGITS_GLYPH_SET_ID: &str = "SET-DISPLAY-DIGITS-160";
 /// Digit + separator glyph set id of the standard package (16 px, `0-9`, `-`, `:`, space) —
 /// the set the clock and date formatters render from.
 pub const DEFAULT_STANDARD_DIGITS_GLYPH_SET_ID: &str = "SET-ASCII-DIGITS";
@@ -50,6 +59,11 @@ include!(concat!(
     "/default_display_text_package.rs"
 ));
 
+include!(concat!(
+    env!("OUT_DIR"),
+    "/default_display_160_text_package.rs"
+));
+
 pub fn default_standard_text_package() -> MduxResult<TextPackage> {
     let package = build_default_standard_text_package();
     package.validate()?;
@@ -62,6 +76,23 @@ pub fn default_display_text_package() -> MduxResult<TextPackage> {
     let package = build_default_display_text_package();
     package.validate()?;
     Ok(package)
+}
+
+/// The approved 160 px (= 120 pt) display package, baked from
+/// `tools/mdux-font-baker/fixtures/roboto-display-160px.toml` (ADR-014).
+pub fn default_display_160_text_package() -> MduxResult<TextPackage> {
+    let package = build_default_display_160_text_package();
+    package.validate()?;
+    Ok(package)
+}
+
+/// Every approved display package, in ascending pixel-height order. NumericDisplay templates
+/// are resolved across all of them with unique-match semantics (ADR-014).
+pub fn default_display_text_packages() -> MduxResult<Vec<TextPackage>> {
+    Ok(vec![
+        default_display_text_package()?,
+        default_display_160_text_package()?,
+    ])
 }
 
 #[cfg(test)]

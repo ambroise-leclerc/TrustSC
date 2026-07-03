@@ -72,13 +72,14 @@ impl MeduiScreen {
         // Both approved packages are always available from the facade; NumericDisplay budgets
         // resolve in the display package, everything else in the standard one (ADR-013).
         let standard_package = mdux::default_standard_text_package()?;
-        let display_package = mdux::default_display_text_package()?;
+        let display_packages = mdux::default_display_text_packages()?;
+        let display_refs = display_packages.iter().collect::<Vec<_>>();
         let image_packages = mdux::default_image_packages()?;
         mdux_ui_dsl_authoring::compile_medui_file_to_rust_module(
             &medui_path,
             &generated_path,
             CompileOptions::new(width, height),
-            TextPackages::with_display(&standard_package, &display_package),
+            TextPackages::with_displays(&standard_package, &display_refs),
             ImagePackages::new(&image_packages),
         )?;
 

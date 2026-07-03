@@ -9,6 +9,8 @@ const DEFAULT_STANDARD_PACKAGE_JSON: &str =
     "../../generated/fonts/roboto-regular-16px/package.json";
 const DEFAULT_DISPLAY_PACKAGE_JSON: &str =
     "../../generated/fonts/roboto-display-48px/package.json";
+const DEFAULT_DISPLAY_160_PACKAGE_JSON: &str =
+    "../../generated/fonts/roboto-display-160px/package.json";
 const GENERATED_IMAGES_DIR: &str = "../../generated/images";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,6 +27,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DEFAULT_DISPLAY_PACKAGE_JSON,
             "build_default_display_text_package",
             "default_display_text_package.rs",
+        ),
+        (
+            DEFAULT_DISPLAY_160_PACKAGE_JSON,
+            "build_default_display_160_text_package",
+            "default_display_160_text_package.rs",
         ),
     ] {
         let package_path = manifest_dir.join(relative_path);

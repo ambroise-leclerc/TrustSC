@@ -1,0 +1,14 @@
+{
+  "report_kind": "mdux-font-baker-report",
+  "package_sha256": "3dd0d7a8066e4b019ae98eded32c5ee28467ecf109bf0928fc767088089549ac",
+  "recipe_sha256": "33429d2f85f6f05e53ebdba293b2cf364787f9d4249876280d2b77d125883902",
+  "atlas_sha256": "e531320d97001bae19ff8b7a9002fd03a6021b22083b249ded79ee1adb2e25ea",
+  "glyph_count": 10,
+  "approved_string_count": 1,
+  "run_count": 1,
+  "numeric_template_count": 1,
+  "font_manifest_path": "assets/fonts/roboto/font-manifest.toml",
+  "font_source_path": "assets/fonts/roboto/Roboto-Regular.ttf",
+  "font_sha256": "56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d",
+  "pipeline": "font-intake -> catalog-compile -> deterministic-atlas -> package-verify"
+}

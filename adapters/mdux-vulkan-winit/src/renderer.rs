@@ -117,6 +117,54 @@ struct WaterfallResources {
     row_offset: u32,
 }
 
+/// One approved display package's GPU text resources and its fixed vertex range in the
+/// persistently mapped dynamic buffer (ADR-013/ADR-014).
+struct DisplayTextResources {
+    atlas: TextAtlasResources,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_set: vk::DescriptorSet,
+    /// First vertex of this package's range in the dynamic buffer.
+    vertex_offset: usize,
+    /// Fixed capacity of the range, in vertices.
+    capacity_vertices: usize,
+    /// Vertices actually written this frame (reset and rewritten by write_dynamic_vertices,
+    /// read by record_command_buffer — no per-frame allocation).
+    written_vertices: u32,
+}
+
+impl DisplayTextResources {
+    fn empty(vertex_offset: usize, capacity_vertices: usize) -> Self {
+        Self {
+            atlas: TextAtlasResources::default(),
+            descriptor_set_layout: vk::DescriptorSetLayout::null(),
+            descriptor_pool: vk::DescriptorPool::null(),
+            descriptor_set: vk::DescriptorSet::null(),
+            vertex_offset,
+            capacity_vertices,
+            written_vertices: 0,
+        }
+    }
+}
+
+/// Computes the fixed `[standard | d0 | d1 | ...]` split of the dynamic vertex buffer from the
+/// per-range quad counts (6 vertices per glyph quad). Returns the standard range's capacity,
+/// each display package's `(offset, capacity)` in vertices, and the total vertex count.
+fn dynamic_buffer_layout(
+    standard_quads: usize,
+    per_display_quads: &[usize],
+) -> (usize, Vec<(usize, usize)>, usize) {
+    let standard_capacity = standard_quads * 6;
+    let mut offset = standard_capacity;
+    let mut ranges = Vec::with_capacity(per_display_quads.len());
+    for &quads in per_display_quads {
+        let capacity = quads * 6;
+        ranges.push((offset, capacity));
+        offset += capacity;
+    }
+    (standard_capacity, ranges, offset)
+}
+
 pub struct VulkanRenderer {
     // Owns the dynamically loaded libvulkan (ash's `loaded` feature dlopens it; dropping the
     // `Entry` dlcloses it). Most device-level calls resolve to ICD entry points and keep working
@@ -156,19 +204,16 @@ pub struct VulkanRenderer {
     // Realtime bindings (ADR-013): capacities fixed at construction, per-frame work limited to
     // rewriting the persistently mapped dynamic buffer and re-recording command buffers.
     bindings: ScreenBindings,
-    // Layout: [standard-package quads | display-package quads], fixed split at
-    // `dynamic_standard_capacity_vertices`. Null/None when the screen has no dynamic text.
+    // Layout: [standard quads | display-0 quads | display-1 quads | ...], fixed split computed
+    // once by `dynamic_buffer_layout`. Null/None when the screen has no dynamic text.
     dynamic_vertex_buffer: vk::Buffer,
     dynamic_vertex_buffer_memory: vk::DeviceMemory,
     dynamic_vertex_ptr: Option<std::ptr::NonNull<TextVertex>>,
     dynamic_standard_capacity_vertices: usize,
-    dynamic_display_capacity_vertices: usize,
-    // Second glyph atlas (display package, 48px digits) with its own descriptor set; the
-    // pipeline layout is shared (identically defined set layouts are compatible).
-    display_atlas: TextAtlasResources,
-    display_descriptor_set_layout: vk::DescriptorSetLayout,
-    display_descriptor_pool: vk::DescriptorPool,
-    display_descriptor_set: vk::DescriptorSet,
+    // One entry per approved display package (index-aligned with `bindings.displays`); each
+    // carries its own glyph atlas + descriptor set (the pipeline layout is shared — identically
+    // defined set layouts are compatible) and its fixed range of the dynamic buffer.
+    display_resources: Vec<DisplayTextResources>,
     // Depth attachment (recreated with the swapchain), required by the 3D waterfall pipeline.
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
@@ -212,7 +257,9 @@ impl VulkanRenderer {
         // Validate both realtime packages once, here: the frame loop then uses
         // `TextRuntime::from_validated_package`, which must not re-run (allocating) validation.
         TextRuntime::<1>::new(&bindings.standard)?;
-        TextRuntime::<1>::new(&bindings.display)?;
+        for display in &bindings.displays {
+            TextRuntime::<1>::new(display)?;
+        }
         let depth_format = find_depth_format(&instance, physical_device)?;
 
         let mut renderer = Self {
@@ -251,11 +298,7 @@ impl VulkanRenderer {
             dynamic_vertex_buffer_memory: vk::DeviceMemory::null(),
             dynamic_vertex_ptr: None,
             dynamic_standard_capacity_vertices: 0,
-            dynamic_display_capacity_vertices: 0,
-            display_atlas: TextAtlasResources::default(),
-            display_descriptor_set_layout: vk::DescriptorSetLayout::null(),
-            display_descriptor_pool: vk::DescriptorPool::null(),
-            display_descriptor_set: vk::DescriptorSet::null(),
+            display_resources: Vec::new(),
             depth_image: vk::Image::null(),
             depth_image_memory: vk::DeviceMemory::null(),
             depth_image_view: vk::ImageView::null(),
@@ -318,13 +361,8 @@ impl VulkanRenderer {
         // The in-flight fence has been waited on: the previous submission using this command
         // buffer and the mapped buffers has fully completed, so all are safe to rewrite.
         self.write_waterfall_heights(inputs)?;
-        let (dynamic_standard_vertices, dynamic_display_vertices) =
-            self.write_dynamic_vertices(inputs, clock)?;
-        self.record_command_buffer(
-            image_index as usize,
-            dynamic_standard_vertices,
-            dynamic_display_vertices,
-        )?;
+        let dynamic_standard_vertices = self.write_dynamic_vertices(inputs, clock)?;
+        self.record_command_buffer(image_index as usize, dynamic_standard_vertices)?;
 
         let wait_semaphores = [self.image_available_semaphore];
         let signal_semaphores = [self.render_finished_semaphore];
@@ -507,12 +545,10 @@ impl VulkanRenderer {
             .map(|binding| binding.capacity)
             .chain(self.bindings.statuses.iter().map(|binding| binding.capacity))
             .sum();
-        let display_quads: usize = self
-            .bindings
-            .numbers
-            .iter()
-            .map(|binding| binding.capacity)
-            .sum();
+        let mut per_display_quads = vec![0usize; self.bindings.displays.len()];
+        for binding in &self.bindings.numbers {
+            per_display_quads[binding.display_index] += binding.capacity;
+        }
 
         // The per-frame renderer uses fixed TextRuntime::<DYNAMIC_RUN_CAPACITY> buffers; every
         // individual binding must fit one render call.
@@ -541,10 +577,9 @@ impl VulkanRenderer {
             }
         }
 
-        self.dynamic_standard_capacity_vertices = standard_quads * 6;
-        self.dynamic_display_capacity_vertices = display_quads * 6;
-        let total_vertices =
-            self.dynamic_standard_capacity_vertices + self.dynamic_display_capacity_vertices;
+        let (standard_capacity, display_ranges, total_vertices) =
+            dynamic_buffer_layout(standard_quads, &per_display_quads);
+        self.dynamic_standard_capacity_vertices = standard_capacity;
         if total_vertices == 0 {
             return Ok(());
         }
@@ -566,42 +601,54 @@ impl VulkanRenderer {
         self.dynamic_vertex_buffer_memory = memory;
         self.dynamic_vertex_ptr = std::ptr::NonNull::new(mapped.cast::<TextVertex>());
 
-        if display_quads > 0 {
-            self.display_atlas = create_text_atlas_resources(
-                &self.instance,
-                &self.device,
-                self.physical_device,
-                self.command_pool,
-                self.graphics_queue,
-                &self.bindings.display,
-            )?;
-            let (descriptor_set_layout, descriptor_pool, descriptor_set) =
-                create_text_descriptor_resources(&self.device, &self.display_atlas)?;
-            self.display_descriptor_set_layout = descriptor_set_layout;
-            self.display_descriptor_pool = descriptor_pool;
-            self.display_descriptor_set = descriptor_set;
+        for (display_index, &(vertex_offset, capacity_vertices)) in
+            display_ranges.iter().enumerate()
+        {
+            let mut resources = DisplayTextResources::empty(vertex_offset, capacity_vertices);
+            // Packages no numeric display uses get no GPU resources — offset bookkeeping only.
+            if capacity_vertices > 0 {
+                resources.atlas = create_text_atlas_resources(
+                    &self.instance,
+                    &self.device,
+                    self.physical_device,
+                    self.command_pool,
+                    self.graphics_queue,
+                    &self.bindings.displays[display_index],
+                )?;
+                let (descriptor_set_layout, descriptor_pool, descriptor_set) =
+                    create_text_descriptor_resources(&self.device, &resources.atlas)?;
+                resources.descriptor_set_layout = descriptor_set_layout;
+                resources.descriptor_pool = descriptor_pool;
+                resources.descriptor_set = descriptor_set;
+            }
+            self.display_resources.push(resources);
         }
 
         Ok(())
     }
 
     /// Rewrites the persistently mapped dynamic vertex buffer from the drained frame inputs:
-    /// clocks and status states from the standard package (first range), numeric displays from
-    /// the display package (second range). Returns the vertex counts of both ranges. No
-    /// allocation: bounded ArrayVec renders + in-place quad writes.
+    /// clocks and status states from the standard package (first range), numeric displays each
+    /// into their own package's range. Returns the standard range's vertex count; per-display
+    /// counts land in `DisplayTextResources::written_vertices` (read by record_command_buffer —
+    /// no per-frame allocation). Bounded ArrayVec renders + in-place quad writes only.
     fn write_dynamic_vertices(
         &mut self,
         inputs: &FrameInputs,
         clock: WallClock,
-    ) -> Result<(u32, u32), BoxError> {
+    ) -> Result<u32, BoxError> {
         let Some(pointer) = self.dynamic_vertex_ptr else {
-            return Ok((0, 0));
+            return Ok(0);
         };
         let extent = self.current_extent;
         let surface_width = extent.width.max(1) as f32;
         let surface_height = extent.height.max(1) as f32;
-        let total_vertices =
-            self.dynamic_standard_capacity_vertices + self.dynamic_display_capacity_vertices;
+        let total_vertices = self.dynamic_standard_capacity_vertices
+            + self
+                .display_resources
+                .iter()
+                .map(|resources| resources.capacity_vertices)
+                .sum::<usize>();
         // Safety: the buffer was mapped once at creation with exactly this vertex capacity, and
         // the in-flight fence waited in draw_frame guarantees the GPU is done reading it.
         let vertices =
@@ -609,8 +656,6 @@ impl VulkanRenderer {
 
         let standard_runtime =
             TextRuntime::<DYNAMIC_RUN_CAPACITY>::from_validated_package(&self.bindings.standard);
-        let display_runtime =
-            TextRuntime::<DYNAMIC_RUN_CAPACITY>::from_validated_package(&self.bindings.display);
 
         let mut standard_cursor = 0usize;
         for binding in &self.bindings.clocks {
@@ -700,8 +745,23 @@ impl VulkanRenderer {
             )?;
         }
 
-        let mut display_cursor = self.dynamic_standard_capacity_vertices;
+        for resources in &mut self.display_resources {
+            resources.written_vertices = 0;
+        }
         for binding in &self.bindings.numbers {
+            let display = &self.bindings.displays[binding.display_index];
+            let display_runtime =
+                TextRuntime::<DYNAMIC_RUN_CAPACITY>::from_validated_package(display);
+            let (range_offset, range_end, written_so_far) = {
+                let resources = &self.display_resources[binding.display_index];
+                (
+                    resources.vertex_offset,
+                    resources.vertex_offset + resources.capacity_vertices,
+                    resources.written_vertices as usize,
+                )
+            };
+            let mut cursor = range_offset + written_so_far;
+
             let value = inputs.number(binding.source).unwrap_or(0);
             let commands = display_runtime.render_numeric_template(
                 &binding.template_id,
@@ -711,19 +771,18 @@ impl VulkanRenderer {
             )?;
             write_glyph_quads(
                 vertices,
-                &mut display_cursor,
-                total_vertices,
+                &mut cursor,
+                range_end,
                 &commands,
-                &self.bindings.display,
+                display,
                 surface_width,
                 surface_height,
             )?;
+            self.display_resources[binding.display_index].written_vertices =
+                (cursor - range_offset) as u32;
         }
 
-        Ok((
-            standard_cursor as u32,
-            (display_cursor - self.dynamic_standard_capacity_vertices) as u32,
-        ))
+        Ok(standard_cursor as u32)
     }
 
     /// Allocates the per-stream waterfall machinery once: the persistently mapped height array
@@ -871,7 +930,6 @@ impl VulkanRenderer {
         &self,
         image_index: usize,
         dynamic_standard_vertices: u32,
-        dynamic_display_vertices: u32,
     ) -> Result<(), BoxError> {
         let command_buffer = self.command_buffers[image_index];
         let extent = self.current_extent;
@@ -973,7 +1031,11 @@ impl VulkanRenderer {
 
             let has_static = self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
             let has_dynamic = self.text_pipeline != vk::Pipeline::null()
-                && (dynamic_standard_vertices > 0 || dynamic_display_vertices > 0);
+                && (dynamic_standard_vertices > 0
+                    || self
+                        .display_resources
+                        .iter()
+                        .any(|resources| resources.written_vertices > 0));
 
             if has_static || has_dynamic {
                 let viewport = vk::Viewport {
@@ -1051,8 +1113,11 @@ impl VulkanRenderer {
                             .cmd_draw(command_buffer, dynamic_standard_vertices, 1, 0, 0);
                     }
 
-                    if dynamic_display_vertices > 0 {
-                        let descriptor_sets = [self.display_descriptor_set];
+                    for resources in &self.display_resources {
+                        if resources.written_vertices == 0 {
+                            continue;
+                        }
+                        let descriptor_sets = [resources.descriptor_set];
                         self.device.cmd_bind_descriptor_sets(
                             command_buffer,
                             vk::PipelineBindPoint::GRAPHICS,
@@ -1063,9 +1128,9 @@ impl VulkanRenderer {
                         );
                         self.device.cmd_draw(
                             command_buffer,
-                            dynamic_display_vertices,
+                            resources.written_vertices,
                             1,
-                            self.dynamic_standard_capacity_vertices as u32,
+                            resources.vertex_offset as u32,
                             0,
                         );
                     }
@@ -1155,33 +1220,27 @@ impl VulkanRenderer {
                     .free_memory(self.dynamic_vertex_buffer_memory, None);
                 self.dynamic_vertex_buffer_memory = vk::DeviceMemory::null();
             }
-            if self.display_descriptor_pool != vk::DescriptorPool::null() {
-                self.device
-                    .destroy_descriptor_pool(self.display_descriptor_pool, None);
-                self.display_descriptor_pool = vk::DescriptorPool::null();
-            }
-            self.display_descriptor_set = vk::DescriptorSet::null();
-            if self.display_descriptor_set_layout != vk::DescriptorSetLayout::null() {
-                self.device
-                    .destroy_descriptor_set_layout(self.display_descriptor_set_layout, None);
-                self.display_descriptor_set_layout = vk::DescriptorSetLayout::null();
-            }
-            if self.display_atlas.sampler != vk::Sampler::null() {
-                self.device.destroy_sampler(self.display_atlas.sampler, None);
-                self.display_atlas.sampler = vk::Sampler::null();
-            }
-            if self.display_atlas.image_view != vk::ImageView::null() {
-                self.device
-                    .destroy_image_view(self.display_atlas.image_view, None);
-                self.display_atlas.image_view = vk::ImageView::null();
-            }
-            if self.display_atlas.image != vk::Image::null() {
-                self.device.destroy_image(self.display_atlas.image, None);
-                self.display_atlas.image = vk::Image::null();
-            }
-            if self.display_atlas.memory != vk::DeviceMemory::null() {
-                self.device.free_memory(self.display_atlas.memory, None);
-                self.display_atlas.memory = vk::DeviceMemory::null();
+            for resources in self.display_resources.drain(..) {
+                if resources.descriptor_pool != vk::DescriptorPool::null() {
+                    self.device
+                        .destroy_descriptor_pool(resources.descriptor_pool, None);
+                }
+                if resources.descriptor_set_layout != vk::DescriptorSetLayout::null() {
+                    self.device
+                        .destroy_descriptor_set_layout(resources.descriptor_set_layout, None);
+                }
+                if resources.atlas.sampler != vk::Sampler::null() {
+                    self.device.destroy_sampler(resources.atlas.sampler, None);
+                }
+                if resources.atlas.image_view != vk::ImageView::null() {
+                    self.device.destroy_image_view(resources.atlas.image_view, None);
+                }
+                if resources.atlas.image != vk::Image::null() {
+                    self.device.destroy_image(resources.atlas.image, None);
+                }
+                if resources.atlas.memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(resources.atlas.memory, None);
+                }
             }
             for waterfall in &mut self.waterfalls {
                 if waterfall.height_ptr.take().is_some() {
@@ -2902,6 +2961,26 @@ mod tests {
             *cell = (0..4).map(|column| matrix[column][row] * point[column]).sum();
         }
         result
+    }
+
+    #[test]
+    fn dynamic_buffer_layout_packs_ranges_contiguously() {
+        // [standard | d0 | d1 | d2] with quad counts 5 / 2 / 0 / 3 (6 vertices per quad).
+        let (standard, ranges, total) = dynamic_buffer_layout(5, &[2, 0, 3]);
+        assert_eq!(standard, 30);
+        assert_eq!(ranges, vec![(30, 12), (42, 0), (42, 18)]);
+        assert_eq!(total, 60);
+
+        // No dynamic text at all.
+        let (standard, ranges, total) = dynamic_buffer_layout(0, &[]);
+        assert_eq!((standard, total), (0, 0));
+        assert!(ranges.is_empty());
+
+        // Standard-only screens (hello_world) get no display ranges.
+        let (standard, ranges, total) = dynamic_buffer_layout(4, &[0, 0]);
+        assert_eq!(standard, 24);
+        assert_eq!(ranges, vec![(24, 0), (24, 0)]);
+        assert_eq!(total, 24);
     }
 
     #[test]
