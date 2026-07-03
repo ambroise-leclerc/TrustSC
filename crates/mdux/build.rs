@@ -7,19 +7,33 @@ use serde::Deserialize;
 
 const DEFAULT_STANDARD_PACKAGE_JSON: &str =
     "../../generated/fonts/roboto-regular-16px/package.json";
+const DEFAULT_DISPLAY_PACKAGE_JSON: &str =
+    "../../generated/fonts/roboto-display-48px/package.json";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let package_path = manifest_dir.join(DEFAULT_STANDARD_PACKAGE_JSON);
-    println!("cargo:rerun-if-changed={}", package_path.display());
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    let document_text = fs::read_to_string(&package_path)?;
-    let package_document: PackageDocument = serde_json::from_str(&document_text)?;
-    let rendered = render_text_package(&package_document, &package_path)?;
-    fs::write(
-        PathBuf::from(env::var("OUT_DIR")?).join("default_standard_text_package.rs"),
-        rendered,
-    )?;
+    for (relative_path, builder_fn, output_file) in [
+        (
+            DEFAULT_STANDARD_PACKAGE_JSON,
+            "build_default_standard_text_package",
+            "default_standard_text_package.rs",
+        ),
+        (
+            DEFAULT_DISPLAY_PACKAGE_JSON,
+            "build_default_display_text_package",
+            "default_display_text_package.rs",
+        ),
+    ] {
+        let package_path = manifest_dir.join(relative_path);
+        println!("cargo:rerun-if-changed={}", package_path.display());
+
+        let document_text = fs::read_to_string(&package_path)?;
+        let package_document: PackageDocument = serde_json::from_str(&document_text)?;
+        let rendered = render_text_package(&package_document, &package_path, builder_fn)?;
+        fs::write(out_dir.join(output_file), rendered)?;
+    }
 
     Ok(())
 }
@@ -147,9 +161,13 @@ struct DeterminismEvidenceDocument {
     build_recipe_sha256: String,
 }
 
-fn render_text_package(document: &PackageDocument, package_path: &Path) -> Result<String, String> {
+fn render_text_package(
+    document: &PackageDocument,
+    package_path: &Path,
+    builder_fn: &str,
+) -> Result<String, String> {
     let mut rendered = String::new();
-    rendered.push_str("fn build_default_standard_text_package() -> TextPackage {\n");
+    let _ = writeln!(rendered, "fn {builder_fn}() -> TextPackage {{");
     rendered.push_str("    TextPackage {\n");
     rendered.push_str("        fonts: vec![\n");
     for font in &document.fonts {

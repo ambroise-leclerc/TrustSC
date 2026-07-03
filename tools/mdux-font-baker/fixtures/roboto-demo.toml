@@ -6,7 +6,7 @@ atlas_padding = 1
 [font]
 manifest = "../../../assets/fonts/roboto/font-manifest.toml"
 pixel_height = 16
-locales = ["en-US"]
+locales = ["en-US", "fr-FR"]
 
 [[approved_strings]]
 id = "STR-HELLO-WORLD"
@@ -29,10 +29,66 @@ locale = "en-US"
 value = " mg"
 direction = "ltr"
 
+[[approved_strings]]
+id = "STR-NS-TITLE"
+run_id = "RUN-NS-TITLE-EN"
+locale = "en-US"
+value = "NeuroSense 500 - Depth of Anesthesia"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-TITLE"
+run_id = "RUN-NS-TITLE-FR"
+locale = "fr-FR"
+value = "NeuroSense 500 - Profondeur d'anesthesie"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-NOMINAL"
+run_id = "RUN-NS-NOMINAL-EN"
+locale = "en-US"
+value = "NOMINAL"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-NOMINAL"
+run_id = "RUN-NS-NOMINAL-FR"
+locale = "fr-FR"
+value = "NOMINAL"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-ALERT"
+run_id = "RUN-NS-ALERT-EN"
+locale = "en-US"
+value = "ALERT"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-ALERT"
+run_id = "RUN-NS-ALERT-FR"
+locale = "fr-FR"
+value = "ALERTE"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-FAULT"
+run_id = "RUN-NS-FAULT-EN"
+locale = "en-US"
+value = "FAULT"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-FAULT"
+run_id = "RUN-NS-FAULT-FR"
+locale = "fr-FR"
+value = "DEFAUT"
+direction = "ltr"
+
 [[numeric_glyph_sets]]
 id = "SET-ASCII-DIGITS"
 locale = "en-US"
-characters = "0123456789-"
+characters = "0123456789-: "
 
 [[numeric_templates]]
 id = "TPL-DOSE"
