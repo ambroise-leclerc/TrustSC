@@ -79,6 +79,12 @@ impl TextPushConstants {
 }
 
 pub struct VulkanRenderer {
+    // Owns the dynamically loaded libvulkan (ash's `loaded` feature dlopens it; dropping the
+    // `Entry` dlcloses it). Most device-level calls resolve to ICD entry points and keep working
+    // after an early dlclose, but `vkDestroyDevice`, `vkDestroyInstance`, and the surface calls
+    // route through loader trampolines inside libvulkan itself — calling them after the library
+    // is unmapped segfaults (issue #28). The `Entry` must therefore outlive every other field.
+    _entry: Entry,
     instance: Instance,
     surface_loader: khr::surface::Instance,
     surface: vk::SurfaceKHR,
@@ -138,6 +144,7 @@ impl VulkanRenderer {
             create_sync_objects(&device)?;
 
         let mut renderer = Self {
+            _entry: entry,
             instance,
             surface_loader,
             surface,
