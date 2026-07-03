@@ -340,6 +340,15 @@ fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
         validate_non_empty("approved string id", &approved_string.id)?;
         validate_non_empty("approved string locale", &approved_string.locale)?;
         validate_non_empty("approved string value", &approved_string.value)?;
+        // The (id, locale) uniqueness key below is NUL-delimited; validate_non_empty doesn't
+        // reject NULs, so an id/locale containing one could forge a false collision (or a false
+        // absence of one) with a neighboring entry. Reject explicitly rather than special-case
+        // the delimiter.
+        if approved_string.id.contains('\u{0}') || approved_string.locale.contains('\u{0}') {
+            return Err(ValidationError::new(
+                "approved string id and locale must not contain a NUL character",
+            ));
+        }
         // Uniqueness is per (id, locale), matching TextPackage::validate: the same string id
         // legitimately appears once per translated locale.
         let id_locale = format!(
@@ -1131,6 +1140,42 @@ mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn minimal_recipe() -> BakeRecipe {
+        BakeRecipe {
+            toolchain_id: "test-toolchain".to_string(),
+            unicode_version: "15.0".to_string(),
+            atlas_width: 128,
+            atlas_padding: default_atlas_padding(),
+            font: FontRecipe {
+                manifest: "assets/fonts/roboto/font-manifest.toml".to_string(),
+                pixel_height: 16,
+                locales: vec!["en-US".to_string()],
+            },
+            approved_strings: vec![ApprovedStringRecipe {
+                id: "STR-A".to_string(),
+                run_id: None,
+                locale: "en-US".to_string(),
+                value: "A".to_string(),
+                direction: RecipeTextDirection::LeftToRight,
+            }],
+            numeric_glyph_sets: Vec::new(),
+            numeric_templates: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn rejects_nul_in_approved_string_id_or_locale() {
+        let mut recipe = minimal_recipe();
+        recipe.approved_strings[0].id = "STR-A\u{0}evil".to_string();
+        let error = validate_recipe(&recipe).expect_err("NUL in id should be rejected");
+        assert!(error.to_string().contains("NUL"));
+
+        let mut recipe = minimal_recipe();
+        recipe.approved_strings[0].locale = "en-US\u{0}evil".to_string();
+        let error = validate_recipe(&recipe).expect_err("NUL in locale should be rejected");
+        assert!(error.to_string().contains("NUL"));
+    }
 
     fn temp_dir(prefix: &str) -> PathBuf {
         let unique = format!(
