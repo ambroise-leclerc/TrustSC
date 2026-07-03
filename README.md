@@ -230,10 +230,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let req_index = RequirementId::new("REQ-NS-001")?;
     let req_stream = RequirementId::new("REQ-NS-002")?;
     let req_status = RequirementId::new("REQ-NS-003")?;
-    for (id, title) in [
-        (&req_index, "Display the sedation index, refreshed every frame"),
-        (&req_stream, "Display the spectral stream with visible freshness"),
-        (&req_status, "Keep the system status permanently visible"),
+    for (id, verification_id, title) in [
+        (&req_index, "VER-NS-001", "Display the sedation index, refreshed every frame"),
+        (&req_stream, "VER-NS-002", "Display the spectral stream with visible freshness"),
+        (&req_status, "VER-NS-003", "Keep the system status permanently visible"),
     ] {
         compliance.add_requirement(Requirement::new(
             id.clone(),
@@ -242,7 +242,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Verified by windowed demonstration and headless smoke",
         )?);
         compliance.add_verification(VerificationCase::new(
-            format!("VER-{id}"),
+            verification_id,
             id.clone(),
             VerificationMethod::Demonstration,
             "Windowed run on the development host",
@@ -266,9 +266,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mdux_vulkan_winit::App::new(framework, screen)
         .with_realtime(move |frame| {
             let (index, row) = simulator.tick();
-            let _ = frame.set_number("SEDATION_INDEX", index);
-            let _ = frame.set_status("MONITOR_STATUS", 0);
-            let _ = frame.push_row("EEG_DSA", &row);
+            frame.set_number("SEDATION_INDEX", index).expect("SEDATION_INDEX wiring");
+            frame.set_status("MONITOR_STATUS", 0).expect("MONITOR_STATUS wiring");
+            frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
         })
         .run_from_env()
 }
