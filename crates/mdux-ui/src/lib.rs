@@ -106,6 +106,26 @@ pub struct StatusIndicatorSpec {
     pub color_tokens: &'static [&'static str],
 }
 
+impl StatusIndicatorSpec {
+    /// Checks the invariant every consumer relies on before indexing `state_text_keys` and
+    /// `color_tokens` in lockstep: same non-zero length. The MedUI DSL compiler already
+    /// guarantees this for generated screens, but the fields are public, so anything built by
+    /// hand (or by a future authoring path) must be checked before use rather than trusted.
+    pub fn validate(&self) -> MduxResult<()> {
+        if self.state_text_keys.is_empty() {
+            return Err(ValidationError::new(
+                "status indicator must declare at least one state",
+            ));
+        }
+        if self.state_text_keys.len() != self.color_tokens.len() {
+            return Err(ValidationError::new(
+                "status indicator state_text_keys and color_tokens must have the same length",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompiledNodeKind {
     CriticalButton(CriticalButtonSpec),
@@ -405,6 +425,33 @@ mod tests {
             error.to_string(),
             "Vulkan SC requires explicit reserved memory and descriptor budgets"
         );
+    }
+
+    #[test]
+    fn status_indicator_spec_rejects_mismatched_or_empty_state_arrays() {
+        const EMPTY: StatusIndicatorSpec = StatusIndicatorSpec {
+            requirement_id: "REQ-X",
+            source: "SRC",
+            state_text_keys: &[],
+            color_tokens: &[],
+        };
+        assert!(EMPTY.validate().is_err());
+
+        const MISMATCHED: StatusIndicatorSpec = StatusIndicatorSpec {
+            requirement_id: "REQ-X",
+            source: "SRC",
+            state_text_keys: &["STR-A", "STR-B"],
+            color_tokens: &["Theme.Colors.Nominal"],
+        };
+        assert!(MISMATCHED.validate().is_err());
+
+        const CONSISTENT: StatusIndicatorSpec = StatusIndicatorSpec {
+            requirement_id: "REQ-X",
+            source: "SRC",
+            state_text_keys: &["STR-A", "STR-B"],
+            color_tokens: &["Theme.Colors.Nominal", "Theme.Colors.Alert"],
+        };
+        assert!(CONSISTENT.validate().is_ok());
     }
 
     #[test]
