@@ -129,8 +129,10 @@ struct NumericGlyphSetDocument {
 struct NumericTemplateDocument {
     id: String,
     locale: String,
-    prefix_run_id: String,
-    suffix_run_id: String,
+    #[serde(default)]
+    prefix_run_id: Option<String>,
+    #[serde(default)]
+    suffix_run_id: Option<String>,
     glyph_set_id: String,
     max_chars: u8,
     allow_negative: bool,
@@ -249,8 +251,8 @@ fn render_text_package(document: &PackageDocument, package_path: &Path) -> Resul
             "            NumericTemplate {{ id: {}, locale: {}, prefix_run_id: {}, suffix_run_id: {}, glyph_set_id: {}, max_chars: {}, allow_negative: {} }},",
             rust_string(&template.id),
             rust_string(&template.locale),
-            rust_string(&template.prefix_run_id),
-            rust_string(&template.suffix_run_id),
+            rust_optional_string(template.prefix_run_id.as_deref()),
+            rust_optional_string(template.suffix_run_id.as_deref()),
             rust_string(&template.glyph_set_id),
             template.max_chars,
             template.allow_negative,
@@ -308,6 +310,13 @@ fn render_numeric_glyph_entry(entry: &NumericGlyphEntryDocument) -> String {
 
 fn rust_string(value: &str) -> String {
     format!("{value:?}.to_string()")
+}
+
+fn rust_optional_string(value: Option<&str>) -> String {
+    match value {
+        Some(value) => format!("Some({value:?}.to_string())"),
+        None => "None".to_string(),
+    }
 }
 
 fn rust_char(value: char) -> String {

@@ -98,8 +98,12 @@ pub struct NumericGlyphSetRecipe {
 pub struct NumericTemplateRecipe {
     pub id: String,
     pub locale: String,
-    pub prefix_run_id: String,
-    pub suffix_run_id: String,
+    /// Optional: omit for digits-only templates (scores, clocks).
+    #[serde(default)]
+    pub prefix_run_id: Option<String>,
+    /// Optional: omit for digits-only templates (scores, clocks).
+    #[serde(default)]
+    pub suffix_run_id: Option<String>,
     pub glyph_set_id: String,
     pub max_chars: u8,
     #[serde(default)]
@@ -374,8 +378,12 @@ fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
     for template in &recipe.numeric_templates {
         validate_non_empty("numeric template id", &template.id)?;
         validate_non_empty("numeric template locale", &template.locale)?;
-        validate_non_empty("numeric template prefix_run_id", &template.prefix_run_id)?;
-        validate_non_empty("numeric template suffix_run_id", &template.suffix_run_id)?;
+        if let Some(prefix_run_id) = &template.prefix_run_id {
+            validate_non_empty("numeric template prefix_run_id", prefix_run_id)?;
+        }
+        if let Some(suffix_run_id) = &template.suffix_run_id {
+            validate_non_empty("numeric template suffix_run_id", suffix_run_id)?;
+        }
         validate_non_empty("numeric template glyph_set_id", &template.glyph_set_id)?;
         if template.max_chars == 0 {
             return Err(ValidationError::new(
@@ -525,17 +533,21 @@ fn validate_locales(recipe: &BakeRecipe, font_context: &FontContext) -> MduxResu
         .map(|entry| entry.id.as_str())
         .collect();
     for template in &recipe.numeric_templates {
-        if !run_ids.contains(template.prefix_run_id.as_str()) {
-            return Err(ValidationError::new(format!(
-                "numeric template {} references unknown prefix run {}",
-                template.id, template.prefix_run_id
-            )));
+        if let Some(prefix_run_id) = &template.prefix_run_id {
+            if !run_ids.contains(prefix_run_id.as_str()) {
+                return Err(ValidationError::new(format!(
+                    "numeric template {} references unknown prefix run {prefix_run_id}",
+                    template.id
+                )));
+            }
         }
-        if !run_ids.contains(template.suffix_run_id.as_str()) {
-            return Err(ValidationError::new(format!(
-                "numeric template {} references unknown suffix run {}",
-                template.id, template.suffix_run_id
-            )));
+        if let Some(suffix_run_id) = &template.suffix_run_id {
+            if !run_ids.contains(suffix_run_id.as_str()) {
+                return Err(ValidationError::new(format!(
+                    "numeric template {} references unknown suffix run {suffix_run_id}",
+                    template.id
+                )));
+            }
         }
         if !glyph_set_ids.contains(template.glyph_set_id.as_str()) {
             return Err(ValidationError::new(format!(
@@ -975,8 +987,12 @@ struct NumericGlyphSetDocument {
 struct NumericTemplateDocument {
     id: String,
     locale: String,
-    prefix_run_id: String,
-    suffix_run_id: String,
+    // Skipped when absent so packages whose templates always had affixes serialize
+    // byte-identically to the pre-optional format (their committed verify stays green).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prefix_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suffix_run_id: Option<String>,
     glyph_set_id: String,
     max_chars: u8,
     allow_negative: bool,

@@ -389,12 +389,15 @@ fn canonical_package_hash(
     }
 
     for template in numeric_templates {
+        // Absent affixes hash as the empty string: run ids cannot be empty when present, so the
+        // encoding is unambiguous, and templates that always had affixes keep their canonical
+        // form (and therefore their package digest) byte-identical.
         canonical.push_str(&format!(
             "template|{}|{}|{}|{}|{}|{}|{}\n",
             template.id,
             template.locale,
-            template.prefix_run_id,
-            template.suffix_run_id,
+            template.prefix_run_id.as_deref().unwrap_or(""),
+            template.suffix_run_id.as_deref().unwrap_or(""),
             template.glyph_set_id,
             template.max_chars,
             template.allow_negative
@@ -541,8 +544,8 @@ mod tests {
             numeric_templates: vec![NumericTemplate {
                 id: "TPL-DOSE".to_string(),
                 locale: "en-US".to_string(),
-                prefix_run_id: "RUN-DOSE".to_string(),
-                suffix_run_id: "RUN-DOSE".to_string(),
+                prefix_run_id: Some("RUN-DOSE".to_string()),
+                suffix_run_id: Some("RUN-DOSE".to_string()),
                 glyph_set_id: "DIGITS".to_string(),
                 max_chars: 4,
                 allow_negative: false,
