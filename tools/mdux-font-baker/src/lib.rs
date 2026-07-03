@@ -334,15 +334,21 @@ fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
         ));
     }
 
-    let mut string_ids = BTreeSet::new();
+    let mut string_id_locales = BTreeSet::new();
     let mut run_ids = BTreeSet::new();
     for approved_string in &recipe.approved_strings {
         validate_non_empty("approved string id", &approved_string.id)?;
         validate_non_empty("approved string locale", &approved_string.locale)?;
         validate_non_empty("approved string value", &approved_string.value)?;
-        if !string_ids.insert(approved_string.id.clone()) {
+        // Uniqueness is per (id, locale), matching TextPackage::validate: the same string id
+        // legitimately appears once per translated locale.
+        let id_locale = format!(
+            "{}\u{0}{}",
+            approved_string.id, approved_string.locale
+        );
+        if !string_id_locales.insert(id_locale) {
             return Err(ValidationError::new(
-                "approved string ids must be unique within a bake recipe",
+                "approved string id/locale pairs must be unique within a bake recipe",
             ));
         }
         let run_id = run_id_for(approved_string);
