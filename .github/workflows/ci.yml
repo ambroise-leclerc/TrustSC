@@ -39,6 +39,9 @@ jobs:
       - name: Verify generated Roboto display (48px) artifacts
         run: cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
 
+      - name: Verify generated Acme logo image artifacts
+        run: cargo run --locked -q -p mdux-image-baker -- verify tools/mdux-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
+
       - name: Verify committed SPIR-V shader artifacts
         run: cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
 

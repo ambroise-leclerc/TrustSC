@@ -1,0 +1,11 @@
+{
+  "report_kind": "mdux-image-baker-report",
+  "package_sha256": "f9330c126787ff8530260ea8bb407678d6a091820f28a21d4e3370237639338c",
+  "recipe_sha256": "9da835f8a9443f4c8ba92969707cc8f77304227dfe3a3a7fa177c99b70804fd3",
+  "source_sha256": "58b8c6925db8f9af34be9aa260ed03f5891b55ec446aa85f457648937bbd32bb",
+  "image_id": "LOGO-ACME",
+  "width": 144,
+  "height": 48,
+  "manifest_path": "assets/images/acme-logo/image-manifest.toml",
+  "pipeline": "image-intake -> ppm-decode -> rgba-package -> package-verify"
+}

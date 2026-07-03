@@ -3,6 +3,7 @@ members = [
     "adapters/mdux-vulkan-winit",
     "crates/mdux-core",
     "crates/mdux-governance",
+    "crates/mdux-image-schema",
     "crates/mdux-ui",
     "crates/mdux-ui-dsl-authoring",
     "crates/mdux",
@@ -15,6 +16,7 @@ members = [
     "examples/class_c_monitor",
     "examples/class_c_vulkansc_device",
     "tools/mdux-font-baker",
+    "tools/mdux-image-baker",
     "tools/mdux-shader-baker",
 ]
 resolver = "2"
