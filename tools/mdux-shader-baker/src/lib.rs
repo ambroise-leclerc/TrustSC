@@ -431,7 +431,7 @@ mod tests {
         };
 
         let bake_summary = bake(invocation).expect("fixture manifest should bake successfully");
-        assert_eq!(bake_summary.artifact_count, 2);
+        assert_eq!(bake_summary.artifact_count, 4); // text pair + heightfield pair
         assert!(report_path.exists());
 
         let verify_summary =
