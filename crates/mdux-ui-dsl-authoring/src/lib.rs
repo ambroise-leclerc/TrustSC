@@ -682,7 +682,7 @@ fn parse_component_properties(
             })?;
             // `colors` is optional: absent means every state uses the neutral status token.
             let color_tokens = color_tokens.unwrap_or_else(|| {
-                vec!["Theme.Colors.StatusState".to_string(); state_text_keys.len()]
+                vec!["Theme.Colors.Neutral".to_string(); state_text_keys.len()]
             });
             if color_tokens.len() != state_text_keys.len() {
                 return Err(ValidationError::new(format!(
@@ -1309,9 +1309,15 @@ fn measure_glyph_run(
                 ))
             })?;
         width = width.saturating_add(entry.advance_x.max(0) as u32);
-        if let Some(atlas_glyph) = text_package.find_glyph(entry.atlas_index, entry.glyph_id) {
-            height = height.max(u32::from(atlas_glyph.height));
-        }
+        let atlas_glyph = text_package
+            .find_glyph(entry.atlas_index, entry.glyph_id)
+            .ok_or_else(|| {
+                ValidationError::new(format!(
+                    "component {} references glyph set {} entry '{character}', but atlas index {} glyph {} does not exist in the package — under-measuring height would let an out-of-budget component compile",
+                    node.id, glyph_set.id, entry.atlas_index, entry.glyph_id
+                ))
+            })?;
+        height = height.max(u32::from(atlas_glyph.height));
     }
 
     Ok((width, height))
@@ -1854,6 +1860,39 @@ Screen NeuroSense500 {
         .expect_err("too-narrow clock should be rejected");
 
         assert!(error.to_string().contains("does not fit its bounds"), "{error}");
+    }
+
+    #[test]
+    fn status_indicator_without_colors_defaults_to_the_neutral_theme_token() {
+        let standard = monitor_text_package();
+        let display = display_text_package();
+        let generated = compile_medui_source_to_rust(
+            MONITOR_MEDUI,
+            CompileOptions::new(1280, 720),
+            TextPackages::with_display(&standard, &display),
+        )
+        .expect("monitor screen should compile");
+
+        assert!(generated.contains("Theme.Colors.Neutral"), "{generated}");
+        assert!(!generated.contains("Theme.Colors.StatusState"), "{generated}");
+    }
+
+    #[test]
+    fn rejects_a_numeric_glyph_set_entry_with_no_matching_atlas_glyph() {
+        let standard = monitor_text_package();
+        let mut display = display_text_package();
+        // Remove the widest digit's atlas glyph: the sedation-index budget check measures it,
+        // and must fail loudly rather than silently under-measuring height.
+        display.atlas_glyphs.retain(|glyph| glyph.glyph_id != 109);
+
+        let error = compile_medui_source_to_rust(
+            MONITOR_MEDUI,
+            CompileOptions::new(1280, 720),
+            TextPackages::with_display(&standard, &display),
+        )
+        .expect_err("a numeric glyph set entry with a dangling atlas reference should be rejected");
+
+        assert!(error.to_string().contains("does not exist in the package"), "{error}");
     }
 
     /// Standard-package fixture for monitor screens: title and status strings in en-US and a
