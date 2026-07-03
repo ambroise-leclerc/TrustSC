@@ -25,7 +25,9 @@ mdux::include_medui_screen!();
 2. `build.rs` recompiles when the file changes (`MeduiScreen::compile` emits
    `cargo:rerun-if-changed`)
 3. `MeduiScreen::compile` resolves the approved text package via
-   `mdux::default_standard_text_package()` and calls `mdux-ui-dsl-authoring` to parse, validate,
+   `mdux::default_standard_text_package()` and `mdux::default_display_text_package()` (the
+   ADR-013 pair — `NumericDisplay` budgets resolve in the display package) and calls
+   `mdux-ui-dsl-authoring` to parse, validate,
    and compile the file — every `t("key")` reference is checked against all approved locales, and
    the compiler rejects any component whose allocated bounds are smaller than the widest approved
    translation

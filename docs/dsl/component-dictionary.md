@@ -31,3 +31,69 @@ Notes:
 
 - the generated package reserves a region for direct imaging output
 - it does not embed arbitrary render logic in the UI layer
+
+## `Row`
+
+A compile-time-only horizontal container, nested exactly one level inside a `Vertical` screen
+layout. It disappears from the compiled package: its children are emitted as flat nodes with
+absolute bounds (ADR-008 intact).
+
+Required properties: `id`, `height`. Optional: `spacing` (defaults to `0px`).
+
+Notes:
+
+- children are regular leaf components, one property per line; nesting another `Row` is rejected
+- `@safety_critical` cannot annotate a `Row` itself (annotate its children)
+- children with `height: Fill` take the Row's height; a child taller than the Row is rejected
+
+## `Label`
+
+Static approved text with no interaction and no requirement (titles, units).
+
+Required properties: `id`, `width`, `height`, `text` (`t("key")`), `color`.
+
+Notes:
+
+- budgeted at compile time against **every** approved locale of the key, like button labels
+
+## `Clock`
+
+Wall-clock date/time fed by the platform adapter — applications write zero code for it.
+
+Required properties: `id`, `width`, `height`, `format` (`TimeSeconds` | `DateTimeSeconds`).
+
+Notes:
+
+- renders from the standard package's `SET-ASCII-DIGITS` glyph set (digits, `-`, `:`, space)
+- budgeted at compile time against its fixed glyph sequence (`HH:MM:SS`, or
+  `YYYY-MM-DD HH:MM:SS` for `DateTimeSeconds`)
+- carries no requirement and no approved text key (dynamic, platform-fed content)
+
+## `NumericDisplay`
+
+A live numeric value bound to an approved `NumericTemplate` and a named realtime data source.
+Requirement-bearing; eligible for `@safety_critical`.
+
+Required properties: `id`, `width`, `height`, `requirement`, `template` (quoted template id in
+the **display** package), `source` (quoted realtime source name), `color`.
+
+Notes:
+
+- budgeted at compile time as `max_chars ×` the widest digit advance of the template's glyph
+  set, plus any affix runs — the compiler therefore requires the display text package
+- the golden reference emitted by `@safety_critical` pins bounds and color; the digits vary at
+  runtime by design (`text_key: None`)
+
+## `StatusIndicator`
+
+An enumerated device-state display; the application selects the active state by index at runtime.
+Requirement-bearing; eligible for `@safety_critical`.
+
+Required properties: `id`, `width`, `height`, `requirement`, `source`,
+`states` (`[t("KEY-A"), t("KEY-B"), …]`). Optional: `colors` (`[token, …]`, same length as
+`states`; defaults to the neutral status token for every state).
+
+Notes:
+
+- **every** state label in **every** approved locale must fit the node's bounds — the widest
+  translation of the widest state defines the compile-time budget

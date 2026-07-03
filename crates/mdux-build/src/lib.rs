@@ -20,7 +20,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mdux_ui_dsl_authoring::CompileOptions;
+use mdux_ui_dsl_authoring::{CompileOptions, TextPackages};
 
 type DynError = Box<dyn std::error::Error>;
 
@@ -69,12 +69,15 @@ impl MeduiScreen {
         println!("cargo:rerun-if-changed={}", medui_path.display());
         fs::create_dir_all(&out_dir)?;
 
-        let text_package = mdux::default_standard_text_package()?;
+        // Both approved packages are always available from the facade; NumericDisplay budgets
+        // resolve in the display package, everything else in the standard one (ADR-013).
+        let standard_package = mdux::default_standard_text_package()?;
+        let display_package = mdux::default_display_text_package()?;
         mdux_ui_dsl_authoring::compile_medui_file_to_rust_module(
             &medui_path,
             &generated_path,
             CompileOptions::new(width, height),
-            &text_package,
+            TextPackages::with_display(&standard_package, &display_package),
         )?;
 
         Ok(())
