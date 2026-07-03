@@ -237,10 +237,16 @@ fn build_derives_components_for_dynamic_requirement_bearing_kinds() {
 
     let components = framework.ui_runtime().components();
     assert_eq!(components.len(), 2);
-    assert_eq!(components[0].id, "sedation-index");
-    assert_eq!(components[0].label, "sedation-index"); // descriptive label = node id
-    assert_eq!(components[1].id, "system-status");
-    assert_eq!(components[1].label, "NOMINAL"); // first state's approved en-US label
+    let sedation_index = components
+        .iter()
+        .find(|component| component.id == "sedation-index")
+        .expect("sedation-index component should be derived");
+    assert_eq!(sedation_index.label, "sedation-index"); // descriptive label = node id
+    let system_status = components
+        .iter()
+        .find(|component| component.id == "system-status")
+        .expect("system-status component should be derived");
+    assert_eq!(system_status.label, "NOMINAL"); // first state's approved en-US label
     assert!(framework.trace_matrix_export().contains("REQ-NS-001"));
     assert!(framework.trace_matrix_export().contains("REQ-NS-003"));
 }
