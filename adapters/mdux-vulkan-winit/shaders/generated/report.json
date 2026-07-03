@@ -15,6 +15,16 @@
       "source": "hello_text.frag",
       "output": "hello_text.frag.spv",
       "sha256": "9ad2f8fdccfea5c69d437476e62c50218579463646f070f63929834dea8c5834"
+    },
+    {
+      "source": "heightfield.vert",
+      "output": "heightfield.vert.spv",
+      "sha256": "82971f1021e49f00fbd1333a1dcf2ca8a2466965947b1c470bdfca12d15178b4"
+    },
+    {
+      "source": "heightfield.frag",
+      "output": "heightfield.frag.spv",
+      "sha256": "777aa54b563280479b5bea039aedd0fd7d521c2794fb641449244afcc845075a"
     }
   ]
 }
