@@ -7,7 +7,7 @@
 // persistently mapped vertex buffer stays a bare float array the ring buffer writes into.
 //
 // Push-constant contract (must match `HeightfieldPushConstants` in the renderer, std430-like
-// ordering, 96 bytes total):
+// ordering, 80 bytes total: a 64-byte mat4 followed by four 4-byte floats):
 //   mvp          - column-major model-view-projection matrix (fixed perspective camera)
 //   rows, cols   - grid dimensions as floats
 //   row_offset   - ring-buffer cursor: logical row = (physical row + rows - row_offset) % rows,
