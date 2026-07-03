@@ -224,6 +224,8 @@ cargo run --locked -q -p hello_world -- --headless-smoke
   - `ADR-009`: MedUI compilation and generated artifacts
   - `ADR-010`: MedUI i18n and text-budget policy
   - `ADR-011`: MedUI safety-monitor and VulkanViewport contract
+  - `ADR-012`: presentation adapter crates, the `adapters/` directory, and shader artifact evidence
+  - `ADR-013`: host preview of Vulkan SC profiles and the bounded realtime contract
 - Host-only third-party tooling used for the default Roboto bake path is tracked in `docs/governance/soup-register.toml`.
 
 ## Default Roboto asset governance
