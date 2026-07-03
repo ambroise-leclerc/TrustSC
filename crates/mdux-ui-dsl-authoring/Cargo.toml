@@ -7,5 +7,6 @@ publish = false
 
 [dependencies]
 mdux-core = { path = "../mdux-core" }
+mdux-image-schema = { path = "../mdux-image-schema" }
 mdux-ui = { path = "../mdux-ui" }
 mdux-text-schema = { path = "../mdux-text-schema" }

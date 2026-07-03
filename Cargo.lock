@@ -727,6 +727,7 @@ version = "0.1.0"
 dependencies = [
  "mdux-core",
  "mdux-governance",
+ "mdux-image-schema",
  "mdux-text-authoring",
  "mdux-text-runtime",
  "mdux-text-schema",
@@ -837,6 +838,7 @@ name = "mdux-ui-dsl-authoring"
 version = "0.1.0"
 dependencies = [
  "mdux-core",
+ "mdux-image-schema",
  "mdux-text-schema",
  "mdux-ui",
 ]

@@ -2,6 +2,7 @@
 
 pub mod realtime;
 pub mod screen_text;
+mod standard_images;
 mod standard_text;
 
 pub use mdux_core::{
@@ -19,6 +20,10 @@ pub use mdux_text_runtime::{GlyphDrawCommand, TextRuntime};
 pub use mdux_text_schema::{
     ApprovedString, AtlasGlyph, CompiledGlyph, CompiledTextRun, DeterminismEvidence, FontAsset,
     NumericGlyphEntry, NumericGlyphSet, NumericTemplate, TextDirection, TextPackage, TextureAtlas,
+};
+pub use mdux_image_schema::{ImageEvidence, ImagePackage};
+pub use standard_images::{
+    ACME_LOGO, ACME_LOGO_IMAGE_ID, StandardImageDefinition, default_image_packages,
 };
 pub use mdux_ui::{
     ClockFormat, ClockSpec, CompiledNode, CompiledNodeKind, CompiledScreenPackage,

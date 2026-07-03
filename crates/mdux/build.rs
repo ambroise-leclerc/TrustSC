@@ -9,6 +9,7 @@ const DEFAULT_STANDARD_PACKAGE_JSON: &str =
     "../../generated/fonts/roboto-regular-16px/package.json";
 const DEFAULT_DISPLAY_PACKAGE_JSON: &str =
     "../../generated/fonts/roboto-display-48px/package.json";
+const GENERATED_IMAGES_DIR: &str = "../../generated/images";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -35,7 +36,95 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::write(out_dir.join(output_file), rendered)?;
     }
 
+    render_image_packages(&manifest_dir, &out_dir)?;
+
     Ok(())
+}
+
+/// Embeds every committed `generated/images/<id>/package.json` into a single generated
+/// `build_default_image_packages()` (ADR-014 image governance; mirrors the text embeds).
+fn render_image_packages(
+    manifest_dir: &Path,
+    out_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let images_dir = manifest_dir.join(GENERATED_IMAGES_DIR);
+    println!("cargo:rerun-if-changed={}", images_dir.display());
+
+    let mut package_paths = Vec::new();
+    if images_dir.exists() {
+        for entry in fs::read_dir(&images_dir)? {
+            let package_path = entry?.path().join("package.json");
+            if package_path.exists() {
+                package_paths.push(package_path);
+            }
+        }
+    }
+    package_paths.sort();
+
+    let mut output = String::new();
+    let _ = writeln!(
+        output,
+        "pub(crate) fn build_default_image_packages() -> Vec<ImagePackage> {{"
+    );
+    let _ = writeln!(output, "    vec![");
+    for package_path in &package_paths {
+        println!("cargo:rerun-if-changed={}", package_path.display());
+        let document_text = fs::read_to_string(package_path)?;
+        let document: ImagePackageDocument = serde_json::from_str(&document_text)?;
+        let pixels = decode_hex(package_path, 0, &document.pixels_hex)?;
+        let _ = writeln!(output, "        ImagePackage {{");
+        let _ = writeln!(output, "            id: {},", rust_string(&document.id));
+        let _ = writeln!(output, "            width: {},", document.width);
+        let _ = writeln!(output, "            height: {},", document.height);
+        let _ = writeln!(output, "            pixels: vec![{}],", render_u8_vec(&pixels));
+        let _ = writeln!(output, "            evidence: ImageEvidence {{");
+        let _ = writeln!(
+            output,
+            "                package_sha256: {},",
+            rust_string(&document.evidence.package_sha256)
+        );
+        let _ = writeln!(
+            output,
+            "                source_sha256: {},",
+            rust_string(&document.evidence.source_sha256)
+        );
+        let _ = writeln!(
+            output,
+            "                toolchain_id: {},",
+            rust_string(&document.evidence.toolchain_id)
+        );
+        let _ = writeln!(
+            output,
+            "                build_recipe_sha256: {},",
+            rust_string(&document.evidence.build_recipe_sha256)
+        );
+        let _ = writeln!(output, "            }},");
+        let _ = writeln!(output, "        }},");
+    }
+    let _ = writeln!(output, "    ]");
+    let _ = writeln!(output, "}}");
+
+    fs::write(out_dir.join("default_image_packages.rs"), output)?;
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImagePackageDocument {
+    id: String,
+    width: u32,
+    height: u32,
+    pixels_hex: String,
+    evidence: ImageEvidenceDocument,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImageEvidenceDocument {
+    package_sha256: String,
+    source_sha256: String,
+    toolchain_id: String,
+    build_recipe_sha256: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
