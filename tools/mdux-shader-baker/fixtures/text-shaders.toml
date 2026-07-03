@@ -9,3 +9,13 @@ output = "hello_text.vert.spv"
 source = "hello_text.frag"
 kind = "fragment"
 output = "hello_text.frag.spv"
+
+[[shaders]]
+source = "heightfield.vert"
+kind = "vertex"
+output = "heightfield.vert.spv"
+
+[[shaders]]
+source = "heightfield.frag"
+kind = "fragment"
+output = "heightfield.frag.spv"
