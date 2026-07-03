@@ -170,6 +170,7 @@ impl ScreenBindings {
                     });
                 }
                 CompiledNodeKind::StatusIndicator(spec) => {
+                    spec.validate()?;
                     let mut state_run_ids = Vec::with_capacity(spec.state_text_keys.len());
                     let mut state_origins = Vec::with_capacity(spec.state_text_keys.len());
                     let mut capacity = 0usize;
@@ -523,5 +524,38 @@ mod tests {
         assert_eq!(cursor, 2); // wrapped past the end twice
         assert_eq!(data[0], DEFAULT_STREAM_ROWS as f32); // physical row 0 overwritten
         assert_eq!(data[DEFAULT_STREAM_BINS], (DEFAULT_STREAM_ROWS + 1) as f32);
+    }
+
+    #[test]
+    fn from_screen_rejects_a_status_indicator_with_mismatched_state_and_color_arrays() {
+        const BROKEN_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenStatus",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "system-status",
+                bounds: Rect { x: 0, y: 0, width: 200, height: 48 },
+                kind: CompiledNodeKind::StatusIndicator(StatusIndicatorSpec {
+                    requirement_id: "REQ-NS-003",
+                    source: "MONITOR_STATUS",
+                    state_text_keys: &["STR-NS-NOMINAL", "STR-NS-ALERT"],
+                    color_tokens: &["Theme.Colors.A"],
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_package().expect("display package"),
+            "en-US",
+        )
+        .expect_err("mismatched state/color arrays should be rejected before indexing them");
+
+        assert!(error.to_string().contains("same length"), "{error}");
     }
 }
