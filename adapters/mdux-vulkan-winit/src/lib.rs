@@ -21,8 +21,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mdux::{CompiledScreenPackage, Framework, screen_text::ScreenTextLayout};
-use renderer::{BoxError, VulkanRenderer};
+use mdux::realtime::{FrameInputs, ScreenBindings};
+use mdux::{CompiledScreenPackage, Framework, GraphicsProfile, screen_text::ScreenTextLayout};
+use renderer::{BoxError, VulkanRenderer, civil_from_unix};
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -47,6 +48,7 @@ pub struct App {
     framework: Framework,
     screen: &'static CompiledScreenPackage,
     locale: String,
+    realtime: Option<Box<dyn FnMut(&mut FrameInputs)>>,
 }
 
 impl App {
@@ -55,12 +57,22 @@ impl App {
             framework,
             screen,
             locale: "en-US".to_string(),
+            realtime: None,
         }
     }
 
     /// Overrides the locale used to resolve the screen's approved text (default `en-US`).
     pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
         self.locale = locale.into();
+        self
+    }
+
+    /// Registers the application's realtime closure, invoked once per frame before recording:
+    /// write live values into the [`FrameInputs`] mailbox (`set_number`, `set_status`,
+    /// `push_row`). The clock needs no code — the adapter feeds it from the platform clock.
+    /// Without a closure, dynamic widgets render their initial values (zeros / first state).
+    pub fn with_realtime(mut self, closure: impl FnMut(&mut FrameInputs) + 'static) -> Self {
+        self.realtime = Some(Box::new(closure));
         self
     }
 
@@ -89,13 +101,31 @@ impl App {
 
     /// Prints framework/compliance diagnostics, then either exits immediately
     /// (`options.headless_smoke`) or opens a window and drives the Vulkan renderer until closed.
-    pub fn run(self, options: RunOptions) -> Result<(), BoxError> {
+    ///
+    /// A framework carrying the `VulkanSc` graphics profile runs as an ADR-013 **host
+    /// development preview**: the banner below is printed among the diagnostics and a
+    /// `Runtime` audit event is recorded before anything renders, so every preview execution is
+    /// self-documenting in the exported audit log. No governed validation is relaxed.
+    pub fn run(mut self, options: RunOptions) -> Result<(), BoxError> {
+        let is_sc_preview =
+            self.framework.ui_runtime().config().graphics_profile == GraphicsProfile::VulkanSc;
+        if is_sc_preview {
+            self.framework.record_runtime_event(
+                "vulkan sc host preview: rendering on standard Vulkan for development only",
+            );
+        }
+
         println!(
             "screen id={} nodes={} golden_refs={}",
             self.screen.screen_id,
             self.screen.nodes.len(),
             self.screen.golden_references.len()
         );
+        if is_sc_preview {
+            println!(
+                "profile=Vulkan SC (HOST PREVIEW on standard Vulkan — not the certified pipeline)"
+            );
+        }
         println!("{}", self.framework.release_summary());
         let frame = self.framework.render_preview_frame(1);
         println!(
@@ -110,20 +140,42 @@ impl App {
             return Ok(());
         }
 
-        let package = mdux::default_standard_text_package()?;
-        let layout = ScreenTextLayout::from_screen(self.screen, package, &self.locale)?;
+        let standard_package = mdux::default_standard_text_package()?;
+        let display_package = mdux::default_display_text_package()?;
+        let layout =
+            ScreenTextLayout::from_screen(self.screen, standard_package.clone(), &self.locale)?;
+        let bindings = ScreenBindings::from_screen(
+            self.screen,
+            standard_package,
+            display_package,
+            &self.locale,
+        )?;
+        let frame_inputs = FrameInputs::from_bindings(&bindings);
         let app_name = self.framework.identity().name.clone();
         let config = self.framework.ui_runtime().config().clone();
 
-        run_windowed(&app_name, config.width, config.height, layout, options.auto_close_after)
+        run_windowed(
+            &app_name,
+            config.width,
+            config.height,
+            layout,
+            bindings,
+            frame_inputs,
+            self.realtime,
+            options.auto_close_after,
+        )
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_windowed(
     app_name: &str,
     width: u32,
     height: u32,
     layout: ScreenTextLayout,
+    bindings: ScreenBindings,
+    mut frame_inputs: FrameInputs,
+    mut realtime: Option<Box<dyn FnMut(&mut FrameInputs)>>,
     auto_close_after: Option<Duration>,
 ) -> Result<(), BoxError> {
     let title = format!("{app_name} - Vulkan");
@@ -133,7 +185,7 @@ fn run_windowed(
         .with_inner_size(LogicalSize::new(width as f64, height as f64))
         .build(&event_loop)?;
 
-    let mut renderer = Some(VulkanRenderer::new(&window, app_name, layout)?);
+    let mut renderer = Some(VulkanRenderer::new(&window, app_name, layout, bindings)?);
     println!(
         "vulkan_device={}",
         renderer
@@ -162,7 +214,17 @@ fn run_windowed(
                 WindowEvent::Resized(_) => {}
                 WindowEvent::RedrawRequested => {
                     if let Some(active_renderer) = renderer.as_mut() {
-                        if let Err(error) = active_renderer.draw_frame(&window) {
+                        if let Some(realtime) = realtime.as_mut() {
+                            realtime(&mut frame_inputs);
+                        }
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|elapsed| elapsed.as_secs() as i64)
+                            .unwrap_or(0);
+                        let clock = civil_from_unix(now);
+                        if let Err(error) =
+                            active_renderer.draw_frame(&window, &frame_inputs, clock)
+                        {
                             eprintln!("failed to render frame: {error}");
                             *render_error_for_closure.borrow_mut() = Some(error);
                             shutdown_renderer(&mut renderer);
