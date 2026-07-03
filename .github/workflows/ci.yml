@@ -44,3 +44,6 @@ jobs:
 
       - name: Run headless hello world smoke test
         run: cargo run --locked -q -p hello_world -- --headless-smoke
+
+      - name: Run headless Class C monitor smoke test
+        run: cargo run --locked -q -p class_c_monitor -- --headless-smoke

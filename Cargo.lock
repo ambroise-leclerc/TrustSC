@@ -236,6 +236,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "class_c_monitor"
+version = "0.1.0"
+dependencies = [
+ "mdux",
+ "mdux-build",
+ "mdux-vulkan-winit",
+]
+
+[[package]]
 name = "class_c_vulkansc_device"
 version = "0.1.0"
 dependencies = [
