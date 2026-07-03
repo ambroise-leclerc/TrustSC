@@ -12,6 +12,8 @@ use std::{
 };
 
 use ash::{Entry, Instance, khr, util::read_spv, vk};
+use mdux::TextRuntime;
+use mdux::realtime::{FrameInputs, ScreenBindings};
 use mdux::screen_text::ScreenTextLayout;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
@@ -114,6 +116,28 @@ pub struct VulkanRenderer {
     text_vertex_buffer: vk::Buffer,
     text_vertex_buffer_memory: vk::DeviceMemory,
     text_vertex_count: u32,
+    // Realtime bindings (ADR-013): capacities fixed at construction, per-frame work limited to
+    // rewriting the persistently mapped dynamic buffer and re-recording command buffers.
+    bindings: ScreenBindings,
+    // Layout: [standard-package quads | display-package quads], fixed split at
+    // `dynamic_standard_capacity_vertices`. Null/None when the screen has no dynamic text.
+    dynamic_vertex_buffer: vk::Buffer,
+    dynamic_vertex_buffer_memory: vk::DeviceMemory,
+    dynamic_vertex_ptr: Option<std::ptr::NonNull<TextVertex>>,
+    dynamic_standard_capacity_vertices: usize,
+    dynamic_display_capacity_vertices: usize,
+    // Second glyph atlas (display package, 48px digits) with its own descriptor set; the
+    // pipeline layout is shared (identically defined set layouts are compatible).
+    display_atlas: TextAtlasResources,
+    display_descriptor_set_layout: vk::DescriptorSetLayout,
+    display_descriptor_pool: vk::DescriptorPool,
+    display_descriptor_set: vk::DescriptorSet,
+    // Depth attachment (recreated with the swapchain), required by the 3D waterfall pipeline.
+    depth_image: vk::Image,
+    depth_image_memory: vk::DeviceMemory,
+    depth_image_view: vk::ImageView,
+    depth_format: vk::Format,
+    current_extent: vk::Extent2D,
 }
 
 impl VulkanRenderer {
@@ -121,6 +145,7 @@ impl VulkanRenderer {
         window: &Window,
         app_name: &str,
         text_layout: ScreenTextLayout,
+        bindings: ScreenBindings,
     ) -> Result<Self, BoxError> {
         let entry = unsafe { Entry::load()? };
         let instance = create_instance(&entry, window, app_name)?;
@@ -142,6 +167,12 @@ impl VulkanRenderer {
         let command_pool = create_command_pool(&device, queue_families.graphics)?;
         let (image_available_semaphore, render_finished_semaphore, in_flight_fence) =
             create_sync_objects(&device)?;
+
+        // Validate both realtime packages once, here: the frame loop then uses
+        // `TextRuntime::from_validated_package`, which must not re-run (allocating) validation.
+        TextRuntime::<1>::new(&bindings.standard)?;
+        TextRuntime::<1>::new(&bindings.display)?;
+        let depth_format = find_depth_format(&instance, physical_device)?;
 
         let mut renderer = Self {
             _entry: entry,
@@ -174,9 +205,25 @@ impl VulkanRenderer {
             text_vertex_buffer: vk::Buffer::null(),
             text_vertex_buffer_memory: vk::DeviceMemory::null(),
             text_vertex_count: 0,
+            bindings,
+            dynamic_vertex_buffer: vk::Buffer::null(),
+            dynamic_vertex_buffer_memory: vk::DeviceMemory::null(),
+            dynamic_vertex_ptr: None,
+            dynamic_standard_capacity_vertices: 0,
+            dynamic_display_capacity_vertices: 0,
+            display_atlas: TextAtlasResources::default(),
+            display_descriptor_set_layout: vk::DescriptorSetLayout::null(),
+            display_descriptor_pool: vk::DescriptorPool::null(),
+            display_descriptor_set: vk::DescriptorSet::null(),
+            depth_image: vk::Image::null(),
+            depth_image_memory: vk::DeviceMemory::null(),
+            depth_image_view: vk::ImageView::null(),
+            depth_format,
+            current_extent: vk::Extent2D { width: 0, height: 0 },
         };
 
         renderer.create_text_static_resources()?;
+        renderer.create_dynamic_text_resources()?;
         renderer.recreate_swapchain(window)?;
         Ok(renderer)
     }
@@ -185,7 +232,12 @@ impl VulkanRenderer {
         &self.device_name
     }
 
-    pub fn draw_frame(&mut self, window: &Window) -> Result<(), BoxError> {
+    pub fn draw_frame(
+        &mut self,
+        window: &Window,
+        inputs: &FrameInputs,
+        clock: WallClock,
+    ) -> Result<(), BoxError> {
         let size = window.inner_size();
         if size.width == 0 || size.height == 0 {
             return Ok(());
@@ -217,6 +269,16 @@ impl VulkanRenderer {
                 )));
             }
         };
+
+        // The in-flight fence has been waited on: the previous submission using this command
+        // buffer and the dynamic vertex buffer has fully completed, so both are safe to rewrite.
+        let (dynamic_standard_vertices, dynamic_display_vertices) =
+            self.write_dynamic_vertices(inputs, clock)?;
+        self.record_command_buffer(
+            image_index as usize,
+            dynamic_standard_vertices,
+            dynamic_display_vertices,
+        )?;
 
         let wait_semaphores = [self.image_available_semaphore];
         let signal_semaphores = [self.render_finished_semaphore];
@@ -315,12 +377,19 @@ impl VulkanRenderer {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.render_pass = create_render_pass(&self.device, surface_format.format)?;
+        self.render_pass = create_render_pass(&self.device, surface_format.format, self.depth_format)?;
+        self.create_depth_resources(extent)?;
         self.framebuffers = self
             .swapchain_image_views
             .iter()
             .map(|&image_view| {
-                create_framebuffer(&self.device, self.render_pass, image_view, extent)
+                create_framebuffer(
+                    &self.device,
+                    self.render_pass,
+                    image_view,
+                    self.depth_image_view,
+                    extent,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -330,8 +399,29 @@ impl VulkanRenderer {
             self.command_pool,
             self.framebuffers.len() as u32,
         )?;
-        self.record_command_buffers(extent)?;
+        self.current_extent = extent;
+        // Command buffers are recorded per frame in draw_frame (ADR-013 realtime contract), not
+        // here: the first draw after a swapchain (re)creation records before submitting.
 
+        Ok(())
+    }
+
+    fn create_depth_resources(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
+        let (image, memory) = create_image(
+            &self.instance,
+            &self.device,
+            self.physical_device,
+            extent.width,
+            extent.height,
+            self.depth_format,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+        let view = create_image_view(&self.device, image, self.depth_format, vk::ImageAspectFlags::DEPTH)?;
+        self.depth_image = image;
+        self.depth_image_memory = memory;
+        self.depth_image_view = view;
         Ok(())
     }
 
@@ -354,6 +444,237 @@ impl VulkanRenderer {
         Ok(())
     }
 
+    /// Allocates the fixed-capacity dynamic text machinery once: the persistently mapped
+    /// vertex buffer sized from the screen's bindings ([standard quads | display quads]) and,
+    /// when numeric displays exist, the display package's atlas + descriptor set. Nothing here
+    /// runs per frame (ADR-013).
+    fn create_dynamic_text_resources(&mut self) -> Result<(), BoxError> {
+        let standard_quads: usize = self
+            .bindings
+            .clocks
+            .iter()
+            .map(|binding| binding.capacity)
+            .chain(self.bindings.statuses.iter().map(|binding| binding.capacity))
+            .sum();
+        let display_quads: usize = self
+            .bindings
+            .numbers
+            .iter()
+            .map(|binding| binding.capacity)
+            .sum();
+
+        // The per-frame renderer uses fixed TextRuntime::<DYNAMIC_RUN_CAPACITY> buffers; every
+        // individual binding must fit one render call.
+        for (node_id, capacity) in self
+            .bindings
+            .clocks
+            .iter()
+            .map(|binding| (binding.node_id, binding.capacity))
+            .chain(
+                self.bindings
+                    .statuses
+                    .iter()
+                    .map(|binding| (binding.node_id, binding.capacity)),
+            )
+            .chain(
+                self.bindings
+                    .numbers
+                    .iter()
+                    .map(|binding| (binding.node_id, binding.capacity)),
+            )
+        {
+            if capacity > DYNAMIC_RUN_CAPACITY {
+                return Err(box_error(format!(
+                    "realtime binding {node_id} needs {capacity} glyphs, above the adapter's per-run capacity of {DYNAMIC_RUN_CAPACITY}"
+                )));
+            }
+        }
+
+        self.dynamic_standard_capacity_vertices = standard_quads * 6;
+        self.dynamic_display_capacity_vertices = display_quads * 6;
+        let total_vertices =
+            self.dynamic_standard_capacity_vertices + self.dynamic_display_capacity_vertices;
+        if total_vertices == 0 {
+            return Ok(());
+        }
+
+        let buffer_size = vk::DeviceSize::try_from(total_vertices * size_of::<TextVertex>())?;
+        let (buffer, memory) = create_buffer(
+            &self.instance,
+            &self.device,
+            self.physical_device,
+            buffer_size,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        let mapped = unsafe {
+            self.device
+                .map_memory(memory, 0, buffer_size, vk::MemoryMapFlags::empty())?
+        };
+        self.dynamic_vertex_buffer = buffer;
+        self.dynamic_vertex_buffer_memory = memory;
+        self.dynamic_vertex_ptr = std::ptr::NonNull::new(mapped.cast::<TextVertex>());
+
+        if display_quads > 0 {
+            self.display_atlas = create_text_atlas_resources(
+                &self.instance,
+                &self.device,
+                self.physical_device,
+                self.command_pool,
+                self.graphics_queue,
+                &self.bindings.display,
+            )?;
+            let (descriptor_set_layout, descriptor_pool, descriptor_set) =
+                create_text_descriptor_resources(&self.device, &self.display_atlas)?;
+            self.display_descriptor_set_layout = descriptor_set_layout;
+            self.display_descriptor_pool = descriptor_pool;
+            self.display_descriptor_set = descriptor_set;
+        }
+
+        Ok(())
+    }
+
+    /// Rewrites the persistently mapped dynamic vertex buffer from the drained frame inputs:
+    /// clocks and status states from the standard package (first range), numeric displays from
+    /// the display package (second range). Returns the vertex counts of both ranges. No
+    /// allocation: bounded ArrayVec renders + in-place quad writes.
+    fn write_dynamic_vertices(
+        &mut self,
+        inputs: &FrameInputs,
+        clock: WallClock,
+    ) -> Result<(u32, u32), BoxError> {
+        let Some(pointer) = self.dynamic_vertex_ptr else {
+            return Ok((0, 0));
+        };
+        let extent = self.current_extent;
+        let surface_width = extent.width.max(1) as f32;
+        let surface_height = extent.height.max(1) as f32;
+        let total_vertices =
+            self.dynamic_standard_capacity_vertices + self.dynamic_display_capacity_vertices;
+        // Safety: the buffer was mapped once at creation with exactly this vertex capacity, and
+        // the in-flight fence waited in draw_frame guarantees the GPU is done reading it.
+        let vertices =
+            unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), total_vertices) };
+
+        let standard_runtime =
+            TextRuntime::<DYNAMIC_RUN_CAPACITY>::from_validated_package(&self.bindings.standard);
+        let display_runtime =
+            TextRuntime::<DYNAMIC_RUN_CAPACITY>::from_validated_package(&self.bindings.display);
+
+        let mut standard_cursor = 0usize;
+        for binding in &self.bindings.clocks {
+            match binding.format {
+                mdux::ClockFormat::TimeSeconds => {
+                    let commands = standard_runtime.render_clock(
+                        &binding.glyph_set_id,
+                        clock.hours,
+                        clock.minutes,
+                        clock.seconds,
+                        binding.origin_x,
+                        binding.origin_y,
+                    )?;
+                    write_glyph_quads(
+                        vertices,
+                        &mut standard_cursor,
+                        self.dynamic_standard_capacity_vertices,
+                        &commands,
+                        &self.bindings.standard,
+                        surface_width,
+                        surface_height,
+                    )?;
+                }
+                mdux::ClockFormat::DateTimeSeconds => {
+                    let date_commands = standard_runtime.render_date(
+                        &binding.glyph_set_id,
+                        clock.year,
+                        clock.month,
+                        clock.day,
+                        binding.origin_x,
+                        binding.origin_y,
+                    )?;
+                    write_glyph_quads(
+                        vertices,
+                        &mut standard_cursor,
+                        self.dynamic_standard_capacity_vertices,
+                        &date_commands,
+                        &self.bindings.standard,
+                        surface_width,
+                        surface_height,
+                    )?;
+                    // Time starts after the rendered date plus one space advance.
+                    let date_advance = glyph_sequence_advance(
+                        &self.bindings.standard,
+                        &binding.glyph_set_id,
+                        clock,
+                    )?;
+                    let time_commands = standard_runtime.render_clock(
+                        &binding.glyph_set_id,
+                        clock.hours,
+                        clock.minutes,
+                        clock.seconds,
+                        binding.origin_x + date_advance,
+                        binding.origin_y,
+                    )?;
+                    write_glyph_quads(
+                        vertices,
+                        &mut standard_cursor,
+                        self.dynamic_standard_capacity_vertices,
+                        &time_commands,
+                        &self.bindings.standard,
+                        surface_width,
+                        surface_height,
+                    )?;
+                }
+            }
+        }
+
+        for binding in &self.bindings.statuses {
+            let state_index = usize::from(inputs.status_index(binding.source).unwrap_or(0));
+            let run_id = binding.state_run_ids.get(state_index).ok_or_else(|| {
+                box_error(format!(
+                    "status {} has no run for state {state_index}",
+                    binding.node_id
+                ))
+            })?;
+            let (origin_x, origin_y) = binding.state_origins[state_index];
+            let commands = standard_runtime.render_run(run_id, origin_x, origin_y)?;
+            write_glyph_quads(
+                vertices,
+                &mut standard_cursor,
+                self.dynamic_standard_capacity_vertices,
+                &commands,
+                &self.bindings.standard,
+                surface_width,
+                surface_height,
+            )?;
+        }
+
+        let mut display_cursor = self.dynamic_standard_capacity_vertices;
+        for binding in &self.bindings.numbers {
+            let value = inputs.number(binding.source).unwrap_or(0);
+            let commands = display_runtime.render_numeric_template(
+                &binding.template_id,
+                value,
+                binding.origin_x,
+                binding.origin_y,
+            )?;
+            write_glyph_quads(
+                vertices,
+                &mut display_cursor,
+                total_vertices,
+                &commands,
+                &self.bindings.display,
+                surface_width,
+                surface_height,
+            )?;
+        }
+
+        Ok((
+            standard_cursor as u32,
+            (display_cursor - self.dynamic_standard_capacity_vertices) as u32,
+        ))
+    }
+
     fn create_text_swapchain_resources(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
         let (vertex_buffer, vertex_buffer_memory, vertex_count) = create_text_vertex_buffer(
             &self.instance,
@@ -374,69 +695,97 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    fn record_command_buffers(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
+    /// Records one frame's command buffer: static text overlay, then the two dynamic text
+    /// ranges (standard-package quads: clock/status; display-package quads: numeric displays).
+    /// Re-recorded every frame from a pre-allocated buffer (RESET_COMMAND_BUFFER pool) — no
+    /// Vulkan object is created here (ADR-013).
+    fn record_command_buffer(
+        &self,
+        image_index: usize,
+        dynamic_standard_vertices: u32,
+        dynamic_display_vertices: u32,
+    ) -> Result<(), BoxError> {
+        let command_buffer = self.command_buffers[image_index];
+        let extent = self.current_extent;
+        let begin_info = vk::CommandBufferBeginInfo::default();
         unsafe {
-            self.device
-                .reset_command_pool(self.command_pool, vk::CommandPoolResetFlags::empty())?;
+            self.device.reset_command_buffer(
+                command_buffer,
+                vk::CommandBufferResetFlags::empty(),
+            )?;
+            self.device.begin_command_buffer(command_buffer, &begin_info)?;
         }
 
-        for (index, command_buffer) in self.command_buffers.iter().enumerate() {
-            let begin_info = vk::CommandBufferBeginInfo::default();
-            unsafe {
-                self.device
-                    .begin_command_buffer(*command_buffer, &begin_info)?;
-            }
-
-            let clear_values = [vk::ClearValue {
+        let clear_values = [
+            vk::ClearValue {
                 color: vk::ClearColorValue {
                     float32: [0.12, 0.18, 0.35, 1.0],
                 },
-            }];
-            let render_area = vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent,
-            };
-            let render_pass_info = vk::RenderPassBeginInfo::default()
-                .render_pass(self.render_pass)
-                .framebuffer(self.framebuffers[index])
-                .render_area(render_area)
-                .clear_values(&clear_values);
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+        let render_area = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent,
+        };
+        let render_pass_info = vk::RenderPassBeginInfo::default()
+            .render_pass(self.render_pass)
+            .framebuffer(self.framebuffers[image_index])
+            .render_area(render_area)
+            .clear_values(&clear_values);
 
-            unsafe {
-                self.device.cmd_begin_render_pass(
-                    *command_buffer,
-                    &render_pass_info,
-                    vk::SubpassContents::INLINE,
+        unsafe {
+            self.device.cmd_begin_render_pass(
+                command_buffer,
+                &render_pass_info,
+                vk::SubpassContents::INLINE,
+            );
+
+            let has_static = self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
+            let has_dynamic = self.text_pipeline != vk::Pipeline::null()
+                && (dynamic_standard_vertices > 0 || dynamic_display_vertices > 0);
+
+            if has_static || has_dynamic {
+                let viewport = vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                };
+                let scissor = vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                };
+                let push_constants = TextPushConstants::overlay();
+
+                self.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.text_pipeline,
+                );
+                self.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                self.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                self.device.cmd_push_constants(
+                    command_buffer,
+                    self.text_pipeline_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    bytes_of(&push_constants),
                 );
 
-                if self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0 {
-                    let viewport = vk::Viewport {
-                        x: 0.0,
-                        y: 0.0,
-                        width: extent.width as f32,
-                        height: extent.height as f32,
-                        min_depth: 0.0,
-                        max_depth: 1.0,
-                    };
-                    let scissor = vk::Rect2D {
-                        offset: vk::Offset2D { x: 0, y: 0 },
-                        extent,
-                    };
+                if has_static {
                     let vertex_buffers = [self.text_vertex_buffer];
                     let offsets = [0];
                     let descriptor_sets = [self.text_descriptor_set];
-                    let push_constants = TextPushConstants::overlay();
-
-                    self.device.cmd_bind_pipeline(
-                        *command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        self.text_pipeline,
-                    );
-                    self.device
-                        .cmd_set_viewport(*command_buffer, 0, &[viewport]);
-                    self.device.cmd_set_scissor(*command_buffer, 0, &[scissor]);
                     self.device.cmd_bind_descriptor_sets(
-                        *command_buffer,
+                        command_buffer,
                         vk::PipelineBindPoint::GRAPHICS,
                         self.text_pipeline_layout,
                         0,
@@ -444,25 +793,62 @@ impl VulkanRenderer {
                         &[],
                     );
                     self.device.cmd_bind_vertex_buffers(
-                        *command_buffer,
+                        command_buffer,
                         0,
                         &vertex_buffers,
                         &offsets,
                     );
-                    self.device.cmd_push_constants(
-                        *command_buffer,
-                        self.text_pipeline_layout,
-                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                        0,
-                        bytes_of(&push_constants),
-                    );
                     self.device
-                        .cmd_draw(*command_buffer, self.text_vertex_count, 1, 0, 0);
+                        .cmd_draw(command_buffer, self.text_vertex_count, 1, 0, 0);
                 }
 
-                self.device.cmd_end_render_pass(*command_buffer);
-                self.device.end_command_buffer(*command_buffer)?;
+                if has_dynamic {
+                    let vertex_buffers = [self.dynamic_vertex_buffer];
+                    let offsets = [0];
+                    self.device.cmd_bind_vertex_buffers(
+                        command_buffer,
+                        0,
+                        &vertex_buffers,
+                        &offsets,
+                    );
+
+                    if dynamic_standard_vertices > 0 {
+                        let descriptor_sets = [self.text_descriptor_set];
+                        self.device.cmd_bind_descriptor_sets(
+                            command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            self.text_pipeline_layout,
+                            0,
+                            &descriptor_sets,
+                            &[],
+                        );
+                        self.device
+                            .cmd_draw(command_buffer, dynamic_standard_vertices, 1, 0, 0);
+                    }
+
+                    if dynamic_display_vertices > 0 {
+                        let descriptor_sets = [self.display_descriptor_set];
+                        self.device.cmd_bind_descriptor_sets(
+                            command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            self.text_pipeline_layout,
+                            0,
+                            &descriptor_sets,
+                            &[],
+                        );
+                        self.device.cmd_draw(
+                            command_buffer,
+                            dynamic_display_vertices,
+                            1,
+                            self.dynamic_standard_capacity_vertices as u32,
+                            0,
+                        );
+                    }
+                }
             }
+
+            self.device.cmd_end_render_pass(command_buffer);
+            self.device.end_command_buffer(command_buffer)?;
         }
 
         Ok(())
@@ -474,6 +860,19 @@ impl VulkanRenderer {
                 self.device
                     .free_command_buffers(self.command_pool, &self.command_buffers);
                 self.command_buffers.clear();
+            }
+
+            if self.depth_image_view != vk::ImageView::null() {
+                self.device.destroy_image_view(self.depth_image_view, None);
+                self.depth_image_view = vk::ImageView::null();
+            }
+            if self.depth_image != vk::Image::null() {
+                self.device.destroy_image(self.depth_image, None);
+                self.depth_image = vk::Image::null();
+            }
+            if self.depth_image_memory != vk::DeviceMemory::null() {
+                self.device.free_memory(self.depth_image_memory, None);
+                self.depth_image_memory = vk::DeviceMemory::null();
             }
 
             if self.text_vertex_buffer != vk::Buffer::null() {
@@ -515,6 +914,46 @@ impl VulkanRenderer {
 
     fn destroy_text_static_objects(&mut self) {
         unsafe {
+            if self.dynamic_vertex_ptr.take().is_some() {
+                self.device.unmap_memory(self.dynamic_vertex_buffer_memory);
+            }
+            if self.dynamic_vertex_buffer != vk::Buffer::null() {
+                self.device.destroy_buffer(self.dynamic_vertex_buffer, None);
+                self.dynamic_vertex_buffer = vk::Buffer::null();
+            }
+            if self.dynamic_vertex_buffer_memory != vk::DeviceMemory::null() {
+                self.device
+                    .free_memory(self.dynamic_vertex_buffer_memory, None);
+                self.dynamic_vertex_buffer_memory = vk::DeviceMemory::null();
+            }
+            if self.display_descriptor_pool != vk::DescriptorPool::null() {
+                self.device
+                    .destroy_descriptor_pool(self.display_descriptor_pool, None);
+                self.display_descriptor_pool = vk::DescriptorPool::null();
+            }
+            self.display_descriptor_set = vk::DescriptorSet::null();
+            if self.display_descriptor_set_layout != vk::DescriptorSetLayout::null() {
+                self.device
+                    .destroy_descriptor_set_layout(self.display_descriptor_set_layout, None);
+                self.display_descriptor_set_layout = vk::DescriptorSetLayout::null();
+            }
+            if self.display_atlas.sampler != vk::Sampler::null() {
+                self.device.destroy_sampler(self.display_atlas.sampler, None);
+                self.display_atlas.sampler = vk::Sampler::null();
+            }
+            if self.display_atlas.image_view != vk::ImageView::null() {
+                self.device
+                    .destroy_image_view(self.display_atlas.image_view, None);
+                self.display_atlas.image_view = vk::ImageView::null();
+            }
+            if self.display_atlas.image != vk::Image::null() {
+                self.device.destroy_image(self.display_atlas.image, None);
+                self.display_atlas.image = vk::Image::null();
+            }
+            if self.display_atlas.memory != vk::DeviceMemory::null() {
+                self.device.free_memory(self.display_atlas.memory, None);
+                self.display_atlas.memory = vk::DeviceMemory::null();
+            }
             if self.text_pipeline_layout != vk::PipelineLayout::null() {
                 self.device
                     .destroy_pipeline_layout(self.text_pipeline_layout, None);
@@ -827,6 +1266,7 @@ fn create_image_view(
 fn create_render_pass(
     device: &ash::Device,
     format: vk::Format,
+    depth_format: vk::Format,
 ) -> Result<vk::RenderPass, BoxError> {
     let color_attachment = vk::AttachmentDescription::default()
         .format(format)
@@ -835,23 +1275,44 @@ fn create_render_pass(
         .store_op(vk::AttachmentStoreOp::STORE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+    let depth_attachment = vk::AttachmentDescription::default()
+        .format(depth_format)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     let color_reference = vk::AttachmentReference::default()
         .attachment(0)
         .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+    let depth_reference = vk::AttachmentReference::default()
+        .attachment(1)
+        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     let color_references = [color_reference];
     let subpass = vk::SubpassDescription::default()
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color_references);
+        .color_attachments(&color_references)
+        .depth_stencil_attachment(&depth_reference);
     let dependency = vk::SubpassDependency::default()
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
-        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        )
+        .dst_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        )
         .dst_access_mask(
-            vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::AccessFlags::COLOR_ATTACHMENT_READ
+                | vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         );
 
-    let attachments = [color_attachment];
+    let attachments = [color_attachment, depth_attachment];
     let subpasses = [subpass];
     let dependencies = [dependency];
     let create_info = vk::RenderPassCreateInfo::default()
@@ -862,13 +1323,36 @@ fn create_render_pass(
     Ok(render_pass)
 }
 
+/// Picks the first supported depth format, preferring plain 32-bit depth.
+fn find_depth_format(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Result<vk::Format, BoxError> {
+    for format in [
+        vk::Format::D32_SFLOAT,
+        vk::Format::D32_SFLOAT_S8_UINT,
+        vk::Format::D24_UNORM_S8_UINT,
+    ] {
+        let properties =
+            unsafe { instance.get_physical_device_format_properties(physical_device, format) };
+        if properties
+            .optimal_tiling_features
+            .contains(vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT)
+        {
+            return Ok(format);
+        }
+    }
+    Err(box_error("no supported depth attachment format found"))
+}
+
 fn create_framebuffer(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     image_view: vk::ImageView,
+    depth_image_view: vk::ImageView,
     extent: vk::Extent2D,
 ) -> Result<vk::Framebuffer, BoxError> {
-    let attachments = [image_view];
+    let attachments = [image_view, depth_image_view];
     let create_info = vk::FramebufferCreateInfo::default()
         .render_pass(render_pass)
         .attachments(&attachments)
@@ -1182,6 +1666,11 @@ fn create_text_pipeline(
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
     let dynamic_state =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+    // Text is an overlay drawn last: depth test/write disabled, but the state must be supplied
+    // explicitly now that the subpass carries a depth attachment.
+    let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false);
 
     let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
         .stages(&shader_stages)
@@ -1191,6 +1680,7 @@ fn create_text_pipeline(
         .rasterization_state(&rasterization_state)
         .multisample_state(&multisample_state)
         .color_blend_state(&color_blend_state)
+        .depth_stencil_state(&depth_stencil_state)
         .dynamic_state(&dynamic_state)
         .layout(pipeline_layout)
         .render_pass(render_pass)
@@ -1269,27 +1759,177 @@ fn build_text_vertices(
                 ))
             })?;
 
-        let left = (2.0 * command.x as f32 / width) - 1.0;
-        let right = (2.0 * (command.x + i32::from(command.width)) as f32 / width) - 1.0;
-        let top = -1.0 + (2.0 * command.y as f32 / height);
-        let bottom = -1.0 + (2.0 * (command.y + i32::from(command.height)) as f32 / height);
-
-        let u0 = glyph.x as f32 / atlas_width;
-        let v0 = glyph.y as f32 / atlas_height;
-        let u1 = (glyph.x + glyph.width) as f32 / atlas_width;
-        let v1 = (glyph.y + glyph.height) as f32 / atlas_height;
-
-        vertices.extend_from_slice(&[
-            TextVertex::new([left, top], [u0, v0]),
-            TextVertex::new([right, top], [u1, v0]),
-            TextVertex::new([right, bottom], [u1, v1]),
-            TextVertex::new([left, top], [u0, v0]),
-            TextVertex::new([right, bottom], [u1, v1]),
-            TextVertex::new([left, bottom], [u0, v1]),
-        ]);
+        vertices.extend_from_slice(&glyph_quad_vertices(
+            command,
+            glyph,
+            atlas_width,
+            atlas_height,
+            width,
+            height,
+        ));
     }
 
     Ok(vertices)
+}
+
+/// Per-render-call glyph budget of the dynamic text path; every realtime binding's capacity is
+/// checked against it at construction, so the frame loop's ArrayVecs can never overflow.
+const DYNAMIC_RUN_CAPACITY: usize = 64;
+
+/// Writes one render call's glyph commands as quads into the mapped dynamic buffer, advancing
+/// `cursor` and enforcing the range's fixed capacity.
+fn write_glyph_quads(
+    vertices: &mut [TextVertex],
+    cursor: &mut usize,
+    range_end: usize,
+    commands: &[mdux::GlyphDrawCommand],
+    package: &mdux::TextPackage,
+    surface_width: f32,
+    surface_height: f32,
+) -> Result<(), BoxError> {
+    let atlas = package
+        .atlases
+        .first()
+        .ok_or_else(|| box_error("text package does not contain an atlas"))?;
+    let atlas_width = atlas.width as f32;
+    let atlas_height = atlas.height as f32;
+
+    for command in commands {
+        let glyph = package
+            .find_glyph(command.atlas_index, command.glyph_id)
+            .ok_or_else(|| {
+                box_error(format!(
+                    "missing atlas glyph {} for dynamic text",
+                    command.glyph_id
+                ))
+            })?;
+        if *cursor + 6 > range_end {
+            return Err(box_error("dynamic text capacity exceeded"));
+        }
+        vertices[*cursor..*cursor + 6].copy_from_slice(&glyph_quad_vertices(
+            command,
+            glyph,
+            atlas_width,
+            atlas_height,
+            surface_width,
+            surface_height,
+        ));
+        *cursor += 6;
+    }
+
+    Ok(())
+}
+
+/// The pixel advance of the rendered `YYYY-MM-DD ` prefix (date digits, separators, and one
+/// trailing space) for the given wall-clock date, computed from the glyph set's advances.
+fn glyph_sequence_advance(
+    package: &mdux::TextPackage,
+    glyph_set_id: &str,
+    clock: WallClock,
+) -> Result<i32, BoxError> {
+    let glyph_set = package
+        .find_numeric_glyph_set(glyph_set_id)
+        .ok_or_else(|| box_error(format!("unknown numeric glyph set {glyph_set_id}")))?;
+
+    let digit = |value: u16| char::from(b'0' + (value % 10) as u8);
+    let characters = [
+        digit(clock.year / 1000),
+        digit(clock.year / 100),
+        digit(clock.year / 10),
+        digit(clock.year),
+        '-',
+        digit(u16::from(clock.month) / 10),
+        digit(u16::from(clock.month)),
+        '-',
+        digit(u16::from(clock.day) / 10),
+        digit(u16::from(clock.day)),
+        ' ',
+    ];
+
+    let mut advance = 0i32;
+    for character in characters {
+        let entry = glyph_set
+            .entries
+            .iter()
+            .find(|entry| entry.character == character)
+            .ok_or_else(|| {
+                box_error(format!(
+                    "glyph set {glyph_set_id} is missing '{character}' for the datetime clock"
+                ))
+            })?;
+        advance += entry.advance_x;
+    }
+    Ok(advance)
+}
+
+/// The six vertices (two CCW triangles) of one glyph quad in NDC, with atlas UVs. Shared by the
+/// static overlay path (heap `Vec` at swapchain creation) and the dynamic realtime path (writes
+/// into the persistently mapped buffer each frame).
+fn glyph_quad_vertices(
+    command: &mdux::GlyphDrawCommand,
+    glyph: &mdux::AtlasGlyph,
+    atlas_width: f32,
+    atlas_height: f32,
+    surface_width: f32,
+    surface_height: f32,
+) -> [TextVertex; 6] {
+    let left = (2.0 * command.x as f32 / surface_width) - 1.0;
+    let right = (2.0 * (command.x + i32::from(command.width)) as f32 / surface_width) - 1.0;
+    let top = -1.0 + (2.0 * command.y as f32 / surface_height);
+    let bottom = -1.0 + (2.0 * (command.y + i32::from(command.height)) as f32 / surface_height);
+
+    let u0 = glyph.x as f32 / atlas_width;
+    let v0 = glyph.y as f32 / atlas_height;
+    let u1 = (glyph.x + glyph.width) as f32 / atlas_width;
+    let v1 = (glyph.y + glyph.height) as f32 / atlas_height;
+
+    [
+        TextVertex::new([left, top], [u0, v0]),
+        TextVertex::new([right, top], [u1, v0]),
+        TextVertex::new([right, bottom], [u1, v1]),
+        TextVertex::new([left, top], [u0, v0]),
+        TextVertex::new([right, bottom], [u1, v1]),
+        TextVertex::new([left, bottom], [u0, v1]),
+    ]
+}
+
+/// Wall-clock timestamp handed to the renderer each frame (UTC civil time; a real device would
+/// use its configured device clock).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WallClock {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hours: u8,
+    pub minutes: u8,
+    pub seconds: u8,
+}
+
+/// Converts seconds since the Unix epoch to UTC civil date/time (Howard Hinnant's
+/// days-from-civil inverse, pure integer math — no chrono/time dependency).
+pub fn civil_from_unix(unix_seconds: i64) -> WallClock {
+    let days = unix_seconds.div_euclid(86_400);
+    let seconds_of_day = unix_seconds.rem_euclid(86_400);
+
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u8;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u8;
+    let year = if month <= 2 { year + 1 } else { year };
+
+    WallClock {
+        year: year.clamp(0, 9999) as u16,
+        month,
+        day,
+        hours: (seconds_of_day / 3600) as u8,
+        minutes: (seconds_of_day / 60 % 60) as u8,
+        seconds: (seconds_of_day % 60) as u8,
+    }
 }
 
 fn create_shader_module(device: &ash::Device, bytes: &[u8]) -> Result<vk::ShaderModule, BoxError> {
@@ -1722,6 +2362,30 @@ mod tests {
         .expect_err("missing atlas should fail vertex generation");
 
         assert!(error.to_string().contains("does not contain an atlas"));
+    }
+
+    #[test]
+    fn converts_unix_seconds_to_utc_civil_time() {
+        // 1970-01-01 00:00:00
+        assert_eq!(
+            civil_from_unix(0),
+            WallClock { year: 1970, month: 1, day: 1, hours: 0, minutes: 0, seconds: 0 }
+        );
+        // 2000-02-29 12:34:56 (leap day) = 951827696
+        assert_eq!(
+            civil_from_unix(951_827_696),
+            WallClock { year: 2000, month: 2, day: 29, hours: 12, minutes: 34, seconds: 56 }
+        );
+        // 2026-07-03 00:00:00 = 1783036800
+        assert_eq!(
+            civil_from_unix(1_783_036_800),
+            WallClock { year: 2026, month: 7, day: 3, hours: 0, minutes: 0, seconds: 0 }
+        );
+        // 2023-12-31 23:59:59 = 1704067199
+        assert_eq!(
+            civil_from_unix(1_704_067_199),
+            WallClock { year: 2023, month: 12, day: 31, hours: 23, minutes: 59, seconds: 59 }
+        );
     }
 
     #[test]

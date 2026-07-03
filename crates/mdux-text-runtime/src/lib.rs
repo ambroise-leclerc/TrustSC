@@ -24,6 +24,16 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         Ok(Self { package })
     }
 
+    /// Wraps a package **already validated by an earlier [`TextRuntime::new`]** without
+    /// re-running validation. Full validation walks every collection and allocates ordering
+    /// sets, which a per-frame render loop must not do (ADR-013 bounded contract) — construct
+    /// once with `new` at startup to validate, then use this in the frame loop. The caller is
+    /// responsible for not mutating the package in between; every render call still fails
+    /// safely (typed `ValidationError`s) on dangling references.
+    pub fn from_validated_package(package: &'a TextPackage) -> Self {
+        Self { package }
+    }
+
     pub fn render_run(
         &self,
         run_id: &str,
