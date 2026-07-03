@@ -126,6 +126,22 @@ impl StatusIndicatorSpec {
     }
 }
 
+/// Solid-color background rectangle synthesized by the MedUI compiler (e.g. from a Row's
+/// `background:` property). Underlay by definition: no requirement, no text, exempt from the
+/// ADR-014 overlap rule, drawn beneath every other node.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PanelSpec {
+    pub color_token: &'static str,
+}
+
+/// Governed raster image (ADR-014): rendered at its intrinsic size only — the compiler verifies
+/// the declared bounds equal the baked package's dimensions exactly, so there is no runtime
+/// scaling.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImageSpec {
+    pub image_id: &'static str,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompiledNodeKind {
     CriticalButton(CriticalButtonSpec),
@@ -134,6 +150,8 @@ pub enum CompiledNodeKind {
     Clock(ClockSpec),
     NumericDisplay(NumericDisplaySpec),
     StatusIndicator(StatusIndicatorSpec),
+    Panel(PanelSpec),
+    Image(ImageSpec),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -168,7 +186,11 @@ impl CompiledNodeKind {
             Self::CriticalButton(specification) => Some(specification.requirement_id),
             Self::NumericDisplay(specification) => Some(specification.requirement_id),
             Self::StatusIndicator(specification) => Some(specification.requirement_id),
-            Self::VulkanViewport(_) | Self::Label(_) | Self::Clock(_) => None,
+            Self::VulkanViewport(_)
+            | Self::Label(_)
+            | Self::Clock(_)
+            | Self::Panel(_)
+            | Self::Image(_) => None,
         }
     }
 
@@ -184,9 +206,33 @@ impl CompiledNodeKind {
             Self::VulkanViewport(_)
             | Self::Clock(_)
             | Self::NumericDisplay(_)
-            | Self::StatusIndicator(_) => None,
+            | Self::StatusIndicator(_)
+            | Self::Panel(_)
+            | Self::Image(_) => None,
         }
     }
+}
+
+/// The single approved token → RGBA table (ADR-014). The MedUI compiler validates every
+/// color-bearing property against it (an unknown token is a compile error), and the adapter
+/// resolves Panel colors through it at binding time. Linear RGBA, straight alpha.
+pub const THEME_COLORS: &[(&str, [f32; 4])] = &[
+    ("Theme.Colors.TopbarBackground", [0.82, 0.84, 0.86, 1.0]),
+    ("Theme.Colors.Title", [0.10, 0.12, 0.16, 1.0]),
+    ("Theme.Colors.ScoreDigits", [0.13, 0.72, 0.42, 1.0]),
+    ("Theme.Colors.Nominal", [0.13, 0.72, 0.42, 1.0]),
+    ("Theme.Colors.Alert", [0.95, 0.65, 0.15, 1.0]),
+    ("Theme.Colors.Fault", [0.86, 0.20, 0.18, 1.0]),
+    ("Theme.Colors.Neutral", [0.62, 0.66, 0.70, 1.0]),
+    ("Theme.Colors.PrimaryAction", [0.16, 0.44, 0.86, 1.0]),
+];
+
+/// Looks a theme color token up in [`THEME_COLORS`]; `None` for unknown tokens.
+pub fn resolve_color_token(token: &str) -> Option<[f32; 4]> {
+    THEME_COLORS
+        .iter()
+        .find(|(candidate, _)| *candidate == token)
+        .map(|(_, rgba)| *rgba)
 }
 
 impl CompiledScreenPackage {
@@ -425,6 +471,41 @@ mod tests {
             error.to_string(),
             "Vulkan SC requires explicit reserved memory and descriptor budgets"
         );
+    }
+
+    #[test]
+    fn theme_color_table_resolves_every_entry_and_rejects_unknown_tokens() {
+        for (token, rgba) in THEME_COLORS {
+            assert_eq!(resolve_color_token(token), Some(*rgba), "{token}");
+        }
+        assert_eq!(resolve_color_token("Theme.Colors.DoesNotExist"), None);
+        assert_eq!(
+            resolve_color_token("Theme.Colors.TopbarBackground"),
+            Some([0.82, 0.84, 0.86, 1.0])
+        );
+    }
+
+    #[test]
+    fn panel_and_image_kinds_are_const_constructible_and_untraced() {
+        const PANEL: CompiledNode = CompiledNode {
+            id: "topbar-background",
+            bounds: Rect { x: 0, y: 0, width: 1920, height: 64 },
+            kind: CompiledNodeKind::Panel(PanelSpec {
+                color_token: "Theme.Colors.TopbarBackground",
+            }),
+        };
+        const IMAGE: CompiledNode = CompiledNode {
+            id: "acme-logo",
+            bounds: Rect { x: 1768, y: 8, width: 144, height: 48 },
+            kind: CompiledNodeKind::Image(ImageSpec { image_id: "LOGO-ACME" }),
+        };
+
+        // Both kinds are decorative: no requirement, no static text — the startup
+        // ScreenTextLayout and build()'s component derivation skip them.
+        assert_eq!(PANEL.kind.requirement_id(), None);
+        assert_eq!(PANEL.kind.text_key(), None);
+        assert_eq!(IMAGE.kind.requirement_id(), None);
+        assert_eq!(IMAGE.kind.text_key(), None);
     }
 
     #[test]
