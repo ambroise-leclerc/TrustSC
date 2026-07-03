@@ -99,6 +99,184 @@ Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit 
 glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
 application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
 
+## A complete Class C monitor in 137 lines
+
+`examples/class_c_monitor` is the **Acme NeuroSense 500**, a fictional depth-of-anesthesia
+monitor modeling a genuine IEC 62304 **Class C** configuration: Vulkan SC profile with explicit
+reserved budgets, a mandatory hazard, full requirement traceability — and a realtime bedside
+layout, windowed on the development host through the ADR-013 preview:
+
+```text
++----------------------------------------------------------------------+
+| NeuroSense 500 - Depth of...   2026-07-03 14:25:09          NOMINAL  |  top bar
++----------------------------------------------------------------------+
+|                                4 7                                   |  48px live index
++----------------------------------------------------------------------+
+|            /\/\_/\  3D EEG spectral waterfall (DSA),                 |
+|         __/       \__  one spectrum row per frame,                   |  VulkanViewport
+|      __/     __       \____  history receding in perspective         |
++----------------------------------------------------------------------+
+```
+
+The clock costs **zero application code** (the adapter feeds platform time), every text budget
+(including the wider French translations) is checked at compile time, and the app has no
+`ash`/`winit`/`shaderc` dependency. The whole application:
+
+**`neurosense.medui`** (45 lines):
+
+```text
+Screen NeuroSense500 {
+    layout: Vertical { spacing: 8px; padding: 16px; }
+    Row {
+        id: topbar;
+        height: 48px;
+        spacing: 16px;
+        Label {
+            id: device-title;
+            width: 340px;
+            height: 48px;
+            text: t("STR-NS-TITLE");
+            color: Theme.Colors.Title;
+        }
+        Clock {
+            id: wall-clock;
+            width: Fill;
+            height: 48px;
+            format: DateTimeSeconds;
+        }
+        StatusIndicator {
+            id: system-status;
+            width: 200px;
+            height: 48px;
+            requirement: "REQ-NS-003";
+            source: "MONITOR_STATUS";
+            states: [t("STR-NS-NOMINAL"), t("STR-NS-ALERT"), t("STR-NS-FAULT")];
+        }
+    }
+    @safety_critical(cv_check: [Bounds, ColorHash])
+    NumericDisplay {
+        id: sedation-index;
+        width: Fill;
+        height: 120px;
+        requirement: "REQ-NS-001";
+        template: "TPL-SEDATION-INDEX";
+        source: "SEDATION_INDEX";
+        color: Theme.Colors.ScoreDigits;
+    }
+    VulkanViewport {
+        id: eeg-dsa;
+        width: Fill;
+        height: Fill;
+        stream_source: "EEG_DSA";
+    }
+}
+```
+
+**`build.rs`** (5 lines):
+
+```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mdux_build::MeduiScreen::new("neurosense.medui")
+        .surface(1280, 720)
+        .compile()
+}
+```
+
+**`src/main.rs`** (87 lines, EEG simulator included):
+
+```rust
+mdux::include_medui_screen!();
+
+use mdux::{
+    ComplianceProgram, DeviceContext, FrameworkBuilder, Hazard, Requirement, RequirementId,
+    SafetyClass, UiSdkConfig, VerificationCase, VerificationMethod,
+};
+
+/// Synthetic EEG: two drifting spectral peaks over pseudo-noise; the sedation index follows the
+/// dominant peak. Stands in for the acquisition front-end a real device would have.
+struct EegSimulator {
+    tick: u32,
+    noise: u32,
+}
+
+impl EegSimulator {
+    fn tick(&mut self) -> (i64, [f32; 64]) {
+        self.tick += 1;
+        let time = self.tick as f32 / 60.0;
+        let peak_a = 12.0 + 6.0 * (time / 5.0).sin();
+        let peak_b = 38.0 + 10.0 * (time / 9.0).cos();
+        let mut row = [0.0f32; 64];
+        for (bin, sample) in row.iter_mut().enumerate() {
+            self.noise = self.noise.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (self.noise >> 24) as f32 / 255.0 * 0.12;
+            let lobe = |peak: f32, width: f32| (-((bin as f32 - peak) / width).powi(2)).exp();
+            *sample = (0.85 * lobe(peak_a, 4.0) + 0.55 * lobe(peak_b, 7.0) + noise).min(1.0);
+        }
+        let index = (46.0 + 18.0 * (time / 7.0).sin()).clamp(0.0, 99.0) as i64;
+        (index, row)
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let device = DeviceContext::new(
+        "Acme Medical",
+        "NeuroSense 500",
+        "neurosense-ui",
+        "0.1.0",
+        SafetyClass::C,
+    )?;
+
+    let mut compliance = ComplianceProgram::new(device.clone());
+    let req_index = RequirementId::new("REQ-NS-001")?;
+    let req_stream = RequirementId::new("REQ-NS-002")?;
+    let req_status = RequirementId::new("REQ-NS-003")?;
+    for (id, title) in [
+        (&req_index, "Display the sedation index, refreshed every frame"),
+        (&req_stream, "Display the spectral stream with visible freshness"),
+        (&req_status, "Keep the system status permanently visible"),
+    ] {
+        compliance.add_requirement(Requirement::new(
+            id.clone(),
+            title,
+            "IEC62304-5.2",
+            "Verified by windowed demonstration and headless smoke",
+        )?);
+        compliance.add_verification(VerificationCase::new(
+            format!("VER-{id}"),
+            id.clone(),
+            VerificationMethod::Demonstration,
+            "Windowed run on the development host",
+        )?);
+    }
+    compliance.add_hazard(Hazard::new(
+        "HAZ-NS-001",
+        "A stale or frozen sedation index misleads the anesthesiologist",
+        vec![req_index, req_stream],
+    )?);
+
+    let screen = medui_screen::screen();
+    let framework = FrameworkBuilder::new()
+        .with_device(device)
+        .with_compliance(compliance)
+        .with_ui(UiSdkConfig::vulkansc_class_c(1280, 720, 12, 32 * 1024 * 1024, 256))
+        .with_screen(screen)
+        .build()?;
+
+    let mut simulator = EegSimulator { tick: 0, noise: 0x9E37_79B9 };
+    mdux_vulkan_winit::App::new(framework, screen)
+        .with_realtime(move |frame| {
+            let (index, row) = simulator.tick();
+            let _ = frame.set_number("SEDATION_INDEX", index);
+            let _ = frame.set_status("MONITOR_STATUS", 0);
+            let _ = frame.push_row("EEG_DSA", &row);
+        })
+        .run_from_env()
+}
+```
+
+Run it with `cargo run -p class_c_monitor` (windowed; note the `HOST PREVIEW` banner and the
+`runtime` audit event in the diagnostics), or `-- --headless-smoke` for the CI path.
+
 ## Vulkan prerequisites
 
 The primary development path for MduX is Vulkan-based medical UI work. Install a system Vulkan loader before running the windowed examples.
@@ -152,7 +330,8 @@ If you only need non-graphical validation, `cargo run -p hello_world -- --headle
   font atlas and SPIR-V shader evidence
 - `examples/hello_world`: smallest out-of-the-box smoke demo (see above)
 - `examples/class_b_device`: Class B Vulkan example
-- `examples/class_c_vulkansc_device`: Class C Vulkan SC example
+- `examples/class_c_monitor`: the NeuroSense 500 Class C realtime monitor (see above)
+- `examples/class_c_vulkansc_device`: Class C Vulkan SC example (evidence-only, no window)
 
 ## Commands
 
@@ -178,6 +357,10 @@ cargo run -p hello_world -- --auto-close-ms=1000
 # run the same smoke path without a window
 cargo run -p hello_world -- --headless-smoke
 
+# run the Class C realtime monitor (windowed, ADR-013 host preview)
+cargo run -p class_c_monitor
+cargo run -p class_c_monitor -- --headless-smoke
+
 # run the richer examples
 cargo run -p class_b_device
 cargo run -p class_c_vulkansc_device
@@ -193,7 +376,7 @@ The same example also includes a minimal `.medui` source file compiled at build 
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
-- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto and SPIR-V artifacts, and exercises `hello_world` through `--headless-smoke`.
+- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto (16 px and 48 px) and SPIR-V artifacts, and exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
 - Replay the same checks locally with:
 
 ```bash
@@ -201,8 +384,10 @@ source $HOME/.cargo/env
 cargo build --locked --workspace
 cargo test --locked --quiet
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
+cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
 cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
 cargo run --locked -q -p hello_world -- --headless-smoke
+cargo run --locked -q -p class_c_monitor -- --headless-smoke
 ```
 
 ## Hello World Vulkan text path
