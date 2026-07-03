@@ -22,6 +22,13 @@ pub type BoxError = Box<dyn Error>;
 
 const TEXT_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/hello_text.vert.spv");
 const TEXT_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/hello_text.frag.spv");
+const HEIGHTFIELD_VERT_SPV: &[u8] =
+    include_bytes!("../shaders/generated/heightfield.vert.spv");
+const HEIGHTFIELD_FRAG_SPV: &[u8] =
+    include_bytes!("../shaders/generated/heightfield.frag.spv");
+
+/// Vertical exaggeration applied to the waterfall's normalized 0..1 samples.
+const WATERFALL_HEIGHT_SCALE: f32 = 0.45;
 
 #[derive(Clone, Copy)]
 struct QueueFamilies {
@@ -78,6 +85,36 @@ impl TextPushConstants {
             text_color: [0.97, 0.98, 1.0, 1.0],
         }
     }
+}
+
+/// Must match the push-constant block of `heightfield.vert` (80 bytes: column-major MVP then
+/// four floats).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct HeightfieldPushConstants {
+    mvp: [[f32; 4]; 4],
+    rows: f32,
+    cols: f32,
+    row_offset: f32,
+    height_scale: f32,
+}
+
+/// GPU-side state of one streaming viewport's waterfall: a static index grid over a
+/// persistently mapped height array (the ring buffer's mirror), plus the fixed camera.
+struct WaterfallResources {
+    source: &'static str,
+    bounds: mdux::Rect,
+    rows: u32,
+    bins: u32,
+    height_buffer: vk::Buffer,
+    height_buffer_memory: vk::DeviceMemory,
+    height_ptr: Option<std::ptr::NonNull<f32>>,
+    index_buffer: vk::Buffer,
+    index_buffer_memory: vk::DeviceMemory,
+    index_count: u32,
+    mvp: [[f32; 4]; 4],
+    /// Ring cursor of the last written frame, handed to the shader as `row_offset`.
+    row_offset: u32,
 }
 
 pub struct VulkanRenderer {
@@ -138,6 +175,10 @@ pub struct VulkanRenderer {
     depth_image_view: vk::ImageView,
     depth_format: vk::Format,
     current_extent: vk::Extent2D,
+    // 3D DSA waterfalls, one per streaming viewport; pipeline recreated with the swapchain.
+    waterfalls: Vec<WaterfallResources>,
+    waterfall_pipeline_layout: vk::PipelineLayout,
+    waterfall_pipeline: vk::Pipeline,
 }
 
 impl VulkanRenderer {
@@ -220,10 +261,14 @@ impl VulkanRenderer {
             depth_image_view: vk::ImageView::null(),
             depth_format,
             current_extent: vk::Extent2D { width: 0, height: 0 },
+            waterfalls: Vec::new(),
+            waterfall_pipeline_layout: vk::PipelineLayout::null(),
+            waterfall_pipeline: vk::Pipeline::null(),
         };
 
         renderer.create_text_static_resources()?;
         renderer.create_dynamic_text_resources()?;
+        renderer.create_waterfall_resources()?;
         renderer.recreate_swapchain(window)?;
         Ok(renderer)
     }
@@ -271,7 +316,8 @@ impl VulkanRenderer {
         };
 
         // The in-flight fence has been waited on: the previous submission using this command
-        // buffer and the dynamic vertex buffer has fully completed, so both are safe to rewrite.
+        // buffer and the mapped buffers has fully completed, so all are safe to rewrite.
+        self.write_waterfall_heights(inputs)?;
         let (dynamic_standard_vertices, dynamic_display_vertices) =
             self.write_dynamic_vertices(inputs, clock)?;
         self.record_command_buffer(
@@ -675,6 +721,116 @@ impl VulkanRenderer {
         ))
     }
 
+    /// Allocates the per-stream waterfall machinery once: the persistently mapped height array
+    /// (rows × bins floats, the ring buffer's GPU mirror), the static triangle-grid index
+    /// buffer, the fixed perspective camera, and the shared pipeline layout.
+    fn create_waterfall_resources(&mut self) -> Result<(), BoxError> {
+        if self.bindings.streams.is_empty() {
+            return Ok(());
+        }
+
+        let push_constant_range = vk::PushConstantRange::default()
+            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
+            .offset(0)
+            .size(size_of::<HeightfieldPushConstants>() as u32);
+        let push_constant_ranges = [push_constant_range];
+        let layout_info =
+            vk::PipelineLayoutCreateInfo::default().push_constant_ranges(&push_constant_ranges);
+        self.waterfall_pipeline_layout =
+            unsafe { self.device.create_pipeline_layout(&layout_info, None)? };
+
+        let streams = self.bindings.streams.clone();
+        for stream in &streams {
+            let rows = stream.rows as u32;
+            let bins = stream.bins as u32;
+            let height_count = (rows * bins) as usize;
+            let height_size = vk::DeviceSize::try_from(height_count * size_of::<f32>())?;
+            let (height_buffer, height_buffer_memory) = create_buffer(
+                &self.instance,
+                &self.device,
+                self.physical_device,
+                height_size,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            let mapped = unsafe {
+                self.device.map_memory(
+                    height_buffer_memory,
+                    0,
+                    height_size,
+                    vk::MemoryMapFlags::empty(),
+                )?
+            };
+            // Start flat: all heights zero.
+            unsafe {
+                std::ptr::write_bytes(mapped.cast::<u8>(), 0, height_count * size_of::<f32>());
+            }
+
+            let indices = heightfield_grid_indices(rows, bins);
+            let index_size = vk::DeviceSize::try_from(indices.len() * size_of::<u32>())?;
+            let (index_buffer, index_buffer_memory) = create_buffer(
+                &self.instance,
+                &self.device,
+                self.physical_device,
+                index_size,
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            write_buffer(&self.device, index_buffer_memory, bytes_of_slice(&indices))?;
+
+            let aspect = stream.bounds.width.max(1) as f32 / stream.bounds.height.max(1) as f32;
+            let mvp = waterfall_camera_mvp(aspect);
+
+            self.waterfalls.push(WaterfallResources {
+                source: stream.source,
+                bounds: stream.bounds,
+                rows,
+                bins,
+                height_buffer,
+                height_buffer_memory,
+                height_ptr: std::ptr::NonNull::new(mapped.cast::<f32>()),
+                index_buffer,
+                index_buffer_memory,
+                index_count: indices.len() as u32,
+                mvp,
+                row_offset: 0,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Mirrors each stream's ring buffer into its mapped height array and records the ring
+    /// cursor for the shader's scroll remap. Plain memcpy — no allocation, no object creation.
+    fn write_waterfall_heights(&mut self, inputs: &FrameInputs) -> Result<(), BoxError> {
+        for waterfall in &mut self.waterfalls {
+            let (data, cursor) = inputs.stream(waterfall.source).ok_or_else(|| {
+                box_error(format!(
+                    "screen declares stream {} but FrameInputs does not know it",
+                    waterfall.source
+                ))
+            })?;
+            let Some(pointer) = waterfall.height_ptr else {
+                continue;
+            };
+            let expected = (waterfall.rows * waterfall.bins) as usize;
+            if data.len() != expected {
+                return Err(box_error(format!(
+                    "stream {} ring size {} does not match the waterfall grid {expected}",
+                    waterfall.source,
+                    data.len()
+                )));
+            }
+            // Safety: mapped once at creation with exactly `expected` floats; the in-flight
+            // fence waited in draw_frame guarantees the GPU finished reading the buffer.
+            unsafe {
+                std::ptr::copy_nonoverlapping(data.as_ptr(), pointer.as_ptr(), expected);
+            }
+            waterfall.row_offset = cursor as u32;
+        }
+        Ok(())
+    }
+
     fn create_text_swapchain_resources(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
         let (vertex_buffer, vertex_buffer_memory, vertex_count) = create_text_vertex_buffer(
             &self.instance,
@@ -692,6 +848,13 @@ impl VulkanRenderer {
             self.text_pipeline_layout,
             extent,
         )?;
+        if !self.waterfalls.is_empty() {
+            self.waterfall_pipeline = create_heightfield_pipeline(
+                &self.device,
+                self.render_pass,
+                self.waterfall_pipeline_layout,
+            )?;
+        }
         Ok(())
     }
 
@@ -745,6 +908,69 @@ impl VulkanRenderer {
                 &render_pass_info,
                 vk::SubpassContents::INLINE,
             );
+
+            // 3D waterfalls first (depth-tested), text overlay after (depth-ignoring).
+            if self.waterfall_pipeline != vk::Pipeline::null() {
+                self.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.waterfall_pipeline,
+                );
+                for waterfall in &self.waterfalls {
+                    // Render strictly inside the node's reserved bounds (ADR-011).
+                    let viewport = vk::Viewport {
+                        x: waterfall.bounds.x as f32,
+                        y: waterfall.bounds.y as f32,
+                        width: waterfall.bounds.width as f32,
+                        height: waterfall.bounds.height as f32,
+                        min_depth: 0.0,
+                        max_depth: 1.0,
+                    };
+                    let scissor = vk::Rect2D {
+                        offset: vk::Offset2D {
+                            x: waterfall.bounds.x,
+                            y: waterfall.bounds.y,
+                        },
+                        extent: vk::Extent2D {
+                            width: waterfall.bounds.width,
+                            height: waterfall.bounds.height,
+                        },
+                    };
+                    let push_constants = HeightfieldPushConstants {
+                        mvp: waterfall.mvp,
+                        rows: waterfall.rows as f32,
+                        cols: waterfall.bins as f32,
+                        row_offset: waterfall.row_offset as f32,
+                        height_scale: WATERFALL_HEIGHT_SCALE,
+                    };
+                    let vertex_buffers = [waterfall.height_buffer];
+                    let offsets = [0];
+
+                    self.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                    self.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                    self.device.cmd_push_constants(
+                        command_buffer,
+                        self.waterfall_pipeline_layout,
+                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                        0,
+                        bytes_of(&push_constants),
+                    );
+                    self.device.cmd_bind_vertex_buffers(
+                        command_buffer,
+                        0,
+                        &vertex_buffers,
+                        &offsets,
+                    );
+                    self.device.cmd_bind_index_buffer(
+                        command_buffer,
+                        waterfall.index_buffer,
+                        0,
+                        vk::IndexType::UINT32,
+                    );
+                    self.device
+                        .cmd_draw_indexed(command_buffer, waterfall.index_count, 1, 0, 0, 0);
+                }
+            }
 
             let has_static = self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
             let has_dynamic = self.text_pipeline != vk::Pipeline::null()
@@ -890,6 +1116,10 @@ impl VulkanRenderer {
                 self.device.destroy_pipeline(self.text_pipeline, None);
                 self.text_pipeline = vk::Pipeline::null();
             }
+            if self.waterfall_pipeline != vk::Pipeline::null() {
+                self.device.destroy_pipeline(self.waterfall_pipeline, None);
+                self.waterfall_pipeline = vk::Pipeline::null();
+            }
 
             for framebuffer in self.framebuffers.drain(..) {
                 self.device.destroy_framebuffer(framebuffer, None);
@@ -953,6 +1183,32 @@ impl VulkanRenderer {
             if self.display_atlas.memory != vk::DeviceMemory::null() {
                 self.device.free_memory(self.display_atlas.memory, None);
                 self.display_atlas.memory = vk::DeviceMemory::null();
+            }
+            for waterfall in &mut self.waterfalls {
+                if waterfall.height_ptr.take().is_some() {
+                    self.device.unmap_memory(waterfall.height_buffer_memory);
+                }
+                if waterfall.height_buffer != vk::Buffer::null() {
+                    self.device.destroy_buffer(waterfall.height_buffer, None);
+                    waterfall.height_buffer = vk::Buffer::null();
+                }
+                if waterfall.height_buffer_memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(waterfall.height_buffer_memory, None);
+                    waterfall.height_buffer_memory = vk::DeviceMemory::null();
+                }
+                if waterfall.index_buffer != vk::Buffer::null() {
+                    self.device.destroy_buffer(waterfall.index_buffer, None);
+                    waterfall.index_buffer = vk::Buffer::null();
+                }
+                if waterfall.index_buffer_memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(waterfall.index_buffer_memory, None);
+                    waterfall.index_buffer_memory = vk::DeviceMemory::null();
+                }
+            }
+            if self.waterfall_pipeline_layout != vk::PipelineLayout::null() {
+                self.device
+                    .destroy_pipeline_layout(self.waterfall_pipeline_layout, None);
+                self.waterfall_pipeline_layout = vk::PipelineLayout::null();
             }
             if self.text_pipeline_layout != vk::PipelineLayout::null() {
                 self.device
@@ -1772,6 +2028,190 @@ fn build_text_vertices(
     Ok(vertices)
 }
 
+/// Builds the heightfield pipeline: one float vertex attribute (the height sample), triangle
+/// list over the static grid indices, depth test + write enabled, opaque, dynamic
+/// viewport/scissor (set per waterfall to its node bounds).
+fn create_heightfield_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, BoxError> {
+    let vertex_shader_module = create_shader_module(device, HEIGHTFIELD_VERT_SPV)?;
+    let fragment_shader_module = create_shader_module(device, HEIGHTFIELD_FRAG_SPV)?;
+    let entry_point = CString::new("main")?;
+    let shader_stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_shader_module)
+            .name(&entry_point),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_shader_module)
+            .name(&entry_point),
+    ];
+
+    let binding_description = vk::VertexInputBindingDescription::default()
+        .binding(0)
+        .stride(size_of::<f32>() as u32)
+        .input_rate(vk::VertexInputRate::VERTEX);
+    let attribute_description = vk::VertexInputAttributeDescription::default()
+        .binding(0)
+        .location(0)
+        .format(vk::Format::R32_SFLOAT)
+        .offset(0);
+    let binding_descriptions = [binding_description];
+    let attribute_descriptions = [attribute_description];
+    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
+        .vertex_binding_descriptions(&binding_descriptions)
+        .vertex_attribute_descriptions(&attribute_descriptions);
+    let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = vk::PipelineColorBlendAttachmentState::default()
+        .blend_enable(false)
+        .color_write_mask(vk::ColorComponentFlags::RGBA);
+    let color_blend_attachments = [color_blend_attachment];
+    let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
+        .attachments(&color_blend_attachments);
+    let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(true)
+        .depth_write_enable(true)
+        .depth_compare_op(vk::CompareOp::LESS);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic_state =
+        vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+
+    let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
+        .stages(&shader_stages)
+        .vertex_input_state(&vertex_input_state)
+        .input_assembly_state(&input_assembly_state)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization_state)
+        .multisample_state(&multisample_state)
+        .color_blend_state(&color_blend_state)
+        .depth_stencil_state(&depth_stencil_state)
+        .dynamic_state(&dynamic_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+
+    let pipeline_result = unsafe {
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
+    };
+
+    unsafe {
+        device.destroy_shader_module(vertex_shader_module, None);
+        device.destroy_shader_module(fragment_shader_module, None);
+    }
+
+    let pipeline = pipeline_result
+        .map_err(|(_, error)| box_error(format!("failed to create heightfield pipeline: {error}")))?[0];
+
+    Ok(pipeline)
+}
+
+/// Triangle-list indices over a rows × bins vertex grid (vertex id = row * bins + col), two CCW
+/// triangles per cell.
+fn heightfield_grid_indices(rows: u32, bins: u32) -> Vec<u32> {
+    let mut indices = Vec::with_capacity(((rows - 1) * (bins - 1) * 6) as usize);
+    for row in 0..rows - 1 {
+        for col in 0..bins - 1 {
+            let top_left = row * bins + col;
+            let top_right = top_left + 1;
+            let bottom_left = top_left + bins;
+            let bottom_right = bottom_left + 1;
+            indices.extend_from_slice(&[
+                top_left,
+                bottom_left,
+                top_right,
+                top_right,
+                bottom_left,
+                bottom_right,
+            ]);
+        }
+    }
+    indices
+}
+
+/// The waterfall's fixed camera: perspective(45°) × look-at from an elevated front position
+/// toward the middle of the scrolling grid. Hand-rolled column-major math (no linear-algebra
+/// dependency), Vulkan clip conventions (Y flipped, depth 0..1).
+fn waterfall_camera_mvp(aspect: f32) -> [[f32; 4]; 4] {
+    let projection = perspective_vk(45f32.to_radians(), aspect, 0.1, 10.0);
+    let view = look_at(
+        [0.0, 1.05, -1.35], // eye: above and in front of the newest row
+        [0.0, 0.10, 0.55],  // target: middle of the receding history
+        [0.0, 1.0, 0.0],
+    );
+    mat4_mul(projection, view)
+}
+
+/// Right-handed perspective projection for Vulkan clip space (depth 0..1, Y down).
+fn perspective_vk(fov_y: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
+    let focal = 1.0 / (fov_y / 2.0).tan();
+    let mut matrix = [[0.0f32; 4]; 4];
+    matrix[0][0] = focal / aspect;
+    matrix[1][1] = -focal; // Vulkan Y points down in clip space
+    matrix[2][2] = far / (near - far);
+    matrix[2][3] = -1.0;
+    matrix[3][2] = (near * far) / (near - far);
+    matrix
+}
+
+/// Right-handed look-at view matrix (column-major).
+fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [[f32; 4]; 4] {
+    let forward = normalize(sub(center, eye));
+    let side = normalize(cross(forward, up));
+    let true_up = cross(side, forward);
+
+    [
+        [side[0], true_up[0], -forward[0], 0.0],
+        [side[1], true_up[1], -forward[1], 0.0],
+        [side[2], true_up[2], -forward[2], 0.0],
+        [-dot(side, eye), -dot(true_up, eye), dot(forward, eye), 1.0],
+    ]
+}
+
+fn mat4_mul(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let mut result = [[0.0f32; 4]; 4];
+    for (column, result_column) in result.iter_mut().enumerate() {
+        for (row, cell) in result_column.iter_mut().enumerate() {
+            *cell = (0..4).map(|k| a[k][row] * b[column][k]).sum();
+        }
+    }
+    result
+}
+
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let length = dot(v, v).sqrt();
+    [v[0] / length, v[1] / length, v[2] / length]
+}
+
 /// Per-render-call glyph budget of the dynamic text path; every realtime binding's capacity is
 /// checked against it at construction, so the frame loop's ArrayVecs can never overflow.
 const DYNAMIC_RUN_CAPACITY: usize = 64;
@@ -2362,6 +2802,41 @@ mod tests {
         .expect_err("missing atlas should fail vertex generation");
 
         assert!(error.to_string().contains("does not contain an atlas"));
+    }
+
+    #[test]
+    fn generates_two_ccw_triangles_per_grid_cell() {
+        let indices = heightfield_grid_indices(3, 4);
+        // (3-1) x (4-1) cells x 6 indices.
+        assert_eq!(indices.len(), 36);
+        // First cell: vertices 0,4,1 then 1,4,5 (row stride = bins = 4).
+        assert_eq!(&indices[0..6], &[0, 4, 1, 1, 4, 5]);
+        // Every index addresses a real vertex.
+        assert!(indices.iter().all(|&index| index < 12));
+    }
+
+    #[test]
+    fn camera_math_behaves_like_a_view_projection() {
+        // look_at maps the eye to the origin.
+        let view = look_at([1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        let eye_in_view = transform(view, [1.0, 2.0, 3.0, 1.0]);
+        for component in &eye_in_view[0..3] {
+            assert!(component.abs() < 1e-5, "eye should map to origin: {eye_in_view:?}");
+        }
+
+        // A point straight ahead of the camera projects to clip center with positive w.
+        let mvp = waterfall_camera_mvp(16.0 / 9.0);
+        let center = transform(mvp, [0.0, 0.10, 0.55, 1.0]);
+        assert!(center[3] > 0.0, "target should be in front of the camera");
+        assert!((center[0] / center[3]).abs() < 0.05, "target should be near clip x center");
+    }
+
+    fn transform(matrix: [[f32; 4]; 4], point: [f32; 4]) -> [f32; 4] {
+        let mut result = [0.0f32; 4];
+        for (row, cell) in result.iter_mut().enumerate() {
+            *cell = (0..4).map(|column| matrix[column][row] * point[column]).sum();
+        }
+        result
     }
 
     #[test]
