@@ -464,7 +464,12 @@ impl VulkanRenderer {
             vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
-        let view = create_image_view(&self.device, image, self.depth_format, vk::ImageAspectFlags::DEPTH)?;
+        let view = create_image_view(
+            &self.device,
+            image,
+            self.depth_format,
+            depth_aspect_mask(self.depth_format),
+        )?;
         self.depth_image = image;
         self.depth_image_memory = memory;
         self.depth_image_view = view;
@@ -917,7 +922,10 @@ impl VulkanRenderer {
                     self.waterfall_pipeline,
                 );
                 for waterfall in &self.waterfalls {
-                    // Render strictly inside the node's reserved bounds (ADR-011).
+                    // Render strictly inside the node's reserved bounds (ADR-011). The bounds
+                    // come from the fixed authoring surface, but the window is resizable, so the
+                    // current swapchain extent can be smaller — the scissor rect must stay
+                    // within the framebuffer or it's an invalid Vulkan command.
                     let viewport = vk::Viewport {
                         x: waterfall.bounds.x as f32,
                         y: waterfall.bounds.y as f32,
@@ -926,16 +934,7 @@ impl VulkanRenderer {
                         min_depth: 0.0,
                         max_depth: 1.0,
                     };
-                    let scissor = vk::Rect2D {
-                        offset: vk::Offset2D {
-                            x: waterfall.bounds.x,
-                            y: waterfall.bounds.y,
-                        },
-                        extent: vk::Extent2D {
-                            width: waterfall.bounds.width,
-                            height: waterfall.bounds.height,
-                        },
-                    };
+                    let scissor = clamp_scissor_to_extent(waterfall.bounds, extent);
                     let push_constants = HeightfieldPushConstants {
                         mvp: waterfall.mvp,
                         rows: waterfall.rows as f32,
@@ -1601,6 +1600,18 @@ fn find_depth_format(
     Err(box_error("no supported depth attachment format found"))
 }
 
+/// The image-view aspect mask matching `format`: depth-only formats need `DEPTH`, but
+/// depth-stencil formats (the fallback tier of `find_depth_format`) require `DEPTH | STENCIL` —
+/// a view that omits the stencil aspect of a depth-stencil image is invalid per the Vulkan spec.
+fn depth_aspect_mask(format: vk::Format) -> vk::ImageAspectFlags {
+    match format {
+        vk::Format::D32_SFLOAT_S8_UINT | vk::Format::D24_UNORM_S8_UINT => {
+            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        }
+        _ => vk::ImageAspectFlags::DEPTH,
+    }
+}
+
 fn create_framebuffer(
     device: &ash::Device,
     render_pass: vk::RenderPass,
@@ -2121,7 +2132,28 @@ fn create_heightfield_pipeline(
 
 /// Triangle-list indices over a rows × bins vertex grid (vertex id = row * bins + col), two CCW
 /// triangles per cell.
+/// Intersects a node's fixed-authoring-surface bounds with the current swapchain extent. The
+/// window is resizable, so `extent` can be smaller than the surface the screen was compiled
+/// for; an out-of-framebuffer scissor rect (negative offset or offset+extent beyond the
+/// framebuffer) is an invalid Vulkan command, so this must clamp rather than pass bounds through
+/// unchecked. Clamping to an empty rect (zero width/height) is legal and simply draws nothing.
+fn clamp_scissor_to_extent(bounds: mdux::Rect, extent: vk::Extent2D) -> vk::Rect2D {
+    let x = bounds.x.clamp(0, extent.width as i32);
+    let y = bounds.y.clamp(0, extent.height as i32);
+    let width = bounds.width.min(extent.width.saturating_sub(x as u32));
+    let height = bounds.height.min(extent.height.saturating_sub(y as u32));
+    vk::Rect2D {
+        offset: vk::Offset2D { x, y },
+        extent: vk::Extent2D { width, height },
+    }
+}
+
 fn heightfield_grid_indices(rows: u32, bins: u32) -> Vec<u32> {
+    if rows < 2 || bins < 2 {
+        // Fewer than 2 rows or columns means zero cells: `rows - 1`/`bins - 1` would otherwise
+        // underflow (u32) and turn into a request for an enormous capacity.
+        return Vec::new();
+    }
     let mut indices = Vec::with_capacity(((rows - 1) * (bins - 1) * 6) as usize);
     for row in 0..rows - 1 {
         for col in 0..bins - 1 {
@@ -2816,6 +2848,39 @@ mod tests {
     }
 
     #[test]
+    fn grid_indices_never_underflow_for_degenerate_grids() {
+        assert!(heightfield_grid_indices(0, 4).is_empty());
+        assert!(heightfield_grid_indices(1, 4).is_empty());
+        assert!(heightfield_grid_indices(4, 1).is_empty());
+        assert!(heightfield_grid_indices(0, 0).is_empty());
+    }
+
+    #[test]
+    fn scissor_clamps_to_a_smaller_swapchain_extent() {
+        let bounds = mdux::Rect { x: 16, y: 200, width: 1248, height: 504 };
+
+        // Window shrunk below the authored 1280x720 surface: the scissor must not extend past
+        // the framebuffer in either dimension.
+        let scissor = clamp_scissor_to_extent(bounds, vk::Extent2D { width: 640, height: 300 });
+        assert_eq!(scissor.offset.x, 16);
+        assert_eq!(scissor.offset.y, 200);
+        assert_eq!(scissor.extent.width, 624);
+        assert_eq!(scissor.extent.height, 100);
+
+        // A node bound entirely outside a very small extent clamps to an empty (but valid) rect.
+        let offscreen = clamp_scissor_to_extent(bounds, vk::Extent2D { width: 10, height: 10 });
+        assert_eq!(offscreen.extent.width, 0);
+        assert_eq!(offscreen.extent.height, 0);
+
+        // Enough room: bounds pass through unchanged.
+        let unclamped = clamp_scissor_to_extent(bounds, vk::Extent2D { width: 1280, height: 720 });
+        assert_eq!(unclamped.offset.x, 16);
+        assert_eq!(unclamped.offset.y, 200);
+        assert_eq!(unclamped.extent.width, 1248);
+        assert_eq!(unclamped.extent.height, 504);
+    }
+
+    #[test]
     fn camera_math_behaves_like_a_view_projection() {
         // look_at maps the eye to the origin.
         let view = look_at([1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
@@ -2837,6 +2902,19 @@ mod tests {
             *cell = (0..4).map(|column| matrix[column][row] * point[column]).sum();
         }
         result
+    }
+
+    #[test]
+    fn depth_stencil_formats_get_the_stencil_aspect() {
+        assert!(depth_aspect_mask(vk::Format::D32_SFLOAT) == vk::ImageAspectFlags::DEPTH);
+        assert!(
+            depth_aspect_mask(vk::Format::D32_SFLOAT_S8_UINT)
+                == vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        );
+        assert!(
+            depth_aspect_mask(vk::Format::D24_UNORM_S8_UINT)
+                == vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+        );
     }
 
     #[test]
