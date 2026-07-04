@@ -720,4 +720,109 @@ mod tests {
 
         assert!(error.to_string().contains("same length"), "{error}");
     }
+
+    fn sample_image_package() -> mdux_image_schema::ImagePackage {
+        mdux_image_schema::ImagePackage {
+            id: "LOGO-TEST".to_string(),
+            width: 144,
+            height: 48,
+            pixels: vec![0u8; 144 * 48 * 4],
+            evidence: mdux_image_schema::ImageEvidence {
+                package_sha256: "0".repeat(64),
+                source_sha256: "1".repeat(64),
+                toolchain_id: "test".to_string(),
+                build_recipe_sha256: "2".repeat(64),
+            },
+        }
+    }
+
+    #[test]
+    fn from_screen_rejects_a_panel_with_an_unknown_theme_color_token() {
+        const BROKEN_PANEL: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenPanel",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "topbar-background",
+                bounds: Rect { x: 0, y: 0, width: 1920, height: 64 },
+                kind: CompiledNodeKind::Panel(mdux_ui::PanelSpec {
+                    color_token: "Theme.Colors.Nope",
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_PANEL,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("unknown theme color token should be rejected");
+        assert!(error.to_string().contains("unknown theme color token"), "{error}");
+    }
+
+    #[test]
+    fn from_screen_rejects_an_image_referencing_an_unknown_package() {
+        const BROKEN_IMAGE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenImage",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "acme-logo",
+                bounds: Rect { x: 0, y: 0, width: 144, height: 48 },
+                kind: CompiledNodeKind::Image(mdux_ui::ImageSpec { image_id: "LOGO-NOPE" }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_IMAGE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[sample_image_package()],
+            "en-US",
+        )
+        .expect_err("unknown image package should be rejected");
+        assert!(error.to_string().contains("unknown image package"), "{error}");
+    }
+
+    #[test]
+    fn from_screen_rejects_an_image_whose_bounds_do_not_match_the_package_intrinsic_size() {
+        const MISSIZED_IMAGE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "MissizedImage",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "acme-logo",
+                // Declares 144x40, but sample_image_package() is 144x48.
+                bounds: Rect { x: 0, y: 0, width: 144, height: 40 },
+                kind: CompiledNodeKind::Image(mdux_ui::ImageSpec { image_id: "LOGO-TEST" }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &MISSIZED_IMAGE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[sample_image_package()],
+            "en-US",
+        )
+        .expect_err("bounds/intrinsic-size mismatch should be rejected");
+        assert!(
+            error.to_string().contains("do not match package LOGO-TEST intrinsic size 144x48"),
+            "{error}"
+        );
+    }
 }
