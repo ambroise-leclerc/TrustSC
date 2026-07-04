@@ -67,6 +67,7 @@ pub struct CliInvocation<'a> {
     pub report_output_path: &'a Path,
 }
 
+#[derive(Debug)]
 pub struct BakeSummary {
     pub package_sha256: String,
     pub source_sha256: String,
@@ -80,6 +81,7 @@ pub struct VerificationSummary {
     pub report_bytes_verified: usize,
 }
 
+#[derive(Debug)]
 pub struct BakeArtifacts {
     pub package: ImagePackage,
     pub package_bytes: Vec<u8>,
@@ -159,6 +161,11 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts
             manifest_path.display()
         ))
     })?;
+    if manifest.schema_version != 1 {
+        return Err(ValidationError::new(
+            "image manifest schema_version must be 1",
+        ));
+    }
     if manifest.manifest_kind != "mdux-image-asset" {
         return Err(ValidationError::new(format!(
             "manifest {} is not an mdux-image-asset manifest",
@@ -360,14 +367,25 @@ pub fn parse_ppm_p6(bytes: &[u8]) -> MduxResult<(u32, u32, Vec<u8>)> {
     if maxval != 255 {
         return Err(ValidationError::new("PPM maxval must be 255"));
     }
-    // Exactly one whitespace byte separates the header from the pixel data.
-    cursor += 1;
+    // Per the PPM spec, exactly one whitespace byte terminates the header before the binary
+    // pixel data begins — verify it's actually whitespace rather than blindly skipping a byte,
+    // which could otherwise misalign the decode on a malformed or non-conforming file.
+    match bytes.get(cursor) {
+        Some(byte) if byte.is_ascii_whitespace() => cursor += 1,
+        _ => return Err(ValidationError::new("PPM header is missing its whitespace terminator")),
+    }
 
-    let expected = width as usize * height as usize * 3;
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(3))
+        .ok_or_else(|| ValidationError::new("PPM dimensions overflow usize"))?;
+    let data_end = cursor
+        .checked_add(expected)
+        .ok_or_else(|| ValidationError::new("PPM dimensions overflow usize"))?;
     let data = bytes
-        .get(cursor..cursor + expected)
+        .get(cursor..data_end)
         .ok_or_else(|| ValidationError::new("PPM pixel data is truncated"))?;
-    if cursor + expected != bytes.len() {
+    if data_end != bytes.len() {
         return Err(ValidationError::new("PPM has trailing bytes after pixel data"));
     }
     Ok((width, height, data.to_vec()))
@@ -470,7 +488,10 @@ fn to_pretty_json<T: Serialize>(value: &T) -> MduxResult<Vec<u8>> {
 }
 
 fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
-    if let Some(parent) = path.parent() {
+    // `path.parent()` returns `Some("")` (not `None`) for a bare filename like "package.json";
+    // `create_dir_all("")` would then fail even though there's no directory to create.
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
+    if let Some(parent) = parent {
         fs::create_dir_all(parent).map_err(|error| {
             ValidationError::new(format!(
                 "failed to create output directory {}: {error}",
@@ -575,9 +596,83 @@ mod tests {
         let mut trailing = placeholder_logo_ppm();
         trailing.push(0);
         assert!(parse_ppm_p6(&trailing).is_err(), "trailing bytes rejected");
+        // The header must be terminated by an actual whitespace byte, not a blindly-skipped one.
+        assert!(
+            parse_ppm_p6(b"P6\n2 2\n255X\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+                .is_err(),
+            "missing whitespace terminator rejected"
+        );
+        // Dimensions that would overflow width*height*3 in usize arithmetic must error, not
+        // panic or wrap.
+        assert!(
+            parse_ppm_p6(format!("P6\n{} {}\n255\n", u32::MAX, u32::MAX).as_bytes()).is_err(),
+            "overflowing dimensions rejected"
+        );
         // The real asset parses.
         let (width, height, rgb) = parse_ppm_p6(&placeholder_logo_ppm()).expect("valid P6");
         assert_eq!((width, height), (144, 48));
         assert_eq!(rgb.len(), 144 * 48 * 3);
+    }
+
+    #[test]
+    fn rejects_an_unsupported_manifest_schema_version() {
+        // find_workspace_root walks up looking for a Cargo.toml with `[workspace]`, so the
+        // scratch recipe must live inside the repo tree (target/ is gitignored and safe).
+        let mut recipe_dir = workspace_root().join("target");
+        recipe_dir.push(format!("mdux-image-baker-schema-version-test-{}", std::process::id()));
+        fs::create_dir_all(&recipe_dir).expect("temp dir");
+        let manifest_path = recipe_dir.join("image-manifest.toml");
+        fs::write(
+            &manifest_path,
+            r#"
+schema_version = 2
+manifest_kind = "mdux-image-asset"
+asset_id = "test"
+license = "CC0-1.0"
+
+[asset]
+source_file = "logo.ppm"
+source_format = "ppm-p6"
+source_sha256 = "0000000000000000000000000000000000000000000000000000000000000"
+width = 1
+height = 1
+intended_usage = "test"
+
+[provenance]
+origin = "test"
+generator = "test"
+"#,
+        )
+        .expect("write manifest");
+        let recipe_path = recipe_dir.join("recipe.toml");
+        fs::write(
+            &recipe_path,
+            format!(
+                "toolchain_id = \"test\"\nimage_id = \"TEST\"\nmanifest = \"{}\"\n",
+                manifest_path.display()
+            ),
+        )
+        .expect("write recipe");
+
+        let error = compile_recipe(&recipe_path).expect_err("schema_version 2 must be rejected");
+        assert!(error.to_string().contains("schema_version must be 1"), "{error}");
+
+        let _ = fs::remove_dir_all(&recipe_dir);
+    }
+
+    #[test]
+    fn write_bytes_accepts_a_bare_filename_with_no_directory_component() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("mdux-image-baker-write-bytes-test-{}", std::process::id()));
+        fs::create_dir_all(&path).expect("temp dir");
+        let original_dir = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&path).expect("chdir");
+
+        let result = write_bytes(Path::new("bare-file.json"), b"{}");
+
+        std::env::set_current_dir(original_dir).expect("restore cwd");
+        let _ = fs::remove_dir_all(&path);
+
+        result.expect("writing a bare filename with an empty parent should not fail");
     }
 }
