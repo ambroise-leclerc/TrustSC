@@ -25,6 +25,26 @@
       "source": "heightfield.frag",
       "output": "heightfield.frag.spv",
       "sha256": "777aa54b563280479b5bea039aedd0fd7d521c2794fb641449244afcc845075a"
+    },
+    {
+      "source": "flat.vert",
+      "output": "flat.vert.spv",
+      "sha256": "75a6d59523c8e981c4377925edb2385911d9e29743910f02f57dc29f170c2a8b"
+    },
+    {
+      "source": "flat.frag",
+      "output": "flat.frag.spv",
+      "sha256": "4d4c1f3c32610219fd7aab87893aaf40fcf9928f3d7efc8d581786a37df15ec1"
+    },
+    {
+      "source": "image.vert",
+      "output": "image.vert.spv",
+      "sha256": "56974fcba34df32aa6abfa34f5ad43dd7d44c985194597d7cdb7fbd930bea55a"
+    },
+    {
+      "source": "image.frag",
+      "output": "image.frag.spv",
+      "sha256": "1bdbb621042e22ea51c58b9357d99043b1519510f9e3b15fd7a394fca4e073cf"
     }
   ]
 }

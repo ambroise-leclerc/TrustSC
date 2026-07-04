@@ -26,6 +26,10 @@ const HEIGHTFIELD_VERT_SPV: &[u8] =
     include_bytes!("../shaders/generated/heightfield.vert.spv");
 const HEIGHTFIELD_FRAG_SPV: &[u8] =
     include_bytes!("../shaders/generated/heightfield.frag.spv");
+const FLAT_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/flat.vert.spv");
+const FLAT_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/flat.frag.spv");
+const IMAGE_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/image.vert.spv");
+const IMAGE_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/image.frag.spv");
 
 /// Vertical exaggeration applied to the waterfall's normalized 0..1 samples.
 const WATERFALL_HEIGHT_SCALE: f32 = 0.45;
@@ -115,6 +119,27 @@ struct WaterfallResources {
     mvp: [[f32; 4]; 4],
     /// Ring cursor of the last written frame, handed to the shader as `row_offset`.
     row_offset: u32,
+}
+
+/// Vertex of the flat solid-color pipeline (Panel underlays): NDC position + straight RGBA.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct FlatVertex {
+    position: [f32; 2],
+    color: [f32; 4],
+}
+
+/// One governed image's GPU resources: its RGBA texture + descriptor set (uploaded once at
+/// construction) and its quad vertex buffer (recreated with the swapchain — NDC depends on the
+/// extent).
+struct ImageResources {
+    bounds: mdux::Rect,
+    texture: TextAtlasResources,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_set: vk::DescriptorSet,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
 }
 
 /// One approved display package's GPU text resources and its fixed vertex range in the
@@ -224,6 +249,18 @@ pub struct VulkanRenderer {
     waterfalls: Vec<WaterfallResources>,
     waterfall_pipeline_layout: vk::PipelineLayout,
     waterfall_pipeline: vk::Pipeline,
+    // Panel underlays (ADR-014): one static vertex buffer for ALL panels, one draw, drawn
+    // first. Pipeline layout is empty (no descriptors, no push constants).
+    flat_pipeline_layout: vk::PipelineLayout,
+    flat_pipeline: vk::Pipeline,
+    flat_vertex_buffer: vk::Buffer,
+    flat_vertex_buffer_memory: vk::DeviceMemory,
+    flat_vertex_count: u32,
+    // Governed images (ADR-014): textures uploaded once; quads drawn after the waterfalls,
+    // before the text overlay.
+    images: Vec<ImageResources>,
+    image_pipeline_layout: vk::PipelineLayout,
+    image_pipeline: vk::Pipeline,
 }
 
 impl VulkanRenderer {
@@ -307,11 +344,20 @@ impl VulkanRenderer {
             waterfalls: Vec::new(),
             waterfall_pipeline_layout: vk::PipelineLayout::null(),
             waterfall_pipeline: vk::Pipeline::null(),
+            flat_pipeline_layout: vk::PipelineLayout::null(),
+            flat_pipeline: vk::Pipeline::null(),
+            flat_vertex_buffer: vk::Buffer::null(),
+            flat_vertex_buffer_memory: vk::DeviceMemory::null(),
+            flat_vertex_count: 0,
+            images: Vec::new(),
+            image_pipeline_layout: vk::PipelineLayout::null(),
+            image_pipeline: vk::Pipeline::null(),
         };
 
         renderer.create_text_static_resources()?;
         renderer.create_dynamic_text_resources()?;
         renderer.create_waterfall_resources()?;
+        renderer.create_panel_and_image_static_resources()?;
         renderer.recreate_swapchain(window)?;
         Ok(renderer)
     }
@@ -478,6 +524,7 @@ impl VulkanRenderer {
             .collect::<Result<Vec<_>, _>>()?;
 
         self.create_text_swapchain_resources(extent)?;
+        self.create_panel_and_image_swapchain_resources(extent)?;
         self.command_buffers = allocate_command_buffers(
             &self.device,
             self.command_pool,
@@ -785,6 +832,109 @@ impl VulkanRenderer {
         Ok(standard_cursor as u32)
     }
 
+    /// Uploads every governed image's RGBA texture and builds the panel/image pipeline layouts
+    /// once. Vertex buffers and pipelines are swapchain-scoped (NDC depends on the extent).
+    fn create_panel_and_image_static_resources(&mut self) -> Result<(), BoxError> {
+        if !self.bindings.panels.is_empty() {
+            let layout_info = vk::PipelineLayoutCreateInfo::default();
+            self.flat_pipeline_layout =
+                unsafe { self.device.create_pipeline_layout(&layout_info, None)? };
+        }
+
+        if self.bindings.images.is_empty() {
+            return Ok(());
+        }
+        let image_bindings = self.bindings.images.clone();
+        for binding in &image_bindings {
+            let texture = create_sampled_texture(
+                &self.instance,
+                &self.device,
+                self.physical_device,
+                self.command_pool,
+                self.graphics_queue,
+                binding.image.width,
+                binding.image.height,
+                vk::Format::R8G8B8A8_UNORM,
+                &binding.image.pixels,
+            )?;
+            let (descriptor_set_layout, descriptor_pool, descriptor_set) =
+                create_text_descriptor_resources(&self.device, &texture)?;
+            self.images.push(ImageResources {
+                bounds: binding.bounds,
+                texture,
+                descriptor_set_layout,
+                descriptor_pool,
+                descriptor_set,
+                vertex_buffer: vk::Buffer::null(),
+                vertex_buffer_memory: vk::DeviceMemory::null(),
+            });
+        }
+        // All image descriptor set layouts are identically defined; the shared pipeline layout
+        // is created from the first (identically-defined layouts are compatible).
+        let set_layouts = [self.images[0].descriptor_set_layout];
+        let layout_info = vk::PipelineLayoutCreateInfo::default().set_layouts(&set_layouts);
+        self.image_pipeline_layout =
+            unsafe { self.device.create_pipeline_layout(&layout_info, None)? };
+
+        Ok(())
+    }
+
+    /// (Re)builds the swapchain-scoped panel/image geometry: one static NDC vertex buffer for
+    /// all panels, one quad buffer per image, plus both pipelines.
+    fn create_panel_and_image_swapchain_resources(
+        &mut self,
+        extent: vk::Extent2D,
+    ) -> Result<(), BoxError> {
+        let surface_width = extent.width.max(1) as f32;
+        let surface_height = extent.height.max(1) as f32;
+
+        if !self.bindings.panels.is_empty() {
+            let mut vertices = Vec::with_capacity(self.bindings.panels.len() * 6);
+            for panel in &self.bindings.panels {
+                push_flat_quad(&mut vertices, panel.bounds, panel.rgba, surface_width, surface_height);
+            }
+            let buffer_size = vk::DeviceSize::try_from(std::mem::size_of_val(vertices.as_slice()))?;
+            let (buffer, memory) = create_buffer(
+                &self.instance,
+                &self.device,
+                self.physical_device,
+                buffer_size,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            write_buffer(&self.device, memory, bytes_of_slice(&vertices))?;
+            self.flat_vertex_buffer = buffer;
+            self.flat_vertex_buffer_memory = memory;
+            self.flat_vertex_count = vertices.len() as u32;
+            self.flat_pipeline =
+                create_flat_pipeline(&self.device, self.render_pass, self.flat_pipeline_layout)?;
+        }
+
+        if !self.images.is_empty() {
+            for index in 0..self.images.len() {
+                let bounds = self.images[index].bounds;
+                let vertices = image_quad_vertices(bounds, surface_width, surface_height);
+                let buffer_size = vk::DeviceSize::try_from(std::mem::size_of_val(&vertices))?;
+                let (buffer, memory) = create_buffer(
+                    &self.instance,
+                    &self.device,
+                    self.physical_device,
+                    buffer_size,
+                    vk::BufferUsageFlags::VERTEX_BUFFER,
+                    vk::MemoryPropertyFlags::HOST_VISIBLE
+                        | vk::MemoryPropertyFlags::HOST_COHERENT,
+                )?;
+                write_buffer(&self.device, memory, bytes_of_slice(&vertices))?;
+                self.images[index].vertex_buffer = buffer;
+                self.images[index].vertex_buffer_memory = memory;
+            }
+            self.image_pipeline =
+                create_image_pipeline(&self.device, self.render_pass, self.image_pipeline_layout)?;
+        }
+
+        Ok(())
+    }
+
     /// Allocates the per-stream waterfall machinery once: the persistently mapped height array
     /// (rows × bins floats, the ring buffer's GPU mirror), the static triangle-grid index
     /// buffer, the fixed perspective camera, and the shared pipeline layout.
@@ -972,7 +1122,36 @@ impl VulkanRenderer {
                 vk::SubpassContents::INLINE,
             );
 
-            // 3D waterfalls first (depth-tested), text overlay after (depth-ignoring).
+            // Draw order (ADR-014): panel underlays -> 3D waterfalls (depth-tested) ->
+            // governed images -> text overlay.
+            if self.flat_pipeline != vk::Pipeline::null() && self.flat_vertex_count > 0 {
+                let viewport = vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                };
+                let scissor = vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                };
+                let vertex_buffers = [self.flat_vertex_buffer];
+                let offsets = [0];
+                self.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.flat_pipeline,
+                );
+                self.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                self.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                self.device
+                    .cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                self.device
+                    .cmd_draw(command_buffer, self.flat_vertex_count, 1, 0, 0);
+            }
+
             if self.waterfall_pipeline != vk::Pipeline::null() {
                 self.device.cmd_bind_pipeline(
                     command_buffer,
@@ -1026,6 +1205,48 @@ impl VulkanRenderer {
                     );
                     self.device
                         .cmd_draw_indexed(command_buffer, waterfall.index_count, 1, 0, 0, 0);
+                }
+            }
+
+            if self.image_pipeline != vk::Pipeline::null() && !self.images.is_empty() {
+                let viewport = vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                };
+                let scissor = vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                };
+                self.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.image_pipeline,
+                );
+                self.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                self.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                for image in &self.images {
+                    let descriptor_sets = [image.descriptor_set];
+                    let vertex_buffers = [image.vertex_buffer];
+                    let offsets = [0];
+                    self.device.cmd_bind_descriptor_sets(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        self.image_pipeline_layout,
+                        0,
+                        &descriptor_sets,
+                        &[],
+                    );
+                    self.device.cmd_bind_vertex_buffers(
+                        command_buffer,
+                        0,
+                        &vertex_buffers,
+                        &offsets,
+                    );
+                    self.device.cmd_draw(command_buffer, 6, 1, 0, 0);
                 }
             }
 
@@ -1184,6 +1405,33 @@ impl VulkanRenderer {
                 self.device.destroy_pipeline(self.waterfall_pipeline, None);
                 self.waterfall_pipeline = vk::Pipeline::null();
             }
+            if self.flat_pipeline != vk::Pipeline::null() {
+                self.device.destroy_pipeline(self.flat_pipeline, None);
+                self.flat_pipeline = vk::Pipeline::null();
+            }
+            if self.flat_vertex_buffer != vk::Buffer::null() {
+                self.device.destroy_buffer(self.flat_vertex_buffer, None);
+                self.flat_vertex_buffer = vk::Buffer::null();
+            }
+            if self.flat_vertex_buffer_memory != vk::DeviceMemory::null() {
+                self.device.free_memory(self.flat_vertex_buffer_memory, None);
+                self.flat_vertex_buffer_memory = vk::DeviceMemory::null();
+            }
+            self.flat_vertex_count = 0;
+            if self.image_pipeline != vk::Pipeline::null() {
+                self.device.destroy_pipeline(self.image_pipeline, None);
+                self.image_pipeline = vk::Pipeline::null();
+            }
+            for image in &mut self.images {
+                if image.vertex_buffer != vk::Buffer::null() {
+                    self.device.destroy_buffer(image.vertex_buffer, None);
+                    image.vertex_buffer = vk::Buffer::null();
+                }
+                if image.vertex_buffer_memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(image.vertex_buffer_memory, None);
+                    image.vertex_buffer_memory = vk::DeviceMemory::null();
+                }
+            }
 
             for framebuffer in self.framebuffers.drain(..) {
                 self.device.destroy_framebuffer(framebuffer, None);
@@ -1267,6 +1515,37 @@ impl VulkanRenderer {
                 self.device
                     .destroy_pipeline_layout(self.waterfall_pipeline_layout, None);
                 self.waterfall_pipeline_layout = vk::PipelineLayout::null();
+            }
+            if self.flat_pipeline_layout != vk::PipelineLayout::null() {
+                self.device
+                    .destroy_pipeline_layout(self.flat_pipeline_layout, None);
+                self.flat_pipeline_layout = vk::PipelineLayout::null();
+            }
+            if self.image_pipeline_layout != vk::PipelineLayout::null() {
+                self.device
+                    .destroy_pipeline_layout(self.image_pipeline_layout, None);
+                self.image_pipeline_layout = vk::PipelineLayout::null();
+            }
+            for image in self.images.drain(..) {
+                if image.descriptor_pool != vk::DescriptorPool::null() {
+                    self.device.destroy_descriptor_pool(image.descriptor_pool, None);
+                }
+                if image.descriptor_set_layout != vk::DescriptorSetLayout::null() {
+                    self.device
+                        .destroy_descriptor_set_layout(image.descriptor_set_layout, None);
+                }
+                if image.texture.sampler != vk::Sampler::null() {
+                    self.device.destroy_sampler(image.texture.sampler, None);
+                }
+                if image.texture.image_view != vk::ImageView::null() {
+                    self.device.destroy_image_view(image.texture.image_view, None);
+                }
+                if image.texture.image != vk::Image::null() {
+                    self.device.destroy_image(image.texture.image, None);
+                }
+                if image.texture.memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(image.texture.memory, None);
+                }
             }
             if self.text_pipeline_layout != vk::PipelineLayout::null() {
                 self.device
@@ -1714,7 +1993,35 @@ fn create_text_atlas_resources(
         .atlases
         .first()
         .ok_or_else(|| box_error("screen text package does not contain an atlas"))?;
-    let image_size = vk::DeviceSize::try_from(atlas.pixels.len())?;
+    create_sampled_texture(
+        instance,
+        device,
+        physical_device,
+        command_pool,
+        graphics_queue,
+        atlas.width.into(),
+        atlas.height.into(),
+        vk::Format::R8_UNORM,
+        &atlas.pixels,
+    )
+}
+
+/// Uploads a CPU pixel buffer as an immutable sampled texture (staging copy + layout
+/// transitions, nearest sampling, clamp-to-edge). Shared by the R8 glyph atlases and the RGBA
+/// governed images.
+#[allow(clippy::too_many_arguments)]
+fn create_sampled_texture(
+    instance: &Instance,
+    device: &ash::Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    graphics_queue: vk::Queue,
+    width: u32,
+    height: u32,
+    format: vk::Format,
+    pixels: &[u8],
+) -> Result<TextAtlasResources, BoxError> {
+    let image_size = vk::DeviceSize::try_from(pixels.len())?;
     let (staging_buffer, staging_memory) = create_buffer(
         instance,
         device,
@@ -1731,7 +2038,7 @@ fn create_text_atlas_resources(
         device.free_memory(staging_memory, None);
     };
 
-    if let Err(error) = write_buffer(device, staging_memory, &atlas.pixels) {
+    if let Err(error) = write_buffer(device, staging_memory, pixels) {
         destroy_staging(device);
         return Err(error);
     }
@@ -1740,9 +2047,9 @@ fn create_text_atlas_resources(
         instance,
         device,
         physical_device,
-        atlas.width.into(),
-        atlas.height.into(),
-        vk::Format::R8_UNORM,
+        width,
+        height,
+        format,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
@@ -1773,8 +2080,8 @@ fn create_text_atlas_resources(
             graphics_queue,
             staging_buffer,
             image,
-            atlas.width.into(),
-            atlas.height.into(),
+            width,
+            height,
         )
     })
     .and_then(|()| {
@@ -1795,12 +2102,8 @@ fn create_text_atlas_resources(
 
     destroy_staging(device);
 
-    let image_view = match create_image_view(
-        device,
-        image,
-        vk::Format::R8_UNORM,
-        vk::ImageAspectFlags::COLOR,
-    ) {
+    let image_view = match create_image_view(device, image, format, vk::ImageAspectFlags::COLOR)
+    {
         Ok(view) => view,
         Err(error) => {
             destroy_image(device);
@@ -2096,6 +2399,215 @@ fn build_text_vertices(
     }
 
     Ok(vertices)
+}
+
+/// Appends one panel's 6 solid-color vertices (two CCW triangles) in NDC.
+fn push_flat_quad(
+    vertices: &mut Vec<FlatVertex>,
+    bounds: mdux::Rect,
+    color: [f32; 4],
+    surface_width: f32,
+    surface_height: f32,
+) {
+    let left = (2.0 * bounds.x as f32 / surface_width) - 1.0;
+    let right = (2.0 * (bounds.x + bounds.width as i32) as f32 / surface_width) - 1.0;
+    let top = -1.0 + (2.0 * bounds.y as f32 / surface_height);
+    let bottom = -1.0 + (2.0 * (bounds.y + bounds.height as i32) as f32 / surface_height);
+    let vertex = |x: f32, y: f32| FlatVertex { position: [x, y], color };
+    vertices.extend_from_slice(&[
+        vertex(left, top),
+        vertex(right, top),
+        vertex(right, bottom),
+        vertex(left, top),
+        vertex(right, bottom),
+        vertex(left, bottom),
+    ]);
+}
+
+/// One image quad's 6 textured vertices (full 0..1 UV range) in NDC.
+fn image_quad_vertices(
+    bounds: mdux::Rect,
+    surface_width: f32,
+    surface_height: f32,
+) -> [TextVertex; 6] {
+    let left = (2.0 * bounds.x as f32 / surface_width) - 1.0;
+    let right = (2.0 * (bounds.x + bounds.width as i32) as f32 / surface_width) - 1.0;
+    let top = -1.0 + (2.0 * bounds.y as f32 / surface_height);
+    let bottom = -1.0 + (2.0 * (bounds.y + bounds.height as i32) as f32 / surface_height);
+    [
+        TextVertex::new([left, top], [0.0, 0.0]),
+        TextVertex::new([right, top], [1.0, 0.0]),
+        TextVertex::new([right, bottom], [1.0, 1.0]),
+        TextVertex::new([left, top], [0.0, 0.0]),
+        TextVertex::new([right, bottom], [1.0, 1.0]),
+        TextVertex::new([left, bottom], [0.0, 1.0]),
+    ]
+}
+
+/// The Panel underlay pipeline: FlatVertex input, opaque, depth off, dynamic viewport/scissor.
+fn create_flat_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, BoxError> {
+    let binding_description = vk::VertexInputBindingDescription::default()
+        .binding(0)
+        .stride(size_of::<FlatVertex>() as u32)
+        .input_rate(vk::VertexInputRate::VERTEX);
+    let attribute_descriptions = [
+        vk::VertexInputAttributeDescription::default()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(0),
+        vk::VertexInputAttributeDescription::default()
+            .binding(0)
+            .location(1)
+            .format(vk::Format::R32G32B32A32_SFLOAT)
+            .offset(8),
+    ];
+    create_overlay_pipeline(
+        device,
+        render_pass,
+        pipeline_layout,
+        FLAT_VERT_SPV,
+        FLAT_FRAG_SPV,
+        binding_description,
+        &attribute_descriptions,
+        false,
+    )
+}
+
+/// The governed-image pipeline: TextVertex input (pos + uv), alpha-blended, depth off.
+fn create_image_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, BoxError> {
+    let binding_description = vk::VertexInputBindingDescription::default()
+        .binding(0)
+        .stride(size_of::<TextVertex>() as u32)
+        .input_rate(vk::VertexInputRate::VERTEX);
+    let attribute_descriptions = [
+        vk::VertexInputAttributeDescription::default()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(0),
+        vk::VertexInputAttributeDescription::default()
+            .binding(0)
+            .location(1)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(8),
+    ];
+    create_overlay_pipeline(
+        device,
+        render_pass,
+        pipeline_layout,
+        IMAGE_VERT_SPV,
+        IMAGE_FRAG_SPV,
+        binding_description,
+        &attribute_descriptions,
+        true,
+    )
+}
+
+/// Shared 2D-overlay pipeline builder (panels, images): dynamic viewport/scissor, no depth
+/// test/write, optional alpha blending.
+#[allow(clippy::too_many_arguments)]
+fn create_overlay_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+    vert_spv: &[u8],
+    frag_spv: &[u8],
+    binding_description: vk::VertexInputBindingDescription,
+    attribute_descriptions: &[vk::VertexInputAttributeDescription],
+    alpha_blend: bool,
+) -> Result<vk::Pipeline, BoxError> {
+    let vertex_shader_module = create_shader_module(device, vert_spv)?;
+    let fragment_shader_module = create_shader_module(device, frag_spv)?;
+    let entry_point = CString::new("main")?;
+    let shader_stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_shader_module)
+            .name(&entry_point),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_shader_module)
+            .name(&entry_point),
+    ];
+
+    let binding_descriptions = [binding_description];
+    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
+        .vertex_binding_descriptions(&binding_descriptions)
+        .vertex_attribute_descriptions(attribute_descriptions);
+    let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+        .viewport_count(1)
+        .scissor_count(1);
+    let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let color_blend_attachment = if alpha_blend {
+        vk::PipelineColorBlendAttachmentState::default()
+            .blend_enable(true)
+            .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .color_blend_op(vk::BlendOp::ADD)
+            .src_alpha_blend_factor(vk::BlendFactor::ONE)
+            .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .alpha_blend_op(vk::BlendOp::ADD)
+            .color_write_mask(vk::ColorComponentFlags::RGBA)
+    } else {
+        vk::PipelineColorBlendAttachmentState::default()
+            .blend_enable(false)
+            .color_write_mask(vk::ColorComponentFlags::RGBA)
+    };
+    let color_blend_attachments = [color_blend_attachment];
+    let color_blend_state =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments);
+    let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
+        .depth_test_enable(false)
+        .depth_write_enable(false);
+    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+    let dynamic_state =
+        vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+
+    let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
+        .stages(&shader_stages)
+        .vertex_input_state(&vertex_input_state)
+        .input_assembly_state(&input_assembly_state)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization_state)
+        .multisample_state(&multisample_state)
+        .color_blend_state(&color_blend_state)
+        .depth_stencil_state(&depth_stencil_state)
+        .dynamic_state(&dynamic_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+
+    let pipeline_result = unsafe {
+        device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
+    };
+
+    unsafe {
+        device.destroy_shader_module(vertex_shader_module, None);
+        device.destroy_shader_module(fragment_shader_module, None);
+    }
+
+    let pipeline = pipeline_result
+        .map_err(|(_, error)| box_error(format!("failed to create overlay pipeline: {error}")))?
+        [0];
+
+    Ok(pipeline)
 }
 
 /// Builds the heightfield pipeline: one float vertex attribute (the height sample), triangle

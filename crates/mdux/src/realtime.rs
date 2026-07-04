@@ -9,7 +9,8 @@
 
 use mdux_core::{MduxResult, ValidationError};
 use mdux_text_schema::TextPackage;
-use mdux_ui::{ClockFormat, CompiledNodeKind, CompiledScreenPackage, Rect};
+use mdux_image_schema::ImagePackage;
+use mdux_ui::{ClockFormat, CompiledNodeKind, CompiledScreenPackage, Rect, resolve_color_token};
 
 /// Default ring-buffer dimensions for a streaming viewport (rows of history × bins per row).
 pub const DEFAULT_STREAM_ROWS: usize = 64;
@@ -74,6 +75,24 @@ pub struct StreamBinding {
     pub bins: usize,
 }
 
+/// A Panel underlay's resolved render state: bounds + theme color resolved to RGBA at binding
+/// time (unknown tokens fail here, not silently at draw time).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub rgba: [f32; 4],
+}
+
+/// A governed image's resolved render state: the full validated package (uploaded once by the
+/// adapter) at its intrinsic-size bounds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub image: ImagePackage,
+}
+
 /// Every realtime binding resolved from a compiled screen, plus the packages they render from.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenBindings {
@@ -85,6 +104,8 @@ pub struct ScreenBindings {
     pub numbers: Vec<NumberBinding>,
     pub statuses: Vec<StatusBinding>,
     pub streams: Vec<StreamBinding>,
+    pub panels: Vec<PanelBinding>,
+    pub images: Vec<ImageBinding>,
 }
 
 impl ScreenBindings {
@@ -96,12 +117,15 @@ impl ScreenBindings {
         screen: &'static CompiledScreenPackage,
         standard: TextPackage,
         displays: Vec<TextPackage>,
+        image_packages: &[ImagePackage],
         locale: &str,
     ) -> MduxResult<Self> {
         let mut clocks = Vec::new();
         let mut numbers = Vec::new();
         let mut statuses = Vec::new();
         let mut streams = Vec::new();
+        let mut panels = Vec::new();
+        let mut images = Vec::new();
 
         for node in screen.nodes {
             match &node.kind {
@@ -245,12 +269,51 @@ impl ScreenBindings {
                         bins: DEFAULT_STREAM_BINS,
                     });
                 }
-                // Panels and Images gain bindings with the adapter render pipelines (#60);
-                // static kinds have no realtime state.
-                CompiledNodeKind::CriticalButton(_)
-                | CompiledNodeKind::Label(_)
-                | CompiledNodeKind::Panel(_)
-                | CompiledNodeKind::Image(_) => {}
+                CompiledNodeKind::Panel(spec) => {
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "panel {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    panels.push(PanelBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        rgba,
+                    });
+                }
+                CompiledNodeKind::Image(spec) => {
+                    let package = image_packages
+                        .iter()
+                        .find(|package| package.id == spec.image_id)
+                        .ok_or_else(|| {
+                            ValidationError::new(format!(
+                                "image {} references unknown image package {}",
+                                node.id, spec.image_id
+                            ))
+                        })?;
+                    // Defense in depth vs a hand-built screen: the compiler already pins
+                    // declared bounds == intrinsic dimensions (ADR-014, no scaling).
+                    if (node.bounds.width, node.bounds.height) != (package.width, package.height)
+                    {
+                        return Err(ValidationError::new(format!(
+                            "image {} bounds {}x{} do not match package {} intrinsic size {}x{}",
+                            node.id,
+                            node.bounds.width,
+                            node.bounds.height,
+                            spec.image_id,
+                            package.width,
+                            package.height
+                        )));
+                    }
+                    images.push(ImageBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        image: package.clone(),
+                    });
+                }
+                // Static text kinds have no realtime state.
+                CompiledNodeKind::CriticalButton(_) | CompiledNodeKind::Label(_) => {}
             }
         }
 
@@ -262,6 +325,8 @@ impl ScreenBindings {
             numbers,
             statuses,
             streams,
+            panels,
+            images,
         })
     }
 
@@ -484,6 +549,7 @@ mod tests {
             &MONITOR_SCREEN,
             default_standard_text_package().expect("standard package"),
             default_display_text_packages().expect("display packages"),
+            &[],
             "en-US",
         )
         .expect("bindings should resolve")
@@ -595,6 +661,7 @@ mod tests {
             &TWO_SIZE_SCREEN,
             default_standard_text_package().expect("standard package"),
             default_display_text_packages().expect("display packages"),
+            &[],
             "en-US",
         )
         .expect("both sizes should resolve");
@@ -613,6 +680,7 @@ mod tests {
             &TWO_SIZE_SCREEN,
             default_standard_text_package().expect("standard package"),
             vec![],
+            &[],
             "en-US",
         )
         .expect_err("no display packages should fail");
@@ -645,6 +713,7 @@ mod tests {
             &BROKEN_SCREEN,
             default_standard_text_package().expect("standard package"),
             default_display_text_packages().expect("display packages"),
+            &[],
             "en-US",
         )
         .expect_err("mismatched state/color arrays should be rejected before indexing them");
