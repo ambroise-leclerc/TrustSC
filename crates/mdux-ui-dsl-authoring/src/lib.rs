@@ -2144,6 +2144,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect("Row spacing: 0px should compile");
 
