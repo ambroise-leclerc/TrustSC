@@ -221,7 +221,12 @@ impl ScreenBindings {
                         bins: DEFAULT_STREAM_BINS,
                     });
                 }
-                CompiledNodeKind::CriticalButton(_) | CompiledNodeKind::Label(_) => {}
+                // Panels and Images gain bindings with the adapter render pipelines (#60);
+                // static kinds have no realtime state.
+                CompiledNodeKind::CriticalButton(_)
+                | CompiledNodeKind::Label(_)
+                | CompiledNodeKind::Panel(_)
+                | CompiledNodeKind::Image(_) => {}
             }
         }
 
