@@ -18,8 +18,10 @@ a certified screen.
 
 Three capability gaps block this today:
 
-1. The DSL has no notion of position. `parse_component_properties` accepts only sizes, and the
-   compiler's containment checks exist but there is nothing to check a *declared* position
+1. The DSL has no notion of position. `parse_component_properties` recognizes several
+   properties (id, sizes, text keys, colors, and more depending on component kind), but none of
+   them is a coordinate — every component's rectangle is entirely a function of the flow layout.
+   The compiler's containment checks exist but there is nothing to check a *declared* position
    against.
 2. There is no governed asset class for images. The only vendored asset is the Roboto font,
    whose ADR-002/003 pipeline (manifest with sha256/license/provenance, deterministic baker,
