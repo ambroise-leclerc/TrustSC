@@ -20,7 +20,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mdux_ui_dsl_authoring::{CompileOptions, TextPackages};
+use mdux_ui_dsl_authoring::{CompileOptions, ImagePackages, TextPackages};
 
 type DynError = Box<dyn std::error::Error>;
 
@@ -73,11 +73,13 @@ impl MeduiScreen {
         // resolve in the display package, everything else in the standard one (ADR-013).
         let standard_package = mdux::default_standard_text_package()?;
         let display_package = mdux::default_display_text_package()?;
+        let image_packages = mdux::default_image_packages()?;
         mdux_ui_dsl_authoring::compile_medui_file_to_rust_module(
             &medui_path,
             &generated_path,
             CompileOptions::new(width, height),
             TextPackages::with_display(&standard_package, &display_package),
+            ImagePackages::new(&image_packages),
         )?;
 
         Ok(())

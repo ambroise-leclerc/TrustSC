@@ -7,6 +7,7 @@ use std::{
 };
 
 use mdux_core::{MduxResult, ValidationError};
+use mdux_image_schema::ImagePackage;
 use mdux_text_schema::{CompiledTextRun, NumericGlyphSet, TextPackage};
 use mdux_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent, THEME_COLORS, resolve_color_token};
 
@@ -62,6 +63,27 @@ impl CompileOptions {
     pub const fn with_crate_path(mut self, crate_path: &'static str) -> Self {
         self.crate_path = crate_path;
         self
+    }
+}
+
+/// Approved image packages available to `img("...")` references (ADR-014). Empty for screens
+/// without `Image` nodes — they compile exactly as before.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ImagePackages<'a> {
+    pub images: &'a [ImagePackage],
+}
+
+impl<'a> ImagePackages<'a> {
+    pub const fn none() -> Self {
+        Self { images: &[] }
+    }
+
+    pub const fn new(images: &'a [ImagePackage]) -> Self {
+        Self { images }
+    }
+
+    fn find(&self, image_id: &str) -> Option<&'a ImagePackage> {
+        self.images.iter().find(|package| package.id == image_id)
     }
 }
 
@@ -156,6 +178,9 @@ enum NodeKind {
     Panel {
         color_token: String,
     },
+    Image {
+        image_id: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -196,6 +221,7 @@ pub fn compile_medui_file_to_rust_module(
     output_path: impl AsRef<Path>,
     options: CompileOptions,
     text_packages: TextPackages<'_>,
+    image_packages: ImagePackages<'_>,
 ) -> MduxResult<()> {
     let input_path = input_path.as_ref();
     let output_path = output_path.as_ref();
@@ -205,7 +231,8 @@ pub fn compile_medui_file_to_rust_module(
             input_path.display()
         ))
     })?;
-    let generated = compile_medui_source_to_rust(&source, options, text_packages)?;
+    let generated =
+        compile_medui_source_to_rust(&source, options, text_packages, image_packages)?;
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -229,9 +256,10 @@ pub fn compile_medui_source_to_rust(
     source: &str,
     options: CompileOptions,
     text_packages: TextPackages<'_>,
+    image_packages: ImagePackages<'_>,
 ) -> MduxResult<String> {
     let parsed = parse_screen(source)?;
-    let compiled = compile_screen(parsed, options, text_packages)?;
+    let compiled = compile_screen(parsed, options, text_packages, image_packages)?;
     Ok(emit_rust_module(&compiled, options.crate_path))
 }
 
@@ -561,6 +589,7 @@ enum ComponentKind {
     Clock,
     NumericDisplay,
     StatusIndicator,
+    Image,
 }
 
 fn parse_component_start(line_number: usize, line: &str) -> MduxResult<ComponentKind> {
@@ -575,6 +604,7 @@ fn parse_component_start(line_number: usize, line: &str) -> MduxResult<Component
         "Clock" => Ok(ComponentKind::Clock),
         "NumericDisplay" => Ok(ComponentKind::NumericDisplay),
         "StatusIndicator" => Ok(ComponentKind::StatusIndicator),
+        "Image" => Ok(ComponentKind::Image),
         other => Err(ValidationError::new(format!(
             "unsupported component `{other}` at line {line_number}"
         ))),
@@ -632,7 +662,9 @@ fn parse_component_properties(
             "template" => {
                 template_id = Some(parse_quoted(*property_line_number, "template", value)?)
             }
-            "source" => source = Some(parse_quoted(*property_line_number, "source", value)?),
+            // `source` is kind-polymorphic: a quoted data-source name for NumericDisplay/
+            // StatusIndicator, an img("...") reference for Image — parsed in the kind match.
+            "source" => source = Some((*property_line_number, value.to_string())),
             "states" => {
                 state_text_keys = Some(parse_text_key_list(*property_line_number, value)?)
             }
@@ -710,9 +742,12 @@ fn parse_component_properties(
             template_id: template_id.ok_or_else(|| {
                 ValidationError::new(format!("NumericDisplay {id} must declare `template`"))
             })?,
-            source: source.ok_or_else(|| {
-                ValidationError::new(format!("NumericDisplay {id} must declare `source`"))
-            })?,
+            source: {
+                let (source_line, raw) = source.ok_or_else(|| {
+                    ValidationError::new(format!("NumericDisplay {id} must declare `source`"))
+                })?;
+                parse_quoted(source_line, "source", &raw)?
+            },
             color_token: color_token.ok_or_else(|| {
                 ValidationError::new(format!("NumericDisplay {id} must declare `color`"))
             })?,
@@ -738,15 +773,26 @@ fn parse_component_properties(
                         "StatusIndicator {id} must declare `requirement`"
                     ))
                 })?,
-                source: source.ok_or_else(|| {
-                    ValidationError::new(format!(
-                        "StatusIndicator {id} must declare `source`"
-                    ))
-                })?,
+                source: {
+                    let (source_line, raw) = source.ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "StatusIndicator {id} must declare `source`"
+                        ))
+                    })?;
+                    parse_quoted(source_line, "source", &raw)?
+                },
                 state_text_keys,
                 color_tokens,
             }
         }
+        ComponentKind::Image => NodeKind::Image {
+            image_id: {
+                let (source_line, raw) = source.ok_or_else(|| {
+                    ValidationError::new(format!("Image {id} must declare `source`"))
+                })?;
+                parse_image_key(source_line, &raw)?
+            },
+        },
     };
 
     Ok(NodeDefinition {
@@ -876,6 +922,20 @@ fn parse_token_list(line_number: usize, raw: &str) -> MduxResult<Vec<String>> {
         .collect()
 }
 
+/// Parses `img("IMAGE-ID")` — a reference to an approved image package (ADR-014).
+fn parse_image_key(line_number: usize, raw: &str) -> MduxResult<String> {
+    let inner = raw
+        .trim()
+        .strip_prefix("img(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "Image source must use `img(\"IMAGE-ID\")` at line {line_number}"
+            ))
+        })?;
+    parse_quoted(line_number, "img", inner.trim())
+}
+
 fn parse_dimension(line_number: usize, field_name: &str, raw: &str) -> MduxResult<Dimension> {
     match raw.trim() {
         "Fill" => Ok(Dimension::Fill),
@@ -939,6 +999,7 @@ fn compile_screen(
     screen: ScreenDefinition,
     options: CompileOptions,
     text_packages: TextPackages<'_>,
+    image_packages: ImagePackages<'_>,
 ) -> MduxResult<CompiledScreenSpec> {
     if options.surface_width == 0 || options.surface_height == 0 {
         return Err(ValidationError::new(
@@ -1018,6 +1079,7 @@ fn compile_screen(
     let mut context = CompileContext {
         options,
         text_packages,
+        image_packages,
         padding,
         nodes: &mut nodes,
         golden_references: &mut golden_references,
@@ -1234,6 +1296,7 @@ fn validate_no_overlap(
 struct CompileContext<'a, 'p> {
     options: CompileOptions,
     text_packages: TextPackages<'p>,
+    image_packages: ImagePackages<'p>,
     padding: i32,
     nodes: &'a mut Vec<CompiledNodeSpec>,
     golden_references: &'a mut Vec<GoldenReferenceSpec>,
@@ -1260,6 +1323,30 @@ impl CompileContext<'_, '_> {
 
         validate_node_text_budget(&node, bounds, self.text_packages)?;
         validate_color_tokens(&node.id, &node.kind)?;
+
+        if let NodeKind::Image { image_id } = &node.kind {
+            let package = self.image_packages.find(image_id).ok_or_else(|| {
+                ValidationError::new(format!(
+                    "Image {} references unknown image package {image_id}",
+                    node.id
+                ))
+            })?;
+            // ADR-014: images render at intrinsic size only — no runtime scaling.
+            if (bounds.width, bounds.height) != (package.width, package.height) {
+                return Err(ValidationError::new(format!(
+                    "Image {} declares {}x{} but image package {image_id} is {}x{}; images render at intrinsic size only (no scaling)",
+                    node.id, bounds.width, bounds.height, package.width, package.height
+                )));
+            }
+            if let Some(safety) = &node.safety_critical {
+                if safety.cv_checks.contains(&CvCheckKind::ColorHash) {
+                    return Err(ValidationError::new(format!(
+                        "Image {} cannot use the ColorHash CV check (image-content hashing is not a supported golden check); use Bounds",
+                        node.id
+                    )));
+                }
+            }
+        }
 
         // ADR-014 rule 4: a positioned node's declared placement is golden evidence — it gets
         // an automatic Bounds reference even without @safety_critical. When both apply, ONE
@@ -1293,7 +1380,8 @@ impl CompileContext<'_, '_> {
                 NodeKind::StatusIndicator { .. }
                 | NodeKind::Clock { .. }
                 | NodeKind::VulkanViewport { .. }
-                | NodeKind::Panel { .. } => (None, None),
+                | NodeKind::Panel { .. }
+                | NodeKind::Image { .. } => (None, None),
             };
             golden_references_push(
                 self.golden_references,
@@ -1362,7 +1450,9 @@ fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> MduxResult<()> {
             }
             Ok(())
         }
-        NodeKind::Clock { .. } | NodeKind::VulkanViewport { .. } => Ok(()),
+        NodeKind::Clock { .. } | NodeKind::VulkanViewport { .. } | NodeKind::Image { .. } => {
+            Ok(())
+        }
     }
 }
 
@@ -1408,8 +1498,8 @@ fn validate_node_text_budget(
         NodeKind::Clock { format } => {
             validate_clock_budget(node, *format, bounds, text_packages.standard)
         }
-        // Panels carry no text.
-        NodeKind::Panel { .. } => Ok(()),
+        // Panels and Images carry no text.
+        NodeKind::Panel { .. } | NodeKind::Image { .. } => Ok(()),
         NodeKind::NumericDisplay { template_id, .. } => {
             let display = text_packages.display.ok_or_else(|| {
                 ValidationError::new(format!(
@@ -1801,6 +1891,9 @@ fn emit_node_kind(kind: &NodeKind, crate_path: &str) -> String {
         NodeKind::Panel { color_token } => format!(
             "{crate_path}::CompiledNodeKind::Panel({crate_path}::PanelSpec {{ color_token: {color_token:?} }})"
         ),
+        NodeKind::Image { image_id } => format!(
+            "{crate_path}::CompiledNodeKind::Image({crate_path}::ImageSpec {{ image_id: {image_id:?} }})"
+        ),
     }
 }
 
@@ -1891,6 +1984,7 @@ Screen HelloWorld {
             SAMPLE_MEDUI,
             CompileOptions::new(800, 480),
             TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
         )
         .expect("sample medui should compile");
 
@@ -1912,6 +2006,7 @@ Screen HelloWorld {
             &source,
             CompileOptions::new(800, 480),
             TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
         )
         .expect_err("critical buttons must bind requirements");
 
@@ -1928,6 +2023,7 @@ Screen HelloWorld {
             &source,
             CompileOptions::new(800, 480),
             TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
         )
         .expect_err("oversized layouts should be rejected");
 
@@ -1944,6 +2040,7 @@ Screen HelloWorld {
             &source,
             CompileOptions::new(800, 480),
             TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
         )
         .expect_err("widest translation should be rejected at compile time");
 
@@ -2012,6 +2109,7 @@ Screen NeuroSense500 {
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect("monitor screen should compile");
 
@@ -2046,6 +2144,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect("Row spacing: 0px should compile");
 
@@ -2068,6 +2167,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect_err("over-wide status state should be rejected");
 
@@ -2081,6 +2181,7 @@ Screen NeuroSense500 {
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
             TextPackages::standard_only(&standard),
+            ImagePackages::none(),
         )
         .expect_err("numeric display requires the display package");
 
@@ -2106,6 +2207,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect_err("too-narrow numeric display should be rejected");
 
@@ -2124,6 +2226,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect_err("nested rows should be rejected");
 
@@ -2145,6 +2248,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect_err("rows require a vertical screen layout");
 
@@ -2167,6 +2271,7 @@ Screen NeuroSense500 {
             &source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect_err("too-narrow clock should be rejected");
 
@@ -2181,6 +2286,7 @@ Screen NeuroSense500 {
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect("monitor screen should compile");
 
@@ -2200,6 +2306,7 @@ Screen NeuroSense500 {
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
         .expect_err("a numeric glyph set entry with a dangling atlas reference should be rejected");
 
@@ -2261,6 +2368,7 @@ Screen PositionedMonitor {
             source,
             CompileOptions::new(1280, 720),
             TextPackages::with_display(&standard, &display),
+            ImagePackages::none(),
         )
     }
 
@@ -2426,6 +2534,113 @@ Screen PositionedMonitor {
         );
         let error = compile_positioned(&source).expect_err("zero component width must fail");
         assert!(error.to_string().contains("greater than zero"), "{error}");
+    }
+
+    fn sample_image_package() -> ImagePackage {
+        ImagePackage {
+            id: "LOGO-TEST".to_string(),
+            width: 144,
+            height: 48,
+            pixels: vec![0u8; 144 * 48 * 4],
+            evidence: mdux_image_schema::ImageEvidence {
+                package_sha256: "0".repeat(64),
+                source_sha256: "1".repeat(64),
+                toolchain_id: "test".to_string(),
+                build_recipe_sha256: "2".repeat(64),
+            },
+        }
+    }
+
+    /// POSITIONED_MEDUI with the numeric display swapped for a positioned Image, compiled with
+    /// one approved 144x48 test image.
+    fn image_medui(width: &str, height: &str, source: &str) -> String {
+        POSITIONED_MEDUI.replace(
+            r#"    @safety_critical(cv_check: [Bounds, ColorHash])
+    NumericDisplay {
+        id: sedation-index;
+        width: 512px;
+        height: 512px;
+        position: 752px, 56px;
+        requirement: "REQ-NS-001";
+        template: "TPL-SEDATION-INDEX";
+        source: "SEDATION_INDEX";
+        color: Theme.Colors.ScoreDigits;
+    }"#,
+            &format!(
+                r#"    Image {{
+        id: acme-logo;
+        width: {width};
+        height: {height};
+        position: 752px, 56px;
+        source: {source};
+    }}"#
+            ),
+        )
+    }
+
+    fn compile_with_image(source: &str) -> MduxResult<String> {
+        let standard = monitor_text_package();
+        let display = display_text_package();
+        let images = [sample_image_package()];
+        compile_medui_source_to_rust(
+            source,
+            CompileOptions::new(1280, 720),
+            TextPackages::with_display(&standard, &display),
+            ImagePackages::new(&images),
+        )
+    }
+
+    #[test]
+    fn compiles_an_image_at_its_intrinsic_size_with_an_automatic_bounds_golden() {
+        let generated = compile_with_image(&image_medui("144px", "48px", r#"img("LOGO-TEST")"#))
+            .expect("image screen should compile");
+
+        assert!(generated.contains(
+            r#"::mdux::CompiledNodeKind::Image(::mdux::ImageSpec { image_id: "LOGO-TEST" })"#
+        ));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 752, y: 56, width: 144, height: 48 }"));
+        // Positioned image -> automatic Bounds golden reference.
+        assert!(generated.contains(r#"node_id: "acme-logo""#));
+    }
+
+    #[test]
+    fn rejects_an_image_whose_declared_size_differs_from_the_package() {
+        let error = compile_with_image(&image_medui("144px", "40px", r#"img("LOGO-TEST")"#))
+            .expect_err("size mismatch must fail");
+        assert!(
+            error.to_string().contains(
+                "declares 144x40 but image package LOGO-TEST is 144x48; images render at intrinsic size only"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_an_unknown_image_id_and_malformed_img_references() {
+        let error = compile_with_image(&image_medui("144px", "48px", r#"img("LOGO-NOPE")"#))
+            .expect_err("unknown image id must fail");
+        assert!(
+            error.to_string().contains("unknown image package LOGO-NOPE"),
+            "{error}"
+        );
+
+        let error = compile_with_image(&image_medui("144px", "48px", r#""LOGO-TEST""#))
+            .expect_err("plain quoted source must fail for Image");
+        assert!(error.to_string().contains("img("), "{error}");
+    }
+
+    #[test]
+    fn rejects_colorhash_on_an_image() {
+        let source = image_medui("144px", "48px", r#"img("LOGO-TEST")"#).replace(
+            "    Image {",
+            "    @safety_critical(cv_check: [Bounds, ColorHash])
+    Image {",
+        );
+        let error = compile_with_image(&source).expect_err("ColorHash on Image must fail");
+        assert!(
+            error.to_string().contains("cannot use the ColorHash CV check"),
+            "{error}"
+        );
     }
 
     /// Standard-package fixture for monitor screens: title and status strings in en-US and a

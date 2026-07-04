@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 mdux-core = { path = "../mdux-core" }
 mdux-governance = { path = "../mdux-governance" }
+mdux-image-schema = { path = "../mdux-image-schema" }
 mdux-text-authoring = { path = "../mdux-text-authoring" }
 mdux-text-runtime = { path = "../mdux-text-runtime" }
 mdux-text-schema = { path = "../mdux-text-schema" }
