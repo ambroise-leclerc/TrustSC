@@ -416,7 +416,9 @@ fn parse_row(
         match key.trim() {
             "id" => id = Some(parse_identifier(*line_number, "Row id", value.trim())?),
             "height" => height = Some(parse_dimension(*line_number, "height", value.trim())?),
-            "spacing" => spacing = Some(parse_px(*line_number, "spacing", value.trim())?),
+            "spacing" => {
+                spacing = Some(parse_px_allowing_zero(*line_number, "spacing", value.trim())?)
+            }
             "background" => {
                 background = Some(parse_non_empty(*line_number, "background", value.trim())?)
             }
@@ -2032,6 +2034,25 @@ Screen NeuroSense500 {
         // Golden reference for the safety-critical numeric display: bounds + color, no text key.
         assert!(generated.contains("node_id: \"sedation-index\""));
         assert!(generated.contains("color_token: Some(\"Theme.Colors.ScoreDigits\")"));
+    }
+
+    #[test]
+    fn row_spacing_of_zero_is_legal() {
+        // ADR-014: 0px is legal for layout spacing/padding, including a Row's `spacing`.
+        let source = MONITOR_MEDUI.replace("        spacing: 16px;", "        spacing: 0px;");
+        let standard = monitor_text_package();
+        let display = display_text_package();
+        let generated = compile_medui_source_to_rust(
+            &source,
+            CompileOptions::new(1280, 720),
+            TextPackages::with_display(&standard, &display),
+        )
+        .expect("Row spacing: 0px should compile");
+
+        // With zero spacing, the title (340px) is immediately followed by the clock, and the
+        // Fill clock absorbs the spacing that used to be reserved (708 = 1248 - 340 - 200).
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 16, y: 16, width: 340, height: 48 }"));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 356, y: 16, width: 708, height: 48 }"));
     }
 
     #[test]
