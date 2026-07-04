@@ -71,7 +71,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let framework = FrameworkBuilder::new()
         .with_device(device)
         .with_compliance(compliance)
-        .with_ui(UiSdkConfig::vulkansc_class_c(1280, 720, 12, 32 * 1024 * 1024, 256))
+        .with_ui(UiSdkConfig::vulkansc_class_c(
+            medui_screen::GENERATED_MEDUI_SURFACE.0,
+            medui_screen::GENERATED_MEDUI_SURFACE.1,
+            12,
+            32 * 1024 * 1024,
+            256,
+        ))
         .with_screen(screen)
         .build()?;
 

@@ -92,6 +92,18 @@ Screen NeuroSense500 {
 - `Label` requires `text` and `color`; `Clock` requires `format`
 - `NumericDisplay` requires `requirement`, `template`, `source`, and `color`
 - `StatusIndicator` requires `requirement`, `source`, and `states`; `colors` is optional
+- `Image` requires `source: img("IMAGE-ID")` and dimensions equal to the baked image's
+  intrinsic size (no scaling)
+- any leaf component may declare `position: <X>px, <Y>px` — absolute screen coordinates, out of
+  flow, fixed sizes only; the compiler enforces containment, no-overlap, text budgets in the
+  pinned box, and emits an automatic `Bounds` golden reference (ADR-014)
+- a screen may pin its surface with `surface: <W>px, <H>px;` after the `layout:` line — a
+  build configured for another surface fails the compile
+- `Row` accepts `background: <token>;`, emitting a synthetic full-width `Panel` underlay
+- every color token (`color`, `colors`, `background`) must exist in the governed
+  `THEME_COLORS` table — unknown tokens fail the compile
+- `0px` is legal for layout `spacing`/`padding` and `position` coordinates, never for component
+  sizes
 - lists use `[a, b, c]`; one property per line
 
 ## Forbidden in the first slice

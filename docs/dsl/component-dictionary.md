@@ -38,7 +38,10 @@ A compile-time-only horizontal container, nested exactly one level inside a `Ver
 layout. It disappears from the compiled package: its children are emitted as flat nodes with
 absolute bounds (ADR-008 intact).
 
-Required properties: `id`, `height`. Optional: `spacing` (defaults to `0px`).
+Required properties: `id`, `height`. Optional: `spacing` (defaults to `0px`), `background`
+(a theme color token — emits a synthetic `Panel` node with id `{row_id}-background` spanning
+the content width beneath the row's children; Panels carry no requirement or text and are
+exempt from the overlap rule).
 
 Notes:
 
@@ -97,3 +100,36 @@ Notes:
 
 - **every** state label in **every** approved locale must fit the node's bounds — the widest
   translation of the widest state defines the compile-time budget
+
+## `Image`
+
+A governed raster image (ADR-014): the `img("IMAGE-ID")` reference must name a baked image
+package (`generated/images/`), and the declared `width`/`height` must equal the package's
+intrinsic dimensions **exactly** — images render at intrinsic size only, there is no runtime
+scaling.
+
+Required properties: `id`, `width`, `height`, `source: img("IMAGE-ID")`.
+
+Notes:
+
+- `@safety_critical` accepts `Bounds` only; `ColorHash` over image content is rejected
+- typically combined with `position:` (e.g. a brand mark pinned to the top bar)
+
+## Precise positioning (`position:`, any leaf component)
+
+Any leaf component may declare `position: <X>px, <Y>px;` — the **absolute screen coordinates**
+of its top-left corner (ADR-014). A positioned component is out of flow: `Fill` siblings
+distribute space as if it did not exist, and `Fill` is rejected on the positioned component
+itself. The compiler verifies, at build time:
+
+1. **containment** — inside the declaring `Row`'s bounds (row children) or the padded content
+   box (top-level);
+2. **no overlap** — against every other node, flow or positioned (Panels exempt);
+3. **text budgets** — the widest approved translation must still fit the pinned box, so an
+   internationalization growth *fails the compile*;
+4. **golden evidence** — every positioned node automatically receives a `Bounds` golden
+   reference (merged with `@safety_critical`'s entry when both apply).
+
+The optional screen-level `surface: <W>px, <H>px;` declaration (right after `layout:`) pins the
+authored surface against the build configuration, and the generated module always exports
+`GENERATED_MEDUI_SURFACE` so the application configures `UiSdkConfig` from the compiled truth.
