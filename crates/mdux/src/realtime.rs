@@ -38,6 +38,9 @@ pub struct NumberBinding {
     pub origin_y: i32,
     pub source: &'static str,
     pub template_id: String,
+    /// Index into [`ScreenBindings::displays`] of the package whose template resolved
+    /// (unique-match across all display packages, ADR-014).
+    pub display_index: usize,
     pub color_token: &'static str,
     /// Maximum glyph draw commands (max_chars digits + affix run glyphs).
     pub capacity: usize,
@@ -75,7 +78,8 @@ pub struct StreamBinding {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenBindings {
     pub standard: TextPackage,
-    pub display: TextPackage,
+    /// Approved display packages, one glyph atlas each; `NumberBinding::display_index` selects.
+    pub displays: Vec<TextPackage>,
     pub locale: String,
     pub clocks: Vec<ClockBinding>,
     pub numbers: Vec<NumberBinding>,
@@ -91,7 +95,7 @@ impl ScreenBindings {
     pub fn from_screen(
         screen: &'static CompiledScreenPackage,
         standard: TextPackage,
-        display: TextPackage,
+        displays: Vec<TextPackage>,
         locale: &str,
     ) -> MduxResult<Self> {
         let mut clocks = Vec::new();
@@ -139,12 +143,31 @@ impl ScreenBindings {
                     });
                 }
                 CompiledNodeKind::NumericDisplay(spec) => {
-                    let template = display.find_template(spec.template_id).ok_or_else(|| {
-                        ValidationError::new(format!(
-                            "numeric display {} references unknown template {} in the display package",
-                            node.id, spec.template_id
-                        ))
-                    })?;
+                    // Unique-match template resolution across all display packages (ADR-014).
+                    let mut matches = displays
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, package)| package.find_template(spec.template_id).is_some());
+                    let (display_index, display) = match (matches.next(), matches.next()) {
+                        (Some(found), None) => found,
+                        (None, _) => {
+                            return Err(ValidationError::new(format!(
+                                "numeric display {} references unknown template {} (searched {} display packages)",
+                                node.id,
+                                spec.template_id,
+                                displays.len()
+                            )));
+                        }
+                        (Some(_), Some(_)) => {
+                            return Err(ValidationError::new(format!(
+                                "numeric display {} template {} is ambiguous across display packages",
+                                node.id, spec.template_id
+                            )));
+                        }
+                    };
+                    let template = display
+                        .find_template(spec.template_id)
+                        .expect("template presence just checked");
                     let mut capacity = usize::from(template.max_chars);
                     for affix_run_id in
                         [&template.prefix_run_id, &template.suffix_run_id].into_iter().flatten()
@@ -157,7 +180,7 @@ impl ScreenBindings {
                         })?;
                         capacity += run.glyphs.len();
                     }
-                    let glyph_height = max_glyph_height(&display, &template.glyph_set_id)?;
+                    let glyph_height = max_glyph_height(display, &template.glyph_set_id)?;
                     numbers.push(NumberBinding {
                         node_id: node.id,
                         bounds: node.bounds,
@@ -165,6 +188,7 @@ impl ScreenBindings {
                         origin_y: centered_origin_y(node.bounds, glyph_height),
                         source: spec.source,
                         template_id: spec.template_id.to_string(),
+                        display_index,
                         color_token: spec.color_token,
                         capacity,
                     });
@@ -232,7 +256,7 @@ impl ScreenBindings {
 
         Ok(Self {
             standard,
-            display,
+            displays,
             locale: locale.to_string(),
             clocks,
             numbers,
@@ -404,7 +428,7 @@ mod tests {
     use super::*;
     use crate::{
         CompiledNode, CompiledScreenPackage, LayoutKind, LayoutSpec, NumericDisplaySpec,
-        StatusIndicatorSpec, ViewportReservation, default_display_text_package,
+        StatusIndicatorSpec, ViewportReservation, default_display_text_packages,
         default_standard_text_package,
     };
     use mdux_ui::ClockSpec;
@@ -459,7 +483,7 @@ mod tests {
         ScreenBindings::from_screen(
             &MONITOR_SCREEN,
             default_standard_text_package().expect("standard package"),
-            default_display_text_package().expect("display package"),
+            default_display_text_packages().expect("display packages"),
             "en-US",
         )
         .expect("bindings should resolve")
@@ -532,6 +556,70 @@ mod tests {
     }
 
     #[test]
+    fn numeric_templates_resolve_to_the_right_display_package_index() {
+        // TPL-SEDATION-INDEX lives in the 48px package (index 0); TPL-SEDATION-INDEX-160 in the
+        // 160px package (index 1) — unique-match across the real baked packages.
+        const TWO_SIZE_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "TwoSizes",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[
+                CompiledNode {
+                    id: "small-index",
+                    bounds: Rect { x: 16, y: 16, width: 400, height: 120 },
+                    kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                        requirement_id: "REQ-NS-001",
+                        template_id: "TPL-SEDATION-INDEX",
+                        source: "SMALL",
+                        color_token: "Theme.Colors.ScoreDigits",
+                    }),
+                },
+                CompiledNode {
+                    id: "large-index",
+                    bounds: Rect { x: 16, y: 200, width: 512, height: 512 },
+                    kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                        requirement_id: "REQ-NS-001",
+                        template_id: "TPL-SEDATION-INDEX-160",
+                        source: "LARGE",
+                        color_token: "Theme.Colors.ScoreDigits",
+                    }),
+                },
+            ],
+            golden_references: &[],
+        };
+
+        let bindings = ScreenBindings::from_screen(
+            &TWO_SIZE_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            "en-US",
+        )
+        .expect("both sizes should resolve");
+
+        assert_eq!(bindings.numbers.len(), 2);
+        let small = bindings.numbers.iter().find(|n| n.source == "SMALL").expect("small");
+        let large = bindings.numbers.iter().find(|n| n.source == "LARGE").expect("large");
+        assert_eq!(small.display_index, 0);
+        assert_eq!(large.display_index, 1);
+        // Both are 2-digit affixless templates.
+        assert_eq!(small.capacity, 2);
+        assert_eq!(large.capacity, 2);
+
+        // An unknown template names the search width in its error.
+        let error = ScreenBindings::from_screen(
+            &TWO_SIZE_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            vec![],
+            "en-US",
+        )
+        .expect_err("no display packages should fail");
+        assert!(error.to_string().contains("searched 0 display packages"), "{error}");
+    }
+
+    #[test]
     fn from_screen_rejects_a_status_indicator_with_mismatched_state_and_color_arrays() {
         const BROKEN_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
             screen_id: "BrokenStatus",
@@ -556,7 +644,7 @@ mod tests {
         let error = ScreenBindings::from_screen(
             &BROKEN_SCREEN,
             default_standard_text_package().expect("standard package"),
-            default_display_text_package().expect("display package"),
+            default_display_text_packages().expect("display packages"),
             "en-US",
         )
         .expect_err("mismatched state/color arrays should be rejected before indexing them");

@@ -16,28 +16,50 @@ use mdux_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent, THEME_COLORS, r
 pub const CLOCK_GLYPH_SET_ID: &str = "SET-ASCII-DIGITS";
 
 /// The approved text packages a screen compiles against: every static label budget checks the
-/// `standard` package (all locales), while `NumericDisplay` templates resolve in the `display`
-/// package (ADR-013 two-package strategy). `display` may be absent for screens without numeric
-/// displays.
+/// `standard` package (all locales), while `NumericDisplay` templates resolve across the
+/// `displays` packages with unique-match semantics (ADR-014 — zero matches and multiple
+/// matches are both compile errors, so resolution stays deterministic). `displays` may be
+/// empty for screens without numeric displays.
 #[derive(Clone, Copy)]
 pub struct TextPackages<'a> {
     pub standard: &'a TextPackage,
-    pub display: Option<&'a TextPackage>,
+    pub displays: &'a [&'a TextPackage],
 }
 
 impl<'a> TextPackages<'a> {
-    pub fn standard_only(standard: &'a TextPackage) -> Self {
+    pub const fn standard_only(standard: &'a TextPackage) -> Self {
         Self {
             standard,
-            display: None,
+            displays: &[],
         }
     }
 
-    pub fn with_display(standard: &'a TextPackage, display: &'a TextPackage) -> Self {
-        Self {
-            standard,
-            display: Some(display),
-        }
+    pub const fn with_displays(
+        standard: &'a TextPackage,
+        displays: &'a [&'a TextPackage],
+    ) -> Self {
+        Self { standard, displays }
+    }
+}
+
+/// Resolves a NumericDisplay template across all display packages: exactly one match required.
+fn resolve_display_template<'a>(
+    node_id: &str,
+    template_id: &str,
+    displays: &[&'a TextPackage],
+) -> MduxResult<&'a TextPackage> {
+    let mut matches = displays
+        .iter()
+        .filter(|package| package.find_template(template_id).is_some());
+    match (matches.next(), matches.next()) {
+        (Some(package), None) => Ok(package),
+        (None, _) => Err(ValidationError::new(format!(
+            "NumericDisplay {node_id} references unknown template {template_id} (searched {} display packages)",
+            displays.len()
+        ))),
+        (Some(_), Some(_)) => Err(ValidationError::new(format!(
+            "NumericDisplay {node_id} template {template_id} is ambiguous across display packages"
+        ))),
     }
 }
 
@@ -1501,12 +1523,14 @@ fn validate_node_text_budget(
         // Panels and Images carry no text.
         NodeKind::Panel { .. } | NodeKind::Image { .. } => Ok(()),
         NodeKind::NumericDisplay { template_id, .. } => {
-            let display = text_packages.display.ok_or_else(|| {
-                ValidationError::new(format!(
+            if text_packages.displays.is_empty() {
+                return Err(ValidationError::new(format!(
                     "NumericDisplay {} requires a display text package (none was provided to the compiler)",
                     node.id
-                ))
-            })?;
+                )));
+            }
+            let display =
+                resolve_display_template(&node.id, template_id, text_packages.displays)?;
             validate_numeric_display_budget(node, template_id, bounds, display)
         }
         NodeKind::VulkanViewport { .. } => Ok(()),
@@ -2108,7 +2132,7 @@ Screen NeuroSense500 {
         let generated = compile_medui_source_to_rust(
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect("monitor screen should compile");
@@ -2143,7 +2167,7 @@ Screen NeuroSense500 {
         let generated = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect("Row spacing: 0px should compile");
@@ -2166,7 +2190,7 @@ Screen NeuroSense500 {
         let error = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect_err("over-wide status state should be rejected");
@@ -2206,7 +2230,7 @@ Screen NeuroSense500 {
         let error = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect_err("too-narrow numeric display should be rejected");
@@ -2225,7 +2249,7 @@ Screen NeuroSense500 {
         let error = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect_err("nested rows should be rejected");
@@ -2247,7 +2271,7 @@ Screen NeuroSense500 {
         let error = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect_err("rows require a vertical screen layout");
@@ -2270,7 +2294,7 @@ Screen NeuroSense500 {
         let error = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect_err("too-narrow clock should be rejected");
@@ -2285,7 +2309,7 @@ Screen NeuroSense500 {
         let generated = compile_medui_source_to_rust(
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect("monitor screen should compile");
@@ -2305,7 +2329,7 @@ Screen NeuroSense500 {
         let error = compile_medui_source_to_rust(
             MONITOR_MEDUI,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect_err("a numeric glyph set entry with a dangling atlas reference should be rejected");
@@ -2367,7 +2391,7 @@ Screen PositionedMonitor {
         compile_medui_source_to_rust(
             source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
     }
@@ -2585,7 +2609,7 @@ Screen PositionedMonitor {
         compile_medui_source_to_rust(
             source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::new(&images),
         )
     }

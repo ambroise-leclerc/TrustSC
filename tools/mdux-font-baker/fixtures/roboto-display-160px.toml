@@ -1,0 +1,32 @@
+toolchain_id = "mdux-font-baker-fixture-v1"
+unicode_version = "15.1.0"
+atlas_width = 1024
+atlas_padding = 1
+
+[font]
+manifest = "../../../assets/fonts/roboto/font-manifest.toml"
+pixel_height = 160
+locales = ["en-US"]
+
+# TextPackage validation requires at least one approved string and one compiled run; this
+# reviewed digit ribbon doubles as rasterization coverage for the display digits.
+[[approved_strings]]
+id = "STR-DISPLAY-DIGITS-160"
+run_id = "RUN-DISPLAY-DIGITS-160"
+locale = "en-US"
+value = "0123456789"
+direction = "ltr"
+
+[[numeric_glyph_sets]]
+id = "SET-DISPLAY-DIGITS-160"
+locale = "en-US"
+characters = "0123456789"
+
+# Digits-only: no prefix/suffix affixes (the sedation index renders bare 160px digits —
+# 120 pt at this project's 96 DPI reference, ADR-014).
+[[numeric_templates]]
+id = "TPL-SEDATION-INDEX-160"
+locale = "en-US"
+glyph_set_id = "SET-DISPLAY-DIGITS-160"
+max_chars = 2
+allow_negative = false
