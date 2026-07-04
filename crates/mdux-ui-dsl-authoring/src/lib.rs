@@ -2167,7 +2167,7 @@ Screen NeuroSense500 {
         let generated = compile_medui_source_to_rust(
             &source,
             CompileOptions::new(1280, 720),
-            TextPackages::with_display(&standard, &display),
+            TextPackages::with_displays(&standard, &[&display]),
             ImagePackages::none(),
         )
         .expect("Row spacing: 0px should compile");

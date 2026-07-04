@@ -147,6 +147,28 @@ impl DisplayTextResources {
     }
 }
 
+/// Sums each `NumberBinding`'s quad capacity into its display package's slot.
+/// `ScreenBindings::from_screen` only ever produces `display_index` values in range, but
+/// `VulkanRenderer::new` accepts a `ScreenBindings` directly — a hand-constructed or
+/// otherwise-modified instance could carry an out-of-range index. This fails with a typed error
+/// instead of an index-out-of-bounds panic.
+fn accumulate_display_quads(
+    numbers: &[mdux::realtime::NumberBinding],
+    display_count: usize,
+) -> Result<Vec<usize>, BoxError> {
+    let mut per_display_quads = vec![0usize; display_count];
+    for binding in numbers {
+        let quads = per_display_quads.get_mut(binding.display_index).ok_or_else(|| {
+            box_error(format!(
+                "numeric display {} has display_index {} but only {display_count} display packages are bound",
+                binding.node_id, binding.display_index
+            ))
+        })?;
+        *quads += binding.capacity;
+    }
+    Ok(per_display_quads)
+}
+
 /// Computes the fixed `[standard | d0 | d1 | ...]` split of the dynamic vertex buffer from the
 /// per-range quad counts (6 vertices per glyph quad). Returns the standard range's capacity,
 /// each display package's `(offset, capacity)` in vertices, and the total vertex count.
@@ -545,10 +567,8 @@ impl VulkanRenderer {
             .map(|binding| binding.capacity)
             .chain(self.bindings.statuses.iter().map(|binding| binding.capacity))
             .sum();
-        let mut per_display_quads = vec![0usize; self.bindings.displays.len()];
-        for binding in &self.bindings.numbers {
-            per_display_quads[binding.display_index] += binding.capacity;
-        }
+        let per_display_quads =
+            accumulate_display_quads(&self.bindings.numbers, self.bindings.displays.len())?;
 
         // The per-frame renderer uses fixed TextRuntime::<DYNAMIC_RUN_CAPACITY> buffers; every
         // individual binding must fit one render call.
@@ -2981,6 +3001,41 @@ mod tests {
         assert_eq!(standard, 24);
         assert_eq!(ranges, vec![(24, 0), (24, 0)]);
         assert_eq!(total, 24);
+    }
+
+    fn stub_number_binding(node_id: &'static str, display_index: usize) -> mdux::realtime::NumberBinding {
+        mdux::realtime::NumberBinding {
+            node_id,
+            bounds: mdux::Rect { x: 0, y: 0, width: 1, height: 1 },
+            origin_x: 0,
+            origin_y: 0,
+            source: "SRC",
+            template_id: "TPL".to_string(),
+            display_index,
+            color_token: "Theme.Colors.ScoreDigits",
+            capacity: 3,
+        }
+    }
+
+    #[test]
+    fn accumulates_display_quads_by_index_and_rejects_out_of_range() {
+        let numbers = [
+            stub_number_binding("a", 0),
+            stub_number_binding("b", 1),
+            stub_number_binding("c", 0),
+        ];
+        let per_display = accumulate_display_quads(&numbers, 2).expect("in-range indices");
+        assert_eq!(per_display, vec![6, 3]);
+
+        // A hand-constructed ScreenBindings (bypassing from_screen's own resolution) could
+        // carry a display_index beyond the actual number of bound display packages.
+        let out_of_range = [stub_number_binding("d", 5)];
+        let error = accumulate_display_quads(&out_of_range, 2)
+            .expect_err("out-of-range display_index should be rejected, not panic");
+        assert!(
+            error.to_string().contains("display_index 5 but only 2 display packages are bound"),
+            "{error}"
+        );
     }
 
     #[test]
