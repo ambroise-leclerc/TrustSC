@@ -22,8 +22,8 @@ use std::{
 };
 
 use mdux::realtime::{FrameInputs, ScreenBindings};
-use mdux::{CompiledScreenPackage, Framework, GraphicsProfile, screen_text::ScreenTextLayout};
-use renderer::{BoxError, VulkanRenderer, civil_from_unix};
+use mdux::{screen_text::ScreenTextLayout, CompiledScreenPackage, Framework, GraphicsProfile};
+use renderer::{civil_from_unix, BoxError, VulkanRenderer};
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -86,9 +86,9 @@ impl App {
             if argument == "--headless-smoke" {
                 headless_smoke = true;
             } else if let Some(value) = argument.strip_prefix("--auto-close-ms=") {
-                let millis: u64 = value.parse().map_err(|error| {
-                    format!("invalid --auto-close-ms value '{value}': {error}")
-                })?;
+                let millis: u64 = value
+                    .parse()
+                    .map_err(|error| format!("invalid --auto-close-ms value '{value}': {error}"))?;
                 auto_close_after = Some(Duration::from_millis(millis));
             }
         }
@@ -187,7 +187,9 @@ fn run_windowed(
         .with_inner_size(LogicalSize::new(width as f64, height as f64))
         .build(&event_loop)?;
 
-    let mut renderer = Some(VulkanRenderer::new(&window, app_name, layout, bindings)?);
+    let mut renderer = Some(VulkanRenderer::new(
+        &window, app_name, layout, bindings, width, height,
+    )?);
     println!(
         "vulkan_device={}",
         renderer
