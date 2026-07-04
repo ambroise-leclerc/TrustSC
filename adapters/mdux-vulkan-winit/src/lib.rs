@@ -142,12 +142,14 @@ impl App {
 
         let standard_package = mdux::default_standard_text_package()?;
         let display_packages = mdux::default_display_text_packages()?;
+        let image_packages = mdux::default_image_packages()?;
         let layout =
             ScreenTextLayout::from_screen(self.screen, standard_package.clone(), &self.locale)?;
         let bindings = ScreenBindings::from_screen(
             self.screen,
             standard_package,
             display_packages,
+            &image_packages,
             &self.locale,
         )?;
         let frame_inputs = FrameInputs::from_bindings(&bindings);
