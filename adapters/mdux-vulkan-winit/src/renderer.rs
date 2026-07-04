@@ -864,8 +864,7 @@ impl VulkanRenderer {
         if self.bindings.images.is_empty() {
             return Ok(());
         }
-        let image_bindings = self.bindings.images.clone();
-        for binding in &image_bindings {
+        for binding in &self.bindings.images {
             let texture = create_sampled_texture(
                 &self.instance,
                 &self.device,
@@ -2026,6 +2025,20 @@ fn create_text_atlas_resources(
     )
 }
 
+/// Bytes per texel for the sampled-texture formats this adapter uploads. A mismatched pixel
+/// buffer would otherwise be silently accepted and produce an invalid `vkCmdCopyBufferToImage`
+/// (garbage GPU reads or a validation error far from the actual bug).
+fn format_bytes_per_pixel(format: vk::Format) -> Result<usize, BoxError> {
+    match format {
+        vk::Format::R8_UNORM => Ok(1),
+        vk::Format::R8G8B8A8_UNORM => Ok(4),
+        other => Err(box_error(format!(
+            "no known bytes-per-pixel for texture format {}",
+            other.as_raw()
+        ))),
+    }
+}
+
 /// Uploads a CPU pixel buffer as an immutable sampled texture (staging copy + layout
 /// transitions, nearest sampling, clamp-to-edge). Shared by the R8 glyph atlases and the RGBA
 /// governed images.
@@ -2041,6 +2054,17 @@ fn create_sampled_texture(
     format: vk::Format,
     pixels: &[u8],
 ) -> Result<TextAtlasResources, BoxError> {
+    let bytes_per_pixel = format_bytes_per_pixel(format)?;
+    let expected_len = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|texels| texels.checked_mul(bytes_per_pixel))
+        .ok_or_else(|| box_error("texture dimensions overflow usize"))?;
+    if pixels.len() != expected_len {
+        return Err(box_error(format!(
+            "texture upload buffer is {} bytes but {width}x{height} at {bytes_per_pixel} bytes/pixel needs {expected_len}",
+            pixels.len()
+        )));
+    }
     let image_size = vk::DeviceSize::try_from(pixels.len())?;
     let (staging_buffer, staging_memory) = create_buffer(
         instance,
@@ -3548,6 +3572,13 @@ mod tests {
             error.to_string().contains("display_index 5 but only 2 display packages are bound"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn format_bytes_per_pixel_matches_known_upload_formats() {
+        assert_eq!(format_bytes_per_pixel(vk::Format::R8_UNORM).unwrap(), 1);
+        assert_eq!(format_bytes_per_pixel(vk::Format::R8G8B8A8_UNORM).unwrap(), 4);
+        assert!(format_bytes_per_pixel(vk::Format::R32G32B32A32_SFLOAT).is_err());
     }
 
     #[test]
