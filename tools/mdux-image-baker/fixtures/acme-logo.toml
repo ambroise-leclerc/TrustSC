@@ -1,0 +1,3 @@
+toolchain_id = "mdux-image-baker-0.1.0"
+image_id = "LOGO-ACME"
+manifest = "assets/images/acme-logo/image-manifest.toml"

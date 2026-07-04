@@ -769,6 +769,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-image-baker"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+ "mdux-image-schema",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
+name = "mdux-image-schema"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+]
+
+[[package]]
 name = "mdux-shader-baker"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,16 @@
+schema_version = 1
+manifest_kind = "mdux-image-asset"
+asset_id = "acme-logo"
+license = "CC0-1.0"
+
+[asset]
+source_file = "logo-acme-144x48.ppm"
+source_format = "ppm-p6"
+source_sha256 = "58b8c6925db8f9af34be9aa260ed03f5891b55ec446aa85f457648937bbd32bb"
+width = 144
+height = 48
+intended_usage = "Application brand mark for the NeuroSense 500 top bar (placeholder)"
+
+[provenance]
+origin = "generated in-repo, deterministic generator"
+generator = "mdux-image-baker generate-placeholder (pure-integer two-tone mark; see generate_placeholder_logo)"
