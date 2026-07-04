@@ -213,9 +213,10 @@ impl CompiledNodeKind {
     }
 }
 
-/// The single approved token → RGBA table (ADR-014). The MedUI compiler validates every
-/// color-bearing property against it (an unknown token is a compile error), and the adapter
-/// resolves Panel colors through it at binding time. Linear RGBA, straight alpha.
+/// The single approved token → RGBA table (ADR-014): the governed source of truth every color
+/// token must resolve against. Per the ADR-014 rollout, the MedUI compiler validates every
+/// color-bearing property against this table (an unknown token becomes a compile error) and the
+/// adapter resolves Panel colors through it at binding time. Linear RGBA, straight alpha.
 pub const THEME_COLORS: &[(&str, [f32; 4])] = &[
     ("Theme.Colors.TopbarBackground", [0.82, 0.84, 0.86, 1.0]),
     ("Theme.Colors.Title", [0.10, 0.12, 0.16, 1.0]),

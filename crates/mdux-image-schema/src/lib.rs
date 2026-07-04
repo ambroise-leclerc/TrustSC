@@ -56,7 +56,10 @@ impl Validates for ImagePackage {
                 "image dimensions must be strictly positive",
             ));
         }
-        let expected = self.width as usize * self.height as usize * 4;
+        let expected = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| ValidationError::new("image dimensions overflow usize"))?;
         if self.pixels.len() != expected {
             return Err(ValidationError::new(format!(
                 "image pixel buffer must be width * height * 4 bytes (expected {expected}, got {})",
