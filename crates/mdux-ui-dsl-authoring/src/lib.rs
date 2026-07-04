@@ -8,7 +8,7 @@ use std::{
 
 use mdux_core::{MduxResult, ValidationError};
 use mdux_text_schema::{CompiledTextRun, NumericGlyphSet, TextPackage};
-use mdux_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent};
+use mdux_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent, THEME_COLORS, resolve_color_token};
 
 /// Glyph set the `Clock` widget renders from (digits, `-`, `:`, space in the standard package).
 /// Kept in sync with `mdux::DEFAULT_STANDARD_DIGITS_GLYPH_SET_ID`.
@@ -87,6 +87,9 @@ struct SafetyCriticalDefinition {
 struct ScreenDefinition {
     id: String,
     layout: LayoutDefinition,
+    /// Optional `surface: WxH` pin (ADR-014): compile fails if it disagrees with the build's
+    /// configured surface.
+    declared_surface: Option<(u32, u32)>,
     items: Vec<ScreenItem>,
 }
 
@@ -103,6 +106,8 @@ struct RowDefinition {
     id: String,
     height: Dimension,
     spacing: u16,
+    /// Optional background color token: emits a synthetic Panel node spanning the row.
+    background: Option<String>,
     children: Vec<NodeDefinition>,
 }
 
@@ -111,6 +116,8 @@ struct NodeDefinition {
     id: String,
     width: Dimension,
     height: Dimension,
+    /// ADR-014 absolute placement: screen coordinates of the top-left corner, out of flow.
+    position: Option<(u32, u32)>,
     kind: NodeKind,
     safety_critical: Option<SafetyCriticalDefinition>,
 }
@@ -145,6 +152,10 @@ enum NodeKind {
         state_text_keys: Vec<String>,
         color_tokens: Vec<String>,
     },
+    /// Synthetic background rectangle (Row `background:`); never parsed as a component.
+    Panel {
+        color_token: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,6 +186,7 @@ struct GoldenReferenceSpec {
 struct CompiledScreenSpec {
     id: String,
     layout: LayoutDefinition,
+    surface: (u32, u32),
     nodes: Vec<CompiledNodeSpec>,
     golden_references: Vec<GoldenReferenceSpec>,
 }
@@ -248,6 +260,19 @@ fn parse_screen(source: &str) -> MduxResult<ScreenDefinition> {
     let mut pending_safety: Option<SafetyCriticalDefinition> = None;
     let mut cursor = 2usize;
 
+    // Optional `surface: <W>px, <H>px;` pin immediately after the layout line (ADR-014).
+    let mut declared_surface = None;
+    if cursor < lines.len() {
+        let (surface_line_number, surface_line) = &lines[cursor];
+        if let Some(value) = surface_line.strip_prefix("surface:") {
+            declared_surface = Some(parse_surface(
+                *surface_line_number,
+                value.trim().trim_end_matches(';'),
+            )?);
+            cursor += 1;
+        }
+    }
+
     while cursor < lines.len() {
         let (line_number, line) = &lines[cursor];
         if line == "}" {
@@ -309,6 +334,7 @@ fn parse_screen(source: &str) -> MduxResult<ScreenDefinition> {
     Ok(ScreenDefinition {
         id: screen_id,
         layout,
+        declared_surface,
         items,
     })
 }
@@ -328,6 +354,7 @@ fn parse_row(
     let mut id = None;
     let mut height = None;
     let mut spacing = None;
+    let mut background = None;
     let mut children = Vec::new();
     let mut pending_safety: Option<SafetyCriticalDefinition> = None;
     let mut closed = false;
@@ -389,7 +416,12 @@ fn parse_row(
         match key.trim() {
             "id" => id = Some(parse_identifier(*line_number, "Row id", value.trim())?),
             "height" => height = Some(parse_dimension(*line_number, "height", value.trim())?),
-            "spacing" => spacing = Some(parse_px(*line_number, "spacing", value.trim())?),
+            "spacing" => {
+                spacing = Some(parse_px_allowing_zero(*line_number, "spacing", value.trim())?)
+            }
+            "background" => {
+                background = Some(parse_non_empty(*line_number, "background", value.trim())?)
+            }
             other => {
                 return Err(ValidationError::new(format!(
                     "unsupported Row property `{other}` at line {line_number}"
@@ -422,6 +454,7 @@ fn parse_row(
             id,
             height,
             spacing: spacing.unwrap_or(0),
+            background,
             children,
         },
         cursor,
@@ -485,7 +518,7 @@ fn parse_inline_px_property(line_number: usize, block: &str, key: &str) -> MduxR
             let (_, value) = entry.split_once(':').ok_or_else(|| {
                 ValidationError::new(format!("invalid layout property `{entry}` at line {line_number}"))
             })?;
-            parse_px(line_number, key, value.trim())
+            parse_px_allowing_zero(line_number, key, value.trim())
         })
 }
 
@@ -568,6 +601,7 @@ fn parse_component_properties(
     let mut source = None;
     let mut state_text_keys = None;
     let mut color_tokens = None;
+    let mut position = None;
 
     for (property_line_number, property_line) in properties {
         let property_line = property_line.trim_end_matches(';');
@@ -605,6 +639,7 @@ fn parse_component_properties(
             "colors" => {
                 color_tokens = Some(parse_token_list(*property_line_number, value)?)
             }
+            "position" => position = Some(parse_position(*property_line_number, value)?),
             other => {
                 return Err(ValidationError::new(format!(
                     "unsupported property `{other}` at line {property_line_number}"
@@ -622,6 +657,12 @@ fn parse_component_properties(
     let height = height.ok_or_else(|| {
         ValidationError::new(format!("component {id} must declare `height`"))
     })?;
+
+    if position.is_some() && (width == Dimension::Fill || height == Dimension::Fill) {
+        return Err(ValidationError::new(format!(
+            "component {id}: `position` requires fixed `width`/`height` — Fill is flow-only"
+        )));
+    }
 
     let kind = match component_kind {
         ComponentKind::CriticalButton => NodeKind::CriticalButton {
@@ -712,6 +753,7 @@ fn parse_component_properties(
         id,
         width,
         height,
+        position,
         kind,
         safety_critical,
     })
@@ -842,8 +884,19 @@ fn parse_dimension(line_number: usize, field_name: &str, raw: &str) -> MduxResul
 }
 
 fn parse_px(line_number: usize, field_name: &str, raw: &str) -> MduxResult<u16> {
-    let px_value = raw
-        .trim()
+    let px_value = parse_px_allowing_zero(line_number, field_name, raw)?;
+    if px_value == 0 {
+        return Err(ValidationError::new(format!(
+            "{field_name} must be greater than zero at line {line_number}"
+        )));
+    }
+    Ok(px_value)
+}
+
+/// Like [`parse_px`] but accepts `0px` — legal for layout spacing/padding and `position`
+/// coordinates (ADR-014), never for component sizes.
+fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> MduxResult<u16> {
+    raw.trim()
         .strip_suffix("px")
         .ok_or_else(|| {
             ValidationError::new(format!(
@@ -853,17 +906,33 @@ fn parse_px(line_number: usize, field_name: &str, raw: &str) -> MduxResult<u16> 
         .parse::<u16>()
         .map_err(|_| {
             ValidationError::new(format!(
-                "{field_name} must be a positive integer px value at line {line_number}"
+                "{field_name} must be a non-negative integer px value at line {line_number}"
             ))
-        })?;
+        })
+}
 
-    if px_value == 0 {
-        return Err(ValidationError::new(format!(
-            "{field_name} must be greater than zero at line {line_number}"
-        )));
-    }
+/// Parses `<X>px, <Y>px` — the absolute screen coordinates of a positioned component.
+fn parse_position(line_number: usize, raw: &str) -> MduxResult<(u32, u32)> {
+    let (x_raw, y_raw) = raw.split_once(',').ok_or_else(|| {
+        ValidationError::new(format!(
+            "position must be `<X>px, <Y>px` at line {line_number}"
+        ))
+    })?;
+    let x = parse_px_allowing_zero(line_number, "position x", x_raw)?;
+    let y = parse_px_allowing_zero(line_number, "position y", y_raw)?;
+    Ok((u32::from(x), u32::from(y)))
+}
 
-    Ok(px_value)
+/// Parses `<W>px, <H>px` — the screen's declared surface pin.
+fn parse_surface(line_number: usize, raw: &str) -> MduxResult<(u32, u32)> {
+    let (w_raw, h_raw) = raw.split_once(',').ok_or_else(|| {
+        ValidationError::new(format!(
+            "surface must be `<W>px, <H>px` at line {line_number}"
+        ))
+    })?;
+    let width = parse_px(line_number, "surface width", w_raw)?;
+    let height = parse_px(line_number, "surface height", h_raw)?;
+    Ok((u32::from(width), u32::from(height)))
 }
 
 fn compile_screen(
@@ -875,6 +944,15 @@ fn compile_screen(
         return Err(ValidationError::new(
             "compile options surface dimensions must be greater than zero",
         ));
+    }
+
+    if let Some((declared_width, declared_height)) = screen.declared_surface {
+        if (declared_width, declared_height) != (options.surface_width, options.surface_height) {
+            return Err(ValidationError::new(format!(
+                "screen {} declares surface {declared_width}x{declared_height} but the build configured {}x{} — align build.rs .surface(...) with the declaration",
+                screen.id, options.surface_width, options.surface_height
+            )));
+        }
     }
 
     let content_width = options
@@ -896,10 +974,15 @@ fn compile_screen(
         ));
     }
 
-    // Axis resolution over top-level items: a Row contributes its own height and spans the
-    // content width; a leaf component contributes its declared dimensions.
+    // Axis resolution over top-level FLOW items only: positioned nodes are out of flow
+    // (ADR-014) — Fill siblings distribute space as if they did not exist. A Row contributes
+    // its own height and spans the content width; a leaf component its declared dimensions.
+    let is_flow = |item: &ScreenItem| match item {
+        ScreenItem::Component(node) => node.position.is_none(),
+        ScreenItem::Row(_) => true,
+    };
     let resolved_widths = resolve_axis_sizes(
-        screen.items.iter().map(|item| match item {
+        screen.items.iter().filter(|item| is_flow(item)).map(|item| match item {
             ScreenItem::Component(node) => node.width,
             ScreenItem::Row(_) => Dimension::Fill,
         }),
@@ -911,7 +994,7 @@ fn compile_screen(
         usize::from(screen.layout.spacing),
     )?;
     let resolved_heights = resolve_axis_sizes(
-        screen.items.iter().map(|item| match item {
+        screen.items.iter().filter(|item| is_flow(item)).map(|item| match item {
             ScreenItem::Component(node) => node.height,
             ScreenItem::Row(row) => row.height,
         }),
@@ -938,19 +1021,34 @@ fn compile_screen(
         padding,
         nodes: &mut nodes,
         golden_references: &mut golden_references,
+        positioned_indices: Vec::new(),
     };
 
-    for (index, item) in screen.items.into_iter().enumerate() {
+    let mut flow_index = 0usize;
+    for item in screen.items.into_iter() {
         match item {
             ScreenItem::Component(node) => {
+                if let Some((x, y)) = node.position {
+                    // Positioned top-level node: out of flow, contained by the padded content
+                    // box (compile_leaf's ordinary containment check enforces exactly that).
+                    let bounds = RectSpec {
+                        x: x as i32,
+                        y: y as i32,
+                        width: fixed_dimension(&node, node.width)?,
+                        height: fixed_dimension(&node, node.height)?,
+                    };
+                    context.compile_leaf(node, bounds)?;
+                    continue;
+                }
+
                 let width = match node.width {
                     Dimension::Fill if layout.kind == LayoutKind::Vertical => content_width,
-                    Dimension::Fill => resolved_widths[index],
+                    Dimension::Fill => resolved_widths[flow_index],
                     Dimension::Px(value) => u32::from(value),
                 };
                 let height = match node.height {
                     Dimension::Fill if layout.kind == LayoutKind::Horizontal => content_height,
-                    Dimension::Fill => resolved_heights[index],
+                    Dimension::Fill => resolved_heights[flow_index],
                     Dimension::Px(value) => u32::from(value),
                 };
                 let bounds = RectSpec {
@@ -965,23 +1063,62 @@ fn compile_screen(
                     LayoutKind::Vertical => cursor_y += bounds.height as i32 + spacing,
                     LayoutKind::Horizontal => cursor_x += bounds.width as i32 + spacing,
                 }
+                flow_index += 1;
             }
             ScreenItem::Row(row) => {
                 let row_height = match row.height {
-                    Dimension::Fill => resolved_heights[index],
+                    Dimension::Fill => resolved_heights[flow_index],
                     Dimension::Px(value) => u32::from(value),
                 };
+                let row_bounds = RectSpec {
+                    x: padding,
+                    y: cursor_y,
+                    width: content_width,
+                    height: row_height,
+                };
 
-                // Horizontal resolution of the row's children across the content width.
+                // Row background: a synthetic Panel underlay spanning the whole row, pushed
+                // before the row's children (ADR-014). Panels are overlap-exempt.
+                if let Some(color_token) = &row.background {
+                    context.push_panel(&row.id, color_token.clone(), row_bounds)?;
+                }
+
+                // Horizontal resolution of the row's FLOW children across the content width;
+                // positioned children are out of flow.
                 let child_widths = resolve_axis_sizes(
-                    row.children.iter().map(|child| child.width),
+                    row.children
+                        .iter()
+                        .filter(|child| child.position.is_none())
+                        .map(|child| child.width),
                     content_width,
                     usize::from(row.spacing),
                 )?;
                 let row_spacing = i32::from(row.spacing);
                 let mut child_x = i32::from(screen.layout.padding);
+                let mut child_flow_index = 0usize;
 
-                for (child, child_width) in row.children.into_iter().zip(child_widths) {
+                for child in row.children.into_iter() {
+                    if let Some((x, y)) = child.position {
+                        // Positioned row child: must lie entirely inside its declaring Row.
+                        let bounds = RectSpec {
+                            x: x as i32,
+                            y: y as i32,
+                            width: fixed_dimension(&child, child.width)?,
+                            height: fixed_dimension(&child, child.height)?,
+                        };
+                        if !rect_contains(row_bounds, bounds) {
+                            return Err(ValidationError::new(format!(
+                                "component {} (position {},{}, size {}x{}) escapes its Row {} (bounds {},{} {}x{})",
+                                child.id, bounds.x, bounds.y, bounds.width, bounds.height,
+                                row.id, row_bounds.x, row_bounds.y, row_bounds.width,
+                                row_bounds.height
+                            )));
+                        }
+                        context.compile_leaf(child, bounds)?;
+                        continue;
+                    }
+
+                    let child_width = child_widths[child_flow_index];
                     let child_height = match child.height {
                         Dimension::Fill => row_height,
                         Dimension::Px(value) => u32::from(value),
@@ -1000,28 +1137,107 @@ fn compile_screen(
                     };
                     context.compile_leaf(child, bounds)?;
                     child_x += child_width as i32 + row_spacing;
+                    child_flow_index += 1;
                 }
 
                 cursor_y += row_height as i32 + spacing;
+                flow_index += 1;
             }
         }
     }
 
+    let positioned_indices = context.positioned_indices.clone();
+    validate_unique_node_ids(&nodes)?;
+    validate_no_overlap(&nodes, &positioned_indices)?;
+
     Ok(CompiledScreenSpec {
         id: screen_id,
         layout,
+        surface: (options.surface_width, options.surface_height),
         nodes,
         golden_references,
     })
 }
 
-/// Shared leaf-node compilation: surface containment, text budgets, golden-reference emission.
+/// A positioned component's dimensions are guaranteed `Px` by the parser; this converts them
+/// defensively.
+fn fixed_dimension(node: &NodeDefinition, dimension: Dimension) -> MduxResult<u32> {
+    match dimension {
+        Dimension::Px(value) => Ok(u32::from(value)),
+        Dimension::Fill => Err(ValidationError::new(format!(
+            "component {}: `position` requires fixed `width`/`height` — Fill is flow-only",
+            node.id
+        ))),
+    }
+}
+
+/// `inner` lies entirely within `outer` (shared edges allowed).
+fn rect_contains(outer: RectSpec, inner: RectSpec) -> bool {
+    inner.x >= outer.x
+        && inner.y >= outer.y
+        && inner.x + inner.width as i32 <= outer.x + outer.width as i32
+        && inner.y + inner.height as i32 <= outer.y + outer.height as i32
+}
+
+/// Strict AABB intersection: shared edges are legal adjacency, not overlap.
+fn rects_strictly_overlap(a: RectSpec, b: RectSpec) -> bool {
+    a.x < b.x + b.width as i32
+        && b.x < a.x + a.width as i32
+        && a.y < b.y + b.height as i32
+        && b.y < a.y + a.height as i32
+}
+
+/// Every compiled node id must be unique — including the synthesized `{row_id}-background`
+/// Panel ids, so a user id colliding with one is a compile error rather than silent.
+fn validate_unique_node_ids(nodes: &[CompiledNodeSpec]) -> MduxResult<()> {
+    let mut seen = std::collections::BTreeSet::new();
+    for node in nodes {
+        if !seen.insert(node.id.as_str()) {
+            return Err(ValidationError::new(format!(
+                "duplicate node id {} in compiled screen",
+                node.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// ADR-014 verification rule 2: a positioned node must not overlap ANY other node, flow or
+/// positioned. Panels are exempt on both sides (backgrounds are underlays by definition).
+fn validate_no_overlap(
+    nodes: &[CompiledNodeSpec],
+    positioned_indices: &[usize],
+) -> MduxResult<()> {
+    for &positioned in positioned_indices {
+        let a = &nodes[positioned];
+        if matches!(a.kind, NodeKind::Panel { .. }) {
+            continue;
+        }
+        for (index, b) in nodes.iter().enumerate() {
+            if index == positioned || matches!(b.kind, NodeKind::Panel { .. }) {
+                continue;
+            }
+            if rects_strictly_overlap(a.bounds, b.bounds) {
+                return Err(ValidationError::new(format!(
+                    "component {} (position {},{}, size {}x{}) overlaps component {} (bounds {},{} {}x{}); positioned components must not overlap any other component",
+                    a.id, a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height,
+                    b.id, b.bounds.x, b.bounds.y, b.bounds.width, b.bounds.height
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Shared leaf-node compilation: surface containment, text budgets, theme-token validation,
+/// golden-reference emission, positioned-node tracking for the overlap pass.
 struct CompileContext<'a, 'p> {
     options: CompileOptions,
     text_packages: TextPackages<'p>,
     padding: i32,
     nodes: &'a mut Vec<CompiledNodeSpec>,
     golden_references: &'a mut Vec<GoldenReferenceSpec>,
+    positioned_indices: Vec<usize>,
 }
 
 impl CompileContext<'_, '_> {
@@ -1043,8 +1259,22 @@ impl CompileContext<'_, '_> {
         }
 
         validate_node_text_budget(&node, bounds, self.text_packages)?;
+        validate_color_tokens(&node.id, &node.kind)?;
 
-        if let Some(safety) = &node.safety_critical {
+        // ADR-014 rule 4: a positioned node's declared placement is golden evidence — it gets
+        // an automatic Bounds reference even without @safety_critical. When both apply, ONE
+        // merged entry is emitted (deduplicated cv_check union), never two per node id.
+        let is_positioned = node.position.is_some();
+        if is_positioned || node.safety_critical.is_some() {
+            let mut cv_checks = node
+                .safety_critical
+                .as_ref()
+                .map(|safety| safety.cv_checks.clone())
+                .unwrap_or_default();
+            if is_positioned && !cv_checks.contains(&CvCheckKind::Bounds) {
+                cv_checks.insert(0, CvCheckKind::Bounds);
+            }
+
             let (text_key, color_token) = match &node.kind {
                 NodeKind::CriticalButton {
                     label_text_key,
@@ -1062,7 +1292,8 @@ impl CompileContext<'_, '_> {
                 }
                 NodeKind::StatusIndicator { .. }
                 | NodeKind::Clock { .. }
-                | NodeKind::VulkanViewport { .. } => (None, None),
+                | NodeKind::VulkanViewport { .. }
+                | NodeKind::Panel { .. } => (None, None),
             };
             golden_references_push(
                 self.golden_references,
@@ -1070,10 +1301,13 @@ impl CompileContext<'_, '_> {
                 bounds,
                 text_key,
                 color_token,
-                safety.cv_checks.clone(),
+                cv_checks,
             );
         }
 
+        if is_positioned {
+            self.positioned_indices.push(self.nodes.len());
+        }
         self.nodes.push(CompiledNodeSpec {
             id: node.id,
             bounds,
@@ -1081,6 +1315,54 @@ impl CompileContext<'_, '_> {
         });
 
         Ok(())
+    }
+
+    /// Pushes the synthetic `{row_id}-background` Panel underlay for a Row's `background:`.
+    fn push_panel(
+        &mut self,
+        row_id: &str,
+        color_token: String,
+        bounds: RectSpec,
+    ) -> MduxResult<()> {
+        let id = format!("{row_id}-background");
+        validate_color_tokens(&id, &NodeKind::Panel { color_token: color_token.clone() })?;
+        self.nodes.push(CompiledNodeSpec {
+            id,
+            bounds,
+            kind: NodeKind::Panel { color_token },
+        });
+        Ok(())
+    }
+}
+
+/// ADR-014: every color-bearing property must name a token from the governed theme table.
+fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> MduxResult<()> {
+    let check = |token: &str| -> MduxResult<()> {
+        if resolve_color_token(token).is_none() {
+            let approved = THEME_COLORS
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(ValidationError::new(format!(
+                "component {node_id} references unknown theme color token `{token}`; approved tokens are: {approved}"
+            )));
+        }
+        Ok(())
+    };
+
+    match kind {
+        NodeKind::CriticalButton { color_token, .. }
+        | NodeKind::Label { color_token, .. }
+        | NodeKind::NumericDisplay { color_token, .. }
+        | NodeKind::Panel { color_token } => check(color_token),
+        NodeKind::StatusIndicator { color_tokens, .. } => {
+            for token in color_tokens {
+                check(token)?;
+            }
+            Ok(())
+        }
+        NodeKind::Clock { .. } | NodeKind::VulkanViewport { .. } => Ok(()),
     }
 }
 
@@ -1126,6 +1408,8 @@ fn validate_node_text_budget(
         NodeKind::Clock { format } => {
             validate_clock_budget(node, *format, bounds, text_packages.standard)
         }
+        // Panels carry no text.
+        NodeKind::Panel { .. } => Ok(()),
         NodeKind::NumericDisplay { template_id, .. } => {
             let display = text_packages.display.ok_or_else(|| {
                 ValidationError::new(format!(
@@ -1391,6 +1675,11 @@ fn emit_rust_module(compiled: &CompiledScreenSpec, crate_path: &str) -> String {
     );
     let _ = writeln!(
         output,
+        "pub const GENERATED_MEDUI_SURFACE: (u32, u32) = ({}, {});",
+        compiled.surface.0, compiled.surface.1
+    );
+    let _ = writeln!(
+        output,
         "pub const GENERATED_MEDUI_PACKAGE: {crate_path}::CompiledScreenPackage = {crate_path}::CompiledScreenPackage {{"
     );
     let _ = writeln!(output, "    screen_id: {:?},", compiled.id);
@@ -1508,6 +1797,9 @@ fn emit_node_kind(kind: &NodeKind, crate_path: &str) -> String {
             "{crate_path}::CompiledNodeKind::StatusIndicator({crate_path}::StatusIndicatorSpec {{ requirement_id: {requirement_id:?}, source: {source:?}, state_text_keys: {}, color_tokens: {} }})",
             emit_str_slice(state_text_keys),
             emit_str_slice(color_tokens)
+        ),
+        NodeKind::Panel { color_token } => format!(
+            "{crate_path}::CompiledNodeKind::Panel({crate_path}::PanelSpec {{ color_token: {color_token:?} }})"
         ),
     }
 }
@@ -1745,6 +2037,25 @@ Screen NeuroSense500 {
     }
 
     #[test]
+    fn row_spacing_of_zero_is_legal() {
+        // ADR-014: 0px is legal for layout spacing/padding, including a Row's `spacing`.
+        let source = MONITOR_MEDUI.replace("        spacing: 16px;", "        spacing: 0px;");
+        let standard = monitor_text_package();
+        let display = display_text_package();
+        let generated = compile_medui_source_to_rust(
+            &source,
+            CompileOptions::new(1280, 720),
+            TextPackages::with_display(&standard, &display),
+        )
+        .expect("Row spacing: 0px should compile");
+
+        // With zero spacing, the title (340px) is immediately followed by the clock, and the
+        // Fill clock absorbs the spacing that used to be reserved (708 = 1248 - 340 - 200).
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 16, y: 16, width: 340, height: 48 }"));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 356, y: 16, width: 708, height: 48 }"));
+    }
+
+    #[test]
     fn rejects_status_state_wider_than_its_bounds() {
         let standard = monitor_text_package();
         let display = display_text_package();
@@ -1893,6 +2204,228 @@ Screen NeuroSense500 {
         .expect_err("a numeric glyph set entry with a dangling atlas reference should be rejected");
 
         assert!(error.to_string().contains("does not exist in the package"), "{error}");
+    }
+
+    /// ADR-014 positioning fixture: zero padding, a full-width topbar Row with a background
+    /// and only positioned children, and two positioned top-level components filling the rest.
+    /// Uses the same 8px-advance monitor_text_package/display_text_package fixtures.
+    const POSITIONED_MEDUI: &str = r#"
+Screen PositionedMonitor {
+    layout: Vertical { spacing: 8px; padding: 0px; }
+    surface: 1280px, 720px;
+    Row {
+        id: topbar;
+        height: 48px;
+        background: Theme.Colors.TopbarBackground;
+        Label {
+            id: device-title;
+            width: 340px;
+            height: 48px;
+            position: 16px, 0px;
+            text: t("STR-NS-TITLE");
+            color: Theme.Colors.Title;
+        }
+        Clock {
+            id: wall-clock;
+            width: 448px;
+            height: 48px;
+            position: 372px, 0px;
+            format: DateTimeSeconds;
+        }
+    }
+    @safety_critical(cv_check: [Bounds, ColorHash])
+    NumericDisplay {
+        id: sedation-index;
+        width: 512px;
+        height: 512px;
+        position: 752px, 56px;
+        requirement: "REQ-NS-001";
+        template: "TPL-SEDATION-INDEX";
+        source: "SEDATION_INDEX";
+        color: Theme.Colors.ScoreDigits;
+    }
+    VulkanViewport {
+        id: eeg-dsa;
+        width: 736px;
+        height: 656px;
+        position: 0px, 56px;
+        stream_source: "EEG_DSA";
+    }
+}
+"#;
+
+    fn compile_positioned(source: &str) -> MduxResult<String> {
+        let standard = monitor_text_package();
+        let display = display_text_package();
+        compile_medui_source_to_rust(
+            source,
+            CompileOptions::new(1280, 720),
+            TextPackages::with_display(&standard, &display),
+        )
+    }
+
+    #[test]
+    fn compiles_positioned_screen_with_exact_declared_rects() {
+        let generated = compile_positioned(POSITIONED_MEDUI)
+            .expect("positioned monitor screen should compile");
+
+        // The surface pin is emitted as the app's single source of truth.
+        assert!(generated.contains("pub const GENERATED_MEDUI_SURFACE: (u32, u32) = (1280, 720);"));
+        // Full-width Panel underlay synthesized from the Row background at padding 0.
+        assert!(generated.contains(r#"id: "topbar-background""#));
+        assert!(generated.contains(
+            r#"::mdux::CompiledNodeKind::Panel(::mdux::PanelSpec { color_token: "Theme.Colors.TopbarBackground" })"#
+        ));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 0, y: 0, width: 1280, height: 48 }"));
+        // Positioned nodes land at EXACTLY their declared coordinates.
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 16, y: 0, width: 340, height: 48 }"));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 372, y: 0, width: 448, height: 48 }"));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 752, y: 56, width: 512, height: 512 }"));
+        assert!(generated.contains("bounds: ::mdux::Rect { x: 0, y: 56, width: 736, height: 656 }"));
+    }
+
+    #[test]
+    fn positioned_nodes_get_automatic_bounds_golden_references() {
+        let generated = compile_positioned(POSITIONED_MEDUI)
+            .expect("positioned monitor screen should compile");
+
+        // Four positioned nodes -> four golden entries; the Panel gets none.
+        assert_eq!(generated.matches("::mdux::GoldenReferenceEntry {").count(), 4);
+        assert!(!generated.contains(r#"node_id: "topbar-background""#));
+        // Un-annotated positioned nodes are pinned with Bounds only.
+        assert!(generated.contains(r#"node_id: "device-title""#));
+        assert!(generated.contains(r#"node_id: "wall-clock""#));
+        assert!(generated.contains(r#"node_id: "eeg-dsa""#));
+        // The @safety_critical positioned node gets ONE merged entry (its own checks already
+        // contain Bounds — no duplicate).
+        assert_eq!(generated.matches(r#"node_id: "sedation-index""#).count(), 1);
+        assert!(generated.contains(
+            "cv_checks: &[::mdux::CvCheckKind::Bounds, ::mdux::CvCheckKind::ColorHash]"
+        ));
+    }
+
+    #[test]
+    fn positioned_component_rejects_widest_translation_growth() {
+        // The epic's headline requirement: the title box is pinned at exactly the width of the
+        // widest approved translation (fr-FR "ABC" = 3 glyphs x 8px = 24px). A translation
+        // growing by a single pixel must fail the compile — the i18n alert.
+        let fits = POSITIONED_MEDUI
+            .replace("            width: 340px;", "            width: 24px;");
+        compile_positioned(&fits).expect("box exactly as wide as the widest translation fits");
+
+        let overflows = POSITIONED_MEDUI
+            .replace("            width: 340px;", "            width: 23px;");
+        let error = compile_positioned(&overflows)
+            .expect_err("a pinned box narrower than the widest approved translation must fail");
+        assert!(error.to_string().contains("exceeds bounds"), "{error}");
+    }
+
+    #[test]
+    fn rejects_positioned_child_escaping_its_row() {
+        // Push the clock 1px below the 48px row.
+        let source = POSITIONED_MEDUI.replace(
+            "            position: 372px, 0px;",
+            "            position: 372px, 1px;",
+        );
+        let error = compile_positioned(&source).expect_err("escaping row child must fail");
+        assert!(error.to_string().contains("escapes its Row topbar"), "{error}");
+    }
+
+    #[test]
+    fn rejects_positioned_component_escaping_the_surface() {
+        // 769 + 512 = 1281 > 1280.
+        let source = POSITIONED_MEDUI.replace(
+            "        position: 752px, 56px;",
+            "        position: 769px, 56px;",
+        );
+        let error = compile_positioned(&source).expect_err("surface escape must fail");
+        assert!(error.to_string().contains("exceeds the available surface"), "{error}");
+    }
+
+    #[test]
+    fn rejects_overlapping_positioned_components() {
+        // Slide the numeric display left onto the viewport (700 < 736 = viewport right edge).
+        let source = POSITIONED_MEDUI.replace(
+            "        position: 752px, 56px;",
+            "        position: 700px, 56px;",
+        );
+        let error = compile_positioned(&source).expect_err("overlap must fail");
+        assert!(
+            error.to_string().contains("overlaps component"),
+            "{error}"
+        );
+
+        // Positioned-vs-flow: raise the viewport into the topbar row's flow children.
+        let source = POSITIONED_MEDUI.replace(
+            "        position: 0px, 56px;",
+            "        position: 0px, 40px;",
+        );
+        let error = compile_positioned(&source).expect_err("positioned-vs-flow overlap must fail");
+        assert!(error.to_string().contains("overlaps component"), "{error}");
+    }
+
+    #[test]
+    fn rejects_fill_with_position() {
+        let source = POSITIONED_MEDUI.replace(
+            "        width: 736px;",
+            "        width: Fill;",
+        );
+        let error = compile_positioned(&source).expect_err("Fill + position must fail");
+        assert!(
+            error.to_string().contains("`position` requires fixed `width`/`height`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_surface_pin_mismatch() {
+        let source = POSITIONED_MEDUI.replace(
+            "    surface: 1280px, 720px;",
+            "    surface: 1920px, 1080px;",
+        );
+        let error = compile_positioned(&source).expect_err("surface pin mismatch must fail");
+        assert!(
+            error.to_string().contains("declares surface 1920x1080 but the build configured 1280x720"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_theme_color_token() {
+        let source = POSITIONED_MEDUI.replace(
+            "            color: Theme.Colors.Title;",
+            "            color: Theme.Colors.Titel;",
+        );
+        let error = compile_positioned(&source).expect_err("unknown token must fail");
+        assert!(
+            error.to_string().contains("unknown theme color token `Theme.Colors.Titel`"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("Theme.Colors.Title"), "{error}");
+    }
+
+    #[test]
+    fn rejects_a_user_id_colliding_with_a_synthesized_background_id() {
+        let source = POSITIONED_MEDUI.replace(
+            "        id: sedation-index;",
+            "        id: topbar-background;",
+        );
+        let error = compile_positioned(&source).expect_err("duplicate node id must fail");
+        assert!(
+            error.to_string().contains("duplicate node id topbar-background"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn zero_is_legal_for_layout_but_not_for_component_sizes() {
+        // POSITIONED_MEDUI already exercises padding: 0px and position: ...,0px — compiled above.
+        let source = POSITIONED_MEDUI.replace(
+            "            width: 340px;",
+            "            width: 0px;",
+        );
+        let error = compile_positioned(&source).expect_err("zero component width must fail");
+        assert!(error.to_string().contains("greater than zero"), "{error}");
     }
 
     /// Standard-package fixture for monitor screens: title and status strings in en-US and a
