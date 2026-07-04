@@ -1,5 +1,5 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     mdux_build::MeduiScreen::new("neurosense.medui")
-        .surface(1280, 720)
+        .surface(1920, 1080)
         .compile()
 }

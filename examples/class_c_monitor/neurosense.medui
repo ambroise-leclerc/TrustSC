@@ -1,45 +1,58 @@
 Screen NeuroSense500 {
-    layout: Vertical { spacing: 8px; padding: 16px; }
+    layout: Vertical { spacing: 8px; padding: 0px; }
+    surface: 1920px, 1080px;
     Row {
         id: topbar;
-        height: 48px;
-        spacing: 16px;
+        height: 64px;
+        background: Theme.Colors.TopbarBackground;
         Label {
             id: device-title;
             width: 340px;
             height: 48px;
+            position: 16px, 8px;
             text: t("STR-NS-TITLE");
             color: Theme.Colors.Title;
         }
         Clock {
             id: wall-clock;
-            width: Fill;
+            width: 448px;
             height: 48px;
+            position: 372px, 8px;
             format: DateTimeSeconds;
         }
         StatusIndicator {
             id: system-status;
             width: 200px;
             height: 48px;
+            position: 1552px, 8px;
             requirement: "REQ-NS-003";
             source: "MONITOR_STATUS";
             states: [t("STR-NS-NOMINAL"), t("STR-NS-ALERT"), t("STR-NS-FAULT")];
+        }
+        Image {
+            id: acme-logo;
+            width: 144px;
+            height: 48px;
+            position: 1768px, 8px;
+            source: img("LOGO-ACME");
         }
     }
     @safety_critical(cv_check: [Bounds, ColorHash])
     NumericDisplay {
         id: sedation-index;
-        width: Fill;
-        height: 120px;
+        width: 512px;
+        height: 512px;
+        position: 1392px, 80px;
         requirement: "REQ-NS-001";
-        template: "TPL-SEDATION-INDEX";
+        template: "TPL-SEDATION-INDEX-160";
         source: "SEDATION_INDEX";
         color: Theme.Colors.ScoreDigits;
     }
     VulkanViewport {
         id: eeg-dsa;
-        width: Fill;
-        height: Fill;
+        width: 1360px;
+        height: 984px;
+        position: 16px, 80px;
         stream_source: "EEG_DSA";
     }
 }

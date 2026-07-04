@@ -24,10 +24,20 @@ Per-kind semantics of the optional fields:
 | `Label` | its text key | its color token |
 | `NumericDisplay` | `None` (digits vary at runtime by design) | its color token |
 | `StatusIndicator`, `Clock`, `VulkanViewport` | `None` | `None` |
+| `Image` | `None` (pixel content is baked evidence, not text) | `None` |
 
 Dynamic kinds pin their *bounds* (and color where meaningful): the reference tells the safety
 monitor **where** critical content must appear and in what tint — the varying content itself is
 governed by the bounded realtime path (ADR-013), not by a static reference.
+
+## Positioned nodes are golden evidence (ADR-014)
+
+Every node with an explicit `position:` receives an **automatic** golden reference carrying
+`Bounds`, even without `@safety_critical` — a declared position is a safety-relevant claim and
+becomes reproducible, machine-checkable evidence. When a positioned node also carries
+`@safety_critical`, the compiler emits **one merged entry** (deduplicated union of cv_checks),
+never two entries per node id. Synthetic `Panel` background nodes never receive golden
+references (underlays by definition).
 
 ## Current runtime/governance expectation
 

@@ -99,74 +99,91 @@ Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit 
 glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
 application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
 
-## A complete Class C monitor in 137 lines
+## A complete Class C monitor in 156 lines
 
 `examples/class_c_monitor` is the **Acme NeuroSense 500**, a fictional depth-of-anesthesia
-monitor modeling a genuine IEC 62304 **Class C** configuration: Vulkan SC profile with explicit
-reserved budgets, a mandatory hazard, full requirement traceability — and a realtime bedside
-layout, windowed on the development host through the ADR-013 preview:
+monitor modeling a genuine IEC 62304 **Class C** configuration — and, since ADR-014, a
+**pixel-exact positioned layout**: a 1920×1080 surface pinned in the `.medui` file itself, a
+full-width light-gray top bar, the governed Acme logo at **exactly (1768, 8)**, and a 512×512
+sedation-index box with 160 px (= 120 pt) digits. Every `position:` is verified by the compiler
+(containment, no-overlap, i18n text budgets inside the pinned box) and pinned as an automatic
+golden reference — the layout specification *is* the evidence:
 
 ```text
-+----------------------------------------------------------------------+
-| NeuroSense 500 - Depth of...   2026-07-03 14:25:09          NOMINAL  |  top bar
-+----------------------------------------------------------------------+
-|                                4 7                                   |  48px live index
-+----------------------------------------------------------------------+
-|            /\/\_/\  3D EEG spectral waterfall (DSA),                 |
-|         __/       \__  one spectrum row per frame,                   |  VulkanViewport
-|      __/     __       \____  history receding in perspective         |
-+----------------------------------------------------------------------+
++---------------------------------------------------------------------------+
+| NeuroSense 500 - Depth of...  2026-07-04 14:25:09    NOMINAL   [A= logo]  |  topbar 1920x64
++---------------------------------------------------+-----------------------+
+|                                                   |       512x512        |
+|                                                   |      [  4 7  ]       |
+|          EEG DSA waterfall 1360x984               |    160px digits      |
+|                                                   +-----------------------+
+|                                                   |        (free)        |
++---------------------------------------------------+-----------------------+
 ```
 
-The clock costs **zero application code** (the adapter feeds platform time), every text budget
-(including the wider French translations) is checked at compile time, and the app has no
-`ash`/`winit`/`shaderc` dependency. The whole application:
+If a future translation outgrows the pinned title box, or two positioned components collide,
+**the build fails** — the alert happens at compile time, never on a bench. The clock still
+costs zero application code, and the app still has no `ash`/`winit`/`shaderc` dependency.
+The whole application:
 
-**`neurosense.medui`** (45 lines):
+**`neurosense.medui`** (58 lines):
 
 ```text
 Screen NeuroSense500 {
-    layout: Vertical { spacing: 8px; padding: 16px; }
+    layout: Vertical { spacing: 8px; padding: 0px; }
+    surface: 1920px, 1080px;
     Row {
         id: topbar;
-        height: 48px;
-        spacing: 16px;
+        height: 64px;
+        background: Theme.Colors.TopbarBackground;
         Label {
             id: device-title;
             width: 340px;
             height: 48px;
+            position: 16px, 8px;
             text: t("STR-NS-TITLE");
             color: Theme.Colors.Title;
         }
         Clock {
             id: wall-clock;
-            width: Fill;
+            width: 448px;
             height: 48px;
+            position: 372px, 8px;
             format: DateTimeSeconds;
         }
         StatusIndicator {
             id: system-status;
             width: 200px;
             height: 48px;
+            position: 1552px, 8px;
             requirement: "REQ-NS-003";
             source: "MONITOR_STATUS";
             states: [t("STR-NS-NOMINAL"), t("STR-NS-ALERT"), t("STR-NS-FAULT")];
+        }
+        Image {
+            id: acme-logo;
+            width: 144px;
+            height: 48px;
+            position: 1768px, 8px;
+            source: img("LOGO-ACME");
         }
     }
     @safety_critical(cv_check: [Bounds, ColorHash])
     NumericDisplay {
         id: sedation-index;
-        width: Fill;
-        height: 120px;
+        width: 512px;
+        height: 512px;
+        position: 1392px, 80px;
         requirement: "REQ-NS-001";
-        template: "TPL-SEDATION-INDEX";
+        template: "TPL-SEDATION-INDEX-160";
         source: "SEDATION_INDEX";
         color: Theme.Colors.ScoreDigits;
     }
     VulkanViewport {
         id: eeg-dsa;
-        width: Fill;
-        height: Fill;
+        width: 1360px;
+        height: 984px;
+        position: 16px, 80px;
         stream_source: "EEG_DSA";
     }
 }
@@ -177,12 +194,12 @@ Screen NeuroSense500 {
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     mdux_build::MeduiScreen::new("neurosense.medui")
-        .surface(1280, 720)
+        .surface(1920, 1080)
         .compile()
 }
 ```
 
-**`src/main.rs`** (87 lines, EEG simulator included):
+**`src/main.rs`** (93 lines, EEG simulator included):
 
 ```rust
 mdux::include_medui_screen!();
@@ -258,7 +275,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let framework = FrameworkBuilder::new()
         .with_device(device)
         .with_compliance(compliance)
-        .with_ui(UiSdkConfig::vulkansc_class_c(1280, 720, 12, 32 * 1024 * 1024, 256))
+        .with_ui(UiSdkConfig::vulkansc_class_c(
+            medui_screen::GENERATED_MEDUI_SURFACE.0,
+            medui_screen::GENERATED_MEDUI_SURFACE.1,
+            12,
+            32 * 1024 * 1024,
+            256,
+        ))
         .with_screen(screen)
         .build()?;
 
@@ -275,7 +298,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Run it with `cargo run -p class_c_monitor` (windowed; note the `HOST PREVIEW` banner and the
-`runtime` audit event in the diagnostics), or `-- --headless-smoke` for the CI path.
+`runtime` audit event in the diagnostics), or `-- --headless-smoke` for the CI path — the
+smoke output shows `golden_refs=6`: every positioned node is pinned evidence.
 
 ## Vulkan prerequisites
 
@@ -316,6 +340,7 @@ If you only need non-graphical validation, `cargo run -p hello_world -- --headle
 
 - `crates/mdux-core`: device metadata, safety classes, deterministic runtime policy
 - `crates/mdux-governance`: requirements, hazards, verifications, audit trail, trace matrix export
+- `crates/mdux-image-schema`: immutable compiled image-package schema (governed logo assets)
 - `crates/mdux-ui`: Vulkan / Vulkan SC UI policy and deterministic frame model
 - `crates/mdux-ui-dsl-authoring`: host-side `.medui` compiler for generated static screen packages
 - `crates/mdux-text-schema`: shared manifests and immutable compiled text-package schema
@@ -326,8 +351,8 @@ If you only need non-graphical validation, `cargo run -p hello_world -- --headle
 - `crates/mdux-build`: build-script helper (`MeduiScreen`) wrapping the `.medui` compiler
 - `adapters/mdux-vulkan-winit`: the reusable Vulkan 1.0 + winit presentation adapter — the only
   crate depending on `ash`/`winit`
-- `tools/mdux-font-baker`, `tools/mdux-shader-baker`: host-only bake/verify tools for the committed
-  font atlas and SPIR-V shader evidence
+- `tools/mdux-font-baker`, `tools/mdux-image-baker`, `tools/mdux-shader-baker`: host-only
+  bake/verify tools for the committed font, image, and SPIR-V shader evidence
 - `examples/hello_world`: smallest out-of-the-box smoke demo (see above)
 - `examples/class_b_device`: Class B Vulkan example
 - `examples/class_c_monitor`: the NeuroSense 500 Class C realtime monitor (see above)
@@ -376,7 +401,7 @@ The same example also includes a minimal `.medui` source file compiled at build 
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
-- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto (16 px and 48 px) and SPIR-V artifacts, and exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
+- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto (16/48/160 px), Acme-logo image, and SPIR-V artifacts, and exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
 - Replay the same checks locally with:
 
 ```bash
@@ -385,6 +410,8 @@ cargo build --locked --workspace
 cargo test --locked --quiet
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
+cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
+cargo run --locked -q -p mdux-image-baker -- verify tools/mdux-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
 cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
 cargo run --locked -q -p hello_world -- --headless-smoke
 cargo run --locked -q -p class_c_monitor -- --headless-smoke
