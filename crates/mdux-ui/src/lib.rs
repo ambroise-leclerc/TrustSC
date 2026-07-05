@@ -142,6 +142,80 @@ pub struct ImageSpec {
     pub image_id: &'static str,
 }
 
+/// Application-semantic interactive button (ADR-015). Its static approved label rides the
+/// startup text path like a `Label`; a press is delivered to the application as a
+/// `ButtonPressed { source }` event through the bounded outbound event plane — by data, not by
+/// callback. Deliberately carries no `SystemEvent`: framework-governed actions belong to
+/// `CriticalButton`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ButtonSpec {
+    pub text_key: &'static str,
+    pub color_token: &'static str,
+    pub source: &'static str,
+    pub requirement_id: Option<&'static str>,
+}
+
+impl ButtonSpec {
+    /// Checks the non-emptiness invariants the MedUI compiler guarantees for generated screens.
+    /// The fields are public, so anything built by hand must be checked before use rather than
+    /// trusted.
+    pub fn validate(&self) -> MduxResult<()> {
+        if self.text_key.trim().is_empty() {
+            return Err(ValidationError::new("button text_key must not be empty"));
+        }
+        if self.color_token.trim().is_empty() {
+            return Err(ValidationError::new("button color_token must not be empty"));
+        }
+        if self.source.trim().is_empty() {
+            return Err(ValidationError::new("button source must not be empty"));
+        }
+        Ok(())
+    }
+}
+
+/// Operator-editable text field (ADR-015): a controlled component. The application owns the
+/// buffer and echoes its content each frame through the bounded realtime path, so the renderer
+/// stores nothing; content is restricted to the baked glyph set `glyph_set_id` and to
+/// `max_length` characters, both enforced at the frame-input boundary and — for the width
+/// budget — at compile time. Like `NumericDisplay`, golden references pin the box and tint,
+/// never the varying content.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextInputSpec {
+    pub source: &'static str,
+    pub max_length: u16,
+    pub glyph_set_id: &'static str,
+    pub color_token: &'static str,
+    pub requirement_id: Option<&'static str>,
+}
+
+impl TextInputSpec {
+    /// Checks the invariants every consumer relies on: a non-zero capacity and non-empty
+    /// source/glyph-set/color tokens. The MedUI DSL compiler already guarantees this for
+    /// generated screens, but the fields are public, so anything built by hand must be checked
+    /// before use rather than trusted.
+    pub fn validate(&self) -> MduxResult<()> {
+        if self.max_length == 0 {
+            return Err(ValidationError::new(
+                "text input max_length must be greater than zero",
+            ));
+        }
+        if self.source.trim().is_empty() {
+            return Err(ValidationError::new("text input source must not be empty"));
+        }
+        if self.glyph_set_id.trim().is_empty() {
+            return Err(ValidationError::new(
+                "text input glyph_set_id must not be empty",
+            ));
+        }
+        if self.color_token.trim().is_empty() {
+            return Err(ValidationError::new(
+                "text input color_token must not be empty",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompiledNodeKind {
     CriticalButton(CriticalButtonSpec),
@@ -152,6 +226,8 @@ pub enum CompiledNodeKind {
     StatusIndicator(StatusIndicatorSpec),
     Panel(PanelSpec),
     Image(ImageSpec),
+    Button(ButtonSpec),
+    TextInput(TextInputSpec),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -180,12 +256,15 @@ pub struct CompiledScreenPackage {
 
 impl CompiledNodeKind {
     /// The requirement implemented by this node, when it is a traced interactive/critical
-    /// element. `Label` and `Clock` are deliberately untraced (decorative / platform-fed).
+    /// element. `Label` and `Clock` are deliberately untraced (decorative / platform-fed);
+    /// `Button` and `TextInput` are traced only when they declare a requirement.
     pub fn requirement_id(&self) -> Option<&'static str> {
         match self {
             Self::CriticalButton(specification) => Some(specification.requirement_id),
             Self::NumericDisplay(specification) => Some(specification.requirement_id),
             Self::StatusIndicator(specification) => Some(specification.requirement_id),
+            Self::Button(specification) => specification.requirement_id,
+            Self::TextInput(specification) => specification.requirement_id,
             Self::VulkanViewport(_)
             | Self::Label(_)
             | Self::Clock(_)
@@ -203,12 +282,14 @@ impl CompiledNodeKind {
         match self {
             Self::CriticalButton(specification) => Some(specification.text_key),
             Self::Label(specification) => Some(specification.text_key),
+            Self::Button(specification) => Some(specification.text_key),
             Self::VulkanViewport(_)
             | Self::Clock(_)
             | Self::NumericDisplay(_)
             | Self::StatusIndicator(_)
             | Self::Panel(_)
-            | Self::Image(_) => None,
+            | Self::Image(_)
+            | Self::TextInput(_) => None,
         }
     }
 }
@@ -613,6 +694,91 @@ mod tests {
         } else {
             panic!("status node should be a StatusIndicator");
         }
+    }
+
+    #[test]
+    fn button_and_text_input_kinds_are_const_constructible_with_documented_classifiers() {
+        const ACK_BUTTON: CompiledNode = CompiledNode {
+            id: "ack-button",
+            bounds: Rect { x: 1392, y: 720, width: 240, height: 64 },
+            kind: CompiledNodeKind::Button(ButtonSpec {
+                text_key: "STR-NS-ACK",
+                color_token: "Theme.Colors.PrimaryAction",
+                source: "ACK_BUTTON",
+                requirement_id: Some("REQ-NS-004"),
+            }),
+        };
+        const DECORATIVE_BUTTON: CompiledNode = CompiledNode {
+            id: "info-button",
+            bounds: Rect { x: 0, y: 0, width: 240, height: 64 },
+            kind: CompiledNodeKind::Button(ButtonSpec {
+                text_key: "STR-INFO",
+                color_token: "Theme.Colors.Neutral",
+                source: "INFO_BUTTON",
+                requirement_id: None,
+            }),
+        };
+        const PATIENT_ID: CompiledNode = CompiledNode {
+            id: "patient-id-input",
+            bounds: Rect { x: 1392, y: 640, width: 512, height: 48 },
+            kind: CompiledNodeKind::TextInput(TextInputSpec {
+                source: "PATIENT_ID",
+                max_length: 16,
+                glyph_set_id: "SET-ASCII-TEXT",
+                color_token: "Theme.Colors.Title",
+                requirement_id: Some("REQ-NS-005"),
+            }),
+        };
+
+        // Button renders a static approved label through the startup text path and is traced
+        // exactly when it declares a requirement.
+        assert_eq!(ACK_BUTTON.kind.text_key(), Some("STR-NS-ACK"));
+        assert_eq!(ACK_BUTTON.kind.requirement_id(), Some("REQ-NS-004"));
+        assert_eq!(DECORATIVE_BUTTON.kind.text_key(), Some("STR-INFO"));
+        assert_eq!(DECORATIVE_BUTTON.kind.requirement_id(), None);
+
+        // TextInput content is operator-typed and runtime-dynamic: no static text key, like
+        // NumericDisplay; traced when it declares a requirement.
+        assert_eq!(PATIENT_ID.kind.text_key(), None);
+        assert_eq!(PATIENT_ID.kind.requirement_id(), Some("REQ-NS-005"));
+    }
+
+    #[test]
+    fn button_spec_rejects_empty_fields() {
+        const VALID: ButtonSpec = ButtonSpec {
+            text_key: "STR-NS-ACK",
+            color_token: "Theme.Colors.PrimaryAction",
+            source: "ACK_BUTTON",
+            requirement_id: None,
+        };
+        assert!(VALID.validate().is_ok());
+
+        assert!(ButtonSpec { text_key: "", ..VALID }.validate().is_err());
+        assert!(ButtonSpec { color_token: " ", ..VALID }.validate().is_err());
+        assert!(ButtonSpec { source: "", ..VALID }.validate().is_err());
+    }
+
+    #[test]
+    fn text_input_spec_rejects_zero_capacity_and_empty_fields() {
+        const VALID: TextInputSpec = TextInputSpec {
+            source: "PATIENT_ID",
+            max_length: 16,
+            glyph_set_id: "SET-ASCII-TEXT",
+            color_token: "Theme.Colors.Title",
+            requirement_id: None,
+        };
+        assert!(VALID.validate().is_ok());
+
+        assert_eq!(
+            TextInputSpec { max_length: 0, ..VALID }
+                .validate()
+                .expect_err("zero capacity must be rejected")
+                .to_string(),
+            "text input max_length must be greater than zero"
+        );
+        assert!(TextInputSpec { source: "", ..VALID }.validate().is_err());
+        assert!(TextInputSpec { glyph_set_id: " ", ..VALID }.validate().is_err());
+        assert!(TextInputSpec { color_token: "", ..VALID }.validate().is_err());
     }
 
     #[test]

@@ -312,8 +312,13 @@ impl ScreenBindings {
                         image: package.clone(),
                     });
                 }
-                // Static text kinds have no realtime state.
-                CompiledNodeKind::CriticalButton(_) | CompiledNodeKind::Label(_) => {}
+                // Static text kinds have no realtime state. Button and TextInput receive their
+                // interaction bindings with the ADR-015 input plane (epic #72, wave #76); until
+                // then a Button renders as static text and a TextInput renders nothing dynamic.
+                CompiledNodeKind::CriticalButton(_)
+                | CompiledNodeKind::Label(_)
+                | CompiledNodeKind::Button(_)
+                | CompiledNodeKind::TextInput(_) => {}
             }
         }
 

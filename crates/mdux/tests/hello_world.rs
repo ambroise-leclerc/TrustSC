@@ -252,6 +252,111 @@ fn build_derives_components_for_dynamic_requirement_bearing_kinds() {
 }
 
 #[test]
+fn build_traces_requirement_bearing_button_and_text_input() {
+    use mdux::{ButtonSpec, TextInputSpec};
+
+    const INTERACTIVE_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "InteractiveDerivation",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 8,
+            padding: 16,
+        },
+        nodes: &[
+            CompiledNode {
+                id: "ack-button",
+                bounds: Rect { x: 16, y: 16, width: 240, height: 64 },
+                kind: CompiledNodeKind::Button(ButtonSpec {
+                    text_key: "STR-HELLO-WORLD",
+                    color_token: "Theme.Colors.PrimaryAction",
+                    source: "ACK_BUTTON",
+                    requirement_id: Some("REQ-NS-004"),
+                }),
+            },
+            CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 16, y: 96, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 16,
+                    glyph_set_id: "SET-ASCII-TEXT",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: Some("REQ-NS-005"),
+                }),
+            },
+            CompiledNode {
+                id: "info-button",
+                bounds: Rect { x: 16, y: 160, width: 240, height: 64 },
+                kind: CompiledNodeKind::Button(ButtonSpec {
+                    text_key: "STR-HELLO-WORLD",
+                    color_token: "Theme.Colors.Neutral",
+                    source: "INFO_BUTTON",
+                    requirement_id: None,
+                }),
+            },
+        ],
+        golden_references: &[],
+    };
+
+    let device = DeviceContext::new(
+        "Acme Medical",
+        "NeuroSense 500",
+        "neurosense-ui",
+        "0.1.0",
+        SafetyClass::B,
+    )
+    .expect("device context should validate");
+
+    let mut compliance = ComplianceProgram::new(device.clone());
+    for (requirement_id, title) in [
+        ("REQ-NS-004", "Operator acknowledgment is captured"),
+        ("REQ-NS-005", "Patient identifier entry is bounded"),
+    ] {
+        let id = RequirementId::new(requirement_id).expect("id should parse");
+        compliance.add_requirement(
+            Requirement::new(id.clone(), title, "IEC62304-5.2", "Verified by test")
+                .expect("requirement should validate"),
+        );
+        compliance.add_verification(
+            VerificationCase::new(
+                format!("VER-{requirement_id}"),
+                id,
+                VerificationMethod::Test,
+                "Integration test",
+            )
+            .expect("verification should validate"),
+        );
+    }
+
+    let framework = FrameworkBuilder::new()
+        .with_device(device)
+        .with_compliance(compliance)
+        .with_ui(UiSdkConfig::vulkan_class_b(800, 480, 16))
+        .with_screen(&INTERACTIVE_SCREEN)
+        .build()
+        .expect("framework should trace requirement-bearing interactive kinds");
+
+    // The requirement-less info-button is decorative: no traced component. The
+    // requirement-bearing Button resolves its approved label (static text kind); the
+    // TextInput uses its node id as the descriptive label (dynamic content, NumericDisplay
+    // precedent).
+    let components = framework.ui_runtime().components();
+    assert_eq!(components.len(), 2);
+    let ack_button = components
+        .iter()
+        .find(|component| component.id == "ack-button")
+        .expect("ack-button component should be derived");
+    assert_eq!(ack_button.label, "Hello World!");
+    let patient_id = components
+        .iter()
+        .find(|component| component.id == "patient-id-input")
+        .expect("patient-id-input component should be derived");
+    assert_eq!(patient_id.label, "patient-id-input");
+    assert!(framework.trace_matrix_export().contains("REQ-NS-004"));
+    assert!(framework.trace_matrix_export().contains("REQ-NS-005"));
+}
+
+#[test]
 fn record_runtime_event_lands_in_the_audit_export() {
     let device = DeviceContext::new(
         "Acme Medical",
