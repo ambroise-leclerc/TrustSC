@@ -11,10 +11,10 @@ use std::{
     ptr,
 };
 
-use ash::{Entry, Instance, khr, util::read_spv, vk};
-use mdux::TextRuntime;
+use ash::{khr, util::read_spv, vk, Entry, Instance};
 use mdux::realtime::{FrameInputs, ScreenBindings};
 use mdux::screen_text::ScreenTextLayout;
+use mdux::TextRuntime;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
@@ -22,10 +22,8 @@ pub type BoxError = Box<dyn Error>;
 
 const TEXT_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/hello_text.vert.spv");
 const TEXT_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/hello_text.frag.spv");
-const HEIGHTFIELD_VERT_SPV: &[u8] =
-    include_bytes!("../shaders/generated/heightfield.vert.spv");
-const HEIGHTFIELD_FRAG_SPV: &[u8] =
-    include_bytes!("../shaders/generated/heightfield.frag.spv");
+const HEIGHTFIELD_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/heightfield.vert.spv");
+const HEIGHTFIELD_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/heightfield.frag.spv");
 const FLAT_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/flat.vert.spv");
 const FLAT_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/flat.frag.spv");
 const IMAGE_VERT_SPV: &[u8] = include_bytes!("../shaders/generated/image.vert.spv");
@@ -130,8 +128,8 @@ struct FlatVertex {
 }
 
 /// One governed image's GPU resources: its RGBA texture + descriptor set (uploaded once at
-/// construction) and its quad vertex buffer (recreated with the swapchain — NDC depends on the
-/// extent).
+/// construction) and its quad vertex buffer (kept in the swapchain lifecycle for consistent
+/// teardown/rebuild ordering).
 struct ImageResources {
     bounds: mdux::Rect,
     texture: TextAtlasResources,
@@ -283,6 +281,7 @@ pub struct VulkanRenderer {
     images: Vec<ImageResources>,
     image_pipeline_layout: vk::PipelineLayout,
     image_pipeline: vk::Pipeline,
+    authored_surface_extent: vk::Extent2D,
 }
 
 impl VulkanRenderer {
@@ -291,6 +290,8 @@ impl VulkanRenderer {
         app_name: &str,
         text_layout: ScreenTextLayout,
         bindings: ScreenBindings,
+        authored_surface_width: u32,
+        authored_surface_height: u32,
     ) -> Result<Self, BoxError> {
         let entry = unsafe { Entry::load()? };
         let instance = create_instance(&entry, window, app_name)?;
@@ -362,7 +363,10 @@ impl VulkanRenderer {
             depth_image_memory: vk::DeviceMemory::null(),
             depth_image_view: vk::ImageView::null(),
             depth_format,
-            current_extent: vk::Extent2D { width: 0, height: 0 },
+            current_extent: vk::Extent2D {
+                width: 0,
+                height: 0,
+            },
             waterfalls: Vec::new(),
             waterfall_pipeline_layout: vk::PipelineLayout::null(),
             waterfall_pipeline: vk::Pipeline::null(),
@@ -374,6 +378,10 @@ impl VulkanRenderer {
             images: Vec::new(),
             image_pipeline_layout: vk::PipelineLayout::null(),
             image_pipeline: vk::Pipeline::null(),
+            authored_surface_extent: vk::Extent2D {
+                width: authored_surface_width.max(1),
+                height: authored_surface_height.max(1),
+            },
         };
 
         renderer.create_text_static_resources()?;
@@ -382,6 +390,17 @@ impl VulkanRenderer {
         renderer.create_panel_and_image_static_resources()?;
         renderer.recreate_swapchain(window)?;
         Ok(renderer)
+    }
+
+    fn authored_surface_size(&self) -> (f32, f32) {
+        (
+            self.authored_surface_extent.width as f32,
+            self.authored_surface_extent.height as f32,
+        )
+    }
+
+    fn scale_bounds_to_current_extent(&self, bounds: mdux::Rect) -> mdux::Rect {
+        scale_rect_to_extent(bounds, self.authored_surface_extent, self.current_extent)
     }
 
     pub fn device_name(&self) -> &str {
@@ -529,7 +548,8 @@ impl VulkanRenderer {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.render_pass = create_render_pass(&self.device, surface_format.format, self.depth_format)?;
+        self.render_pass =
+            create_render_pass(&self.device, surface_format.format, self.depth_format)?;
         self.create_depth_resources(extent)?;
         self.framebuffers = self
             .swapchain_image_views
@@ -546,7 +566,7 @@ impl VulkanRenderer {
             .collect::<Result<Vec<_>, _>>()?;
 
         self.create_text_swapchain_resources(extent)?;
-        self.create_panel_and_image_swapchain_resources(extent)?;
+        self.create_panel_and_image_swapchain_resources()?;
         self.command_buffers = allocate_command_buffers(
             &self.device,
             self.command_pool,
@@ -612,7 +632,12 @@ impl VulkanRenderer {
             .clocks
             .iter()
             .map(|binding| binding.capacity)
-            .chain(self.bindings.statuses.iter().map(|binding| binding.capacity))
+            .chain(
+                self.bindings
+                    .statuses
+                    .iter()
+                    .map(|binding| binding.capacity),
+            )
             .sum();
         let per_display_quads =
             accumulate_display_quads(&self.bindings.numbers, self.bindings.displays.len())?;
@@ -707,9 +732,7 @@ impl VulkanRenderer {
         let Some(pointer) = self.dynamic_vertex_ptr else {
             return Ok(0);
         };
-        let extent = self.current_extent;
-        let surface_width = extent.width.max(1) as f32;
-        let surface_height = extent.height.max(1) as f32;
+        let (surface_width, surface_height) = self.authored_surface_size();
         let total_vertices = self.dynamic_standard_capacity_vertices
             + self
                 .display_resources
@@ -718,8 +741,7 @@ impl VulkanRenderer {
                 .sum::<usize>();
         // Safety: the buffer was mapped once at creation with exactly this vertex capacity, and
         // the in-flight fence waited in draw_frame guarantees the GPU is done reading it.
-        let vertices =
-            unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), total_vertices) };
+        let vertices = unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), total_vertices) };
 
         let standard_runtime =
             TextRuntime::<DYNAMIC_RUN_CAPACITY>::from_validated_package(&self.bindings.standard);
@@ -853,7 +875,7 @@ impl VulkanRenderer {
     }
 
     /// Uploads every governed image's RGBA texture and builds the panel/image pipeline layouts
-    /// once. Vertex buffers and pipelines are swapchain-scoped (NDC depends on the extent).
+    /// once.
     fn create_panel_and_image_static_resources(&mut self) -> Result<(), BoxError> {
         if !self.bindings.panels.is_empty() {
             let layout_info = vk::PipelineLayoutCreateInfo::default();
@@ -898,19 +920,20 @@ impl VulkanRenderer {
         Ok(())
     }
 
-    /// (Re)builds the swapchain-scoped panel/image geometry: one static NDC vertex buffer for
-    /// all panels, one quad buffer per image, plus both pipelines.
-    fn create_panel_and_image_swapchain_resources(
-        &mut self,
-        extent: vk::Extent2D,
-    ) -> Result<(), BoxError> {
-        let surface_width = extent.width.max(1) as f32;
-        let surface_height = extent.height.max(1) as f32;
+    /// (Re)builds panel/image geometry and pipelines during swapchain lifecycle events.
+    fn create_panel_and_image_swapchain_resources(&mut self) -> Result<(), BoxError> {
+        let (surface_width, surface_height) = self.authored_surface_size();
 
         if !self.bindings.panels.is_empty() {
             let mut vertices = Vec::with_capacity(self.bindings.panels.len() * 6);
             for panel in &self.bindings.panels {
-                push_flat_quad(&mut vertices, panel.bounds, panel.rgba, surface_width, surface_height);
+                push_flat_quad(
+                    &mut vertices,
+                    panel.bounds,
+                    panel.rgba,
+                    surface_width,
+                    surface_height,
+                );
             }
             let buffer_size = vk::DeviceSize::try_from(std::mem::size_of_val(vertices.as_slice()))?;
             let (buffer, memory) = create_buffer(
@@ -940,8 +963,7 @@ impl VulkanRenderer {
                     self.physical_device,
                     buffer_size,
                     vk::BufferUsageFlags::VERTEX_BUFFER,
-                    vk::MemoryPropertyFlags::HOST_VISIBLE
-                        | vk::MemoryPropertyFlags::HOST_COHERENT,
+                    vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                 )?;
                 write_buffer(&self.device, memory, bytes_of_slice(&vertices))?;
                 self.images[index].vertex_buffer = buffer;
@@ -1070,7 +1092,7 @@ impl VulkanRenderer {
             &self.device,
             self.physical_device,
             &self.text_layout,
-            extent,
+            self.authored_surface_extent,
         )?;
         self.text_vertex_buffer = vertex_buffer;
         self.text_vertex_buffer_memory = vertex_buffer_memory;
@@ -1104,11 +1126,10 @@ impl VulkanRenderer {
         let extent = self.current_extent;
         let begin_info = vk::CommandBufferBeginInfo::default();
         unsafe {
-            self.device.reset_command_buffer(
-                command_buffer,
-                vk::CommandBufferResetFlags::empty(),
-            )?;
-            self.device.begin_command_buffer(command_buffer, &begin_info)?;
+            self.device
+                .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())?;
+            self.device
+                .begin_command_buffer(command_buffer, &begin_info)?;
         }
 
         let clear_values = [
@@ -1178,19 +1199,20 @@ impl VulkanRenderer {
                     self.waterfall_pipeline,
                 );
                 for waterfall in &self.waterfalls {
+                    let scaled_bounds = self.scale_bounds_to_current_extent(waterfall.bounds);
                     // Render strictly inside the node's reserved bounds (ADR-011). The bounds
                     // come from the fixed authoring surface, but the window is resizable, so the
                     // current swapchain extent can be smaller — the scissor rect must stay
                     // within the framebuffer or it's an invalid Vulkan command.
                     let viewport = vk::Viewport {
-                        x: waterfall.bounds.x as f32,
-                        y: waterfall.bounds.y as f32,
-                        width: waterfall.bounds.width as f32,
-                        height: waterfall.bounds.height as f32,
+                        x: scaled_bounds.x as f32,
+                        y: scaled_bounds.y as f32,
+                        width: scaled_bounds.width as f32,
+                        height: scaled_bounds.height as f32,
                         min_depth: 0.0,
                         max_depth: 1.0,
                     };
-                    let scissor = clamp_scissor_to_extent(waterfall.bounds, extent);
+                    let scissor = clamp_scissor_to_extent(scaled_bounds, extent);
                     let push_constants = HeightfieldPushConstants {
                         mvp: waterfall.mvp,
                         rows: waterfall.rows as f32,
@@ -1269,7 +1291,8 @@ impl VulkanRenderer {
                 }
             }
 
-            let has_static = self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
+            let has_static =
+                self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
             let has_dynamic = self.text_pipeline != vk::Pipeline::null()
                 && (dynamic_standard_vertices > 0
                     || self
@@ -1433,7 +1456,8 @@ impl VulkanRenderer {
                 self.flat_vertex_buffer = vk::Buffer::null();
             }
             if self.flat_vertex_buffer_memory != vk::DeviceMemory::null() {
-                self.device.free_memory(self.flat_vertex_buffer_memory, None);
+                self.device
+                    .free_memory(self.flat_vertex_buffer_memory, None);
                 self.flat_vertex_buffer_memory = vk::DeviceMemory::null();
             }
             self.flat_vertex_count = 0;
@@ -1500,7 +1524,8 @@ impl VulkanRenderer {
                     self.device.destroy_sampler(resources.atlas.sampler, None);
                 }
                 if resources.atlas.image_view != vk::ImageView::null() {
-                    self.device.destroy_image_view(resources.atlas.image_view, None);
+                    self.device
+                        .destroy_image_view(resources.atlas.image_view, None);
                 }
                 if resources.atlas.image != vk::Image::null() {
                     self.device.destroy_image(resources.atlas.image, None);
@@ -1518,7 +1543,8 @@ impl VulkanRenderer {
                     waterfall.height_buffer = vk::Buffer::null();
                 }
                 if waterfall.height_buffer_memory != vk::DeviceMemory::null() {
-                    self.device.free_memory(waterfall.height_buffer_memory, None);
+                    self.device
+                        .free_memory(waterfall.height_buffer_memory, None);
                     waterfall.height_buffer_memory = vk::DeviceMemory::null();
                 }
                 if waterfall.index_buffer != vk::Buffer::null() {
@@ -1547,7 +1573,8 @@ impl VulkanRenderer {
             }
             for image in self.images.drain(..) {
                 if image.descriptor_pool != vk::DescriptorPool::null() {
-                    self.device.destroy_descriptor_pool(image.descriptor_pool, None);
+                    self.device
+                        .destroy_descriptor_pool(image.descriptor_pool, None);
                 }
                 if image.descriptor_set_layout != vk::DescriptorSetLayout::null() {
                     self.device
@@ -1557,7 +1584,8 @@ impl VulkanRenderer {
                     self.device.destroy_sampler(image.texture.sampler, None);
                 }
                 if image.texture.image_view != vk::ImageView::null() {
-                    self.device.destroy_image_view(image.texture.image_view, None);
+                    self.device
+                        .destroy_image_view(image.texture.image_view, None);
                 }
                 if image.texture.image != vk::Image::null() {
                     self.device.destroy_image(image.texture.image, None);
@@ -1732,11 +1760,9 @@ fn create_logical_device(
     queue_families: QueueFamilies,
 ) -> Result<(ash::Device, vk::Queue, vk::Queue), BoxError> {
     let priorities = [1.0_f32];
-    let mut queue_infos = vec![
-        vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(queue_families.graphics)
-            .queue_priorities(&priorities),
-    ];
+    let mut queue_infos = vec![vk::DeviceQueueCreateInfo::default()
+        .queue_family_index(queue_families.graphics)
+        .queue_priorities(&priorities)];
 
     if queue_families.graphics != queue_families.present {
         queue_infos.push(
@@ -2146,8 +2172,7 @@ fn create_sampled_texture(
 
     destroy_staging(device);
 
-    let image_view = match create_image_view(device, image, format, vk::ImageAspectFlags::COLOR)
-    {
+    let image_view = match create_image_view(device, image, format, vk::ImageAspectFlags::COLOR) {
         Ok(view) => view,
         Err(error) => {
             destroy_image(device);
@@ -2368,8 +2393,8 @@ fn create_text_pipeline(
         device.destroy_shader_module(fragment_shader_module, None);
     }
 
-    let pipeline =
-        pipeline_result.map_err(|(_, error)| box_error(format!("failed to create text pipeline: {error}")))?[0];
+    let pipeline = pipeline_result
+        .map_err(|(_, error)| box_error(format!("failed to create text pipeline: {error}")))?[0];
 
     Ok(pipeline)
 }
@@ -2404,21 +2429,18 @@ fn create_text_vertex_buffer(
 
 fn build_text_vertices(
     text_layout: &ScreenTextLayout,
-    extent: vk::Extent2D,
+    authored_surface_extent: vk::Extent2D,
 ) -> Result<Vec<TextVertex>, BoxError> {
     let atlas = text_layout
         .package
         .atlases
         .first()
         .ok_or_else(|| box_error("screen text package does not contain an atlas"))?;
-    let width = extent.width.max(1) as f32;
-    let height = extent.height.max(1) as f32;
+    let width = authored_surface_extent.width.max(1) as f32;
+    let height = authored_surface_extent.height.max(1) as f32;
     let atlas_width = atlas.width as f32;
     let atlas_height = atlas.height as f32;
-    let commands = text_layout
-        .runs
-        .iter()
-        .flat_map(|run| run.commands.iter());
+    let commands = text_layout.runs.iter().flat_map(|run| run.commands.iter());
     let mut vertices = Vec::new();
 
     for command in commands {
@@ -2457,7 +2479,10 @@ fn push_flat_quad(
     let right = (2.0 * (bounds.x + bounds.width as i32) as f32 / surface_width) - 1.0;
     let top = -1.0 + (2.0 * bounds.y as f32 / surface_height);
     let bottom = -1.0 + (2.0 * (bounds.y + bounds.height as i32) as f32 / surface_height);
-    let vertex = |x: f32, y: f32| FlatVertex { position: [x, y], color };
+    let vertex = |x: f32, y: f32| FlatVertex {
+        position: [x, y],
+        color,
+    };
     vertices.extend_from_slice(&[
         vertex(left, top),
         vertex(right, top),
@@ -2648,8 +2673,7 @@ fn create_overlay_pipeline(
     }
 
     let pipeline = pipeline_result
-        .map_err(|(_, error)| box_error(format!("failed to create overlay pipeline: {error}")))?
-        [0];
+        .map_err(|(_, error)| box_error(format!("failed to create overlay pipeline: {error}")))?[0];
 
     Ok(pipeline)
 }
@@ -2706,8 +2730,8 @@ fn create_heightfield_pipeline(
         .blend_enable(false)
         .color_write_mask(vk::ColorComponentFlags::RGBA);
     let color_blend_attachments = [color_blend_attachment];
-    let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
-        .attachments(&color_blend_attachments);
+    let color_blend_state =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments);
     let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
         .depth_test_enable(true)
         .depth_write_enable(true)
@@ -2739,8 +2763,9 @@ fn create_heightfield_pipeline(
         device.destroy_shader_module(fragment_shader_module, None);
     }
 
-    let pipeline = pipeline_result
-        .map_err(|(_, error)| box_error(format!("failed to create heightfield pipeline: {error}")))?[0];
+    let pipeline = pipeline_result.map_err(|(_, error)| {
+        box_error(format!("failed to create heightfield pipeline: {error}"))
+    })?[0];
 
     Ok(pipeline)
 }
@@ -2760,6 +2785,29 @@ fn clamp_scissor_to_extent(bounds: mdux::Rect, extent: vk::Extent2D) -> vk::Rect
     vk::Rect2D {
         offset: vk::Offset2D { x, y },
         extent: vk::Extent2D { width, height },
+    }
+}
+
+fn scale_rect_to_extent(
+    bounds: mdux::Rect,
+    source_extent: vk::Extent2D,
+    destination_extent: vk::Extent2D,
+) -> mdux::Rect {
+    let source_width = source_extent.width.max(1) as f32;
+    let source_height = source_extent.height.max(1) as f32;
+    let x_scale = destination_extent.width.max(1) as f32 / source_width;
+    let y_scale = destination_extent.height.max(1) as f32 / source_height;
+
+    let left = (bounds.x as f32 * x_scale).floor() as i32;
+    let top = (bounds.y as f32 * y_scale).floor() as i32;
+    let right = ((bounds.x as f32 + bounds.width as f32) * x_scale).ceil() as i32;
+    let bottom = ((bounds.y as f32 + bounds.height as f32) * y_scale).ceil() as i32;
+
+    mdux::Rect {
+        x: left,
+        y: top,
+        width: right.saturating_sub(left) as u32,
+        height: bottom.saturating_sub(top) as u32,
     }
 }
 
@@ -3314,9 +3362,9 @@ fn extension_property_matches(
 mod tests {
     use super::*;
     use mdux::{
-        CompiledNode, CompiledNodeKind, CompiledScreenPackage, CriticalButtonSpec,
-        DEFAULT_STANDARD_HELLO_WORLD_STRING_ID, LayoutKind, LayoutSpec, Rect, SystemEvent,
-        default_standard_text_package,
+        default_standard_text_package, CompiledNode, CompiledNodeKind, CompiledScreenPackage,
+        CriticalButtonSpec, LayoutKind, LayoutSpec, Rect, SystemEvent,
+        DEFAULT_STANDARD_HELLO_WORLD_STRING_ID,
     };
 
     const SCREEN: CompiledScreenPackage = CompiledScreenPackage {
@@ -3472,27 +3520,79 @@ mod tests {
 
     #[test]
     fn scissor_clamps_to_a_smaller_swapchain_extent() {
-        let bounds = mdux::Rect { x: 16, y: 200, width: 1248, height: 504 };
+        let bounds = mdux::Rect {
+            x: 16,
+            y: 200,
+            width: 1248,
+            height: 504,
+        };
 
         // Window shrunk below the authored 1280x720 surface: the scissor must not extend past
         // the framebuffer in either dimension.
-        let scissor = clamp_scissor_to_extent(bounds, vk::Extent2D { width: 640, height: 300 });
+        let scissor = clamp_scissor_to_extent(
+            bounds,
+            vk::Extent2D {
+                width: 640,
+                height: 300,
+            },
+        );
         assert_eq!(scissor.offset.x, 16);
         assert_eq!(scissor.offset.y, 200);
         assert_eq!(scissor.extent.width, 624);
         assert_eq!(scissor.extent.height, 100);
 
         // A node bound entirely outside a very small extent clamps to an empty (but valid) rect.
-        let offscreen = clamp_scissor_to_extent(bounds, vk::Extent2D { width: 10, height: 10 });
+        let offscreen = clamp_scissor_to_extent(
+            bounds,
+            vk::Extent2D {
+                width: 10,
+                height: 10,
+            },
+        );
         assert_eq!(offscreen.extent.width, 0);
         assert_eq!(offscreen.extent.height, 0);
 
         // Enough room: bounds pass through unchanged.
-        let unclamped = clamp_scissor_to_extent(bounds, vk::Extent2D { width: 1280, height: 720 });
+        let unclamped = clamp_scissor_to_extent(
+            bounds,
+            vk::Extent2D {
+                width: 1280,
+                height: 720,
+            },
+        );
         assert_eq!(unclamped.offset.x, 16);
         assert_eq!(unclamped.offset.y, 200);
         assert_eq!(unclamped.extent.width, 1248);
         assert_eq!(unclamped.extent.height, 504);
+    }
+
+    #[test]
+    fn scales_authored_bounds_to_hidpi_extent() {
+        let authored = vk::Extent2D {
+            width: 1280,
+            height: 720,
+        };
+        let framebuffer = vk::Extent2D {
+            width: 2560,
+            height: 1440,
+        };
+        let bounds = mdux::Rect {
+            x: 16,
+            y: 200,
+            width: 1248,
+            height: 504,
+        };
+
+        let scaled = scale_rect_to_extent(bounds, authored, framebuffer);
+        assert_eq!(
+            scaled,
+            mdux::Rect {
+                x: 32,
+                y: 400,
+                width: 2496,
+                height: 1008
+            }
+        );
     }
 
     #[test]
@@ -3501,20 +3601,28 @@ mod tests {
         let view = look_at([1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
         let eye_in_view = transform(view, [1.0, 2.0, 3.0, 1.0]);
         for component in &eye_in_view[0..3] {
-            assert!(component.abs() < 1e-5, "eye should map to origin: {eye_in_view:?}");
+            assert!(
+                component.abs() < 1e-5,
+                "eye should map to origin: {eye_in_view:?}"
+            );
         }
 
         // A point straight ahead of the camera projects to clip center with positive w.
         let mvp = waterfall_camera_mvp(16.0 / 9.0);
         let center = transform(mvp, [0.0, 0.10, 0.55, 1.0]);
         assert!(center[3] > 0.0, "target should be in front of the camera");
-        assert!((center[0] / center[3]).abs() < 0.05, "target should be near clip x center");
+        assert!(
+            (center[0] / center[3]).abs() < 0.05,
+            "target should be near clip x center"
+        );
     }
 
     fn transform(matrix: [[f32; 4]; 4], point: [f32; 4]) -> [f32; 4] {
         let mut result = [0.0f32; 4];
         for (row, cell) in result.iter_mut().enumerate() {
-            *cell = (0..4).map(|column| matrix[column][row] * point[column]).sum();
+            *cell = (0..4)
+                .map(|column| matrix[column][row] * point[column])
+                .sum();
         }
         result
     }
@@ -3539,10 +3647,18 @@ mod tests {
         assert_eq!(total, 24);
     }
 
-    fn stub_number_binding(node_id: &'static str, display_index: usize) -> mdux::realtime::NumberBinding {
+    fn stub_number_binding(
+        node_id: &'static str,
+        display_index: usize,
+    ) -> mdux::realtime::NumberBinding {
         mdux::realtime::NumberBinding {
             node_id,
-            bounds: mdux::Rect { x: 0, y: 0, width: 1, height: 1 },
+            bounds: mdux::Rect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
             origin_x: 0,
             origin_y: 0,
             source: "SRC",
@@ -3569,7 +3685,9 @@ mod tests {
         let error = accumulate_display_quads(&out_of_range, 2)
             .expect_err("out-of-range display_index should be rejected, not panic");
         assert!(
-            error.to_string().contains("display_index 5 but only 2 display packages are bound"),
+            error
+                .to_string()
+                .contains("display_index 5 but only 2 display packages are bound"),
             "{error}"
         );
     }
@@ -3577,7 +3695,10 @@ mod tests {
     #[test]
     fn format_bytes_per_pixel_matches_known_upload_formats() {
         assert_eq!(format_bytes_per_pixel(vk::Format::R8_UNORM).unwrap(), 1);
-        assert_eq!(format_bytes_per_pixel(vk::Format::R8G8B8A8_UNORM).unwrap(), 4);
+        assert_eq!(
+            format_bytes_per_pixel(vk::Format::R8G8B8A8_UNORM).unwrap(),
+            4
+        );
         assert!(format_bytes_per_pixel(vk::Format::R32G32B32A32_SFLOAT).is_err());
     }
 
@@ -3599,22 +3720,50 @@ mod tests {
         // 1970-01-01 00:00:00
         assert_eq!(
             civil_from_unix(0),
-            WallClock { year: 1970, month: 1, day: 1, hours: 0, minutes: 0, seconds: 0 }
+            WallClock {
+                year: 1970,
+                month: 1,
+                day: 1,
+                hours: 0,
+                minutes: 0,
+                seconds: 0
+            }
         );
         // 2000-02-29 12:34:56 (leap day) = 951827696
         assert_eq!(
             civil_from_unix(951_827_696),
-            WallClock { year: 2000, month: 2, day: 29, hours: 12, minutes: 34, seconds: 56 }
+            WallClock {
+                year: 2000,
+                month: 2,
+                day: 29,
+                hours: 12,
+                minutes: 34,
+                seconds: 56
+            }
         );
         // 2026-07-03 00:00:00 = 1783036800
         assert_eq!(
             civil_from_unix(1_783_036_800),
-            WallClock { year: 2026, month: 7, day: 3, hours: 0, minutes: 0, seconds: 0 }
+            WallClock {
+                year: 2026,
+                month: 7,
+                day: 3,
+                hours: 0,
+                minutes: 0,
+                seconds: 0
+            }
         );
         // 2023-12-31 23:59:59 = 1704067199
         assert_eq!(
             civil_from_unix(1_704_067_199),
-            WallClock { year: 2023, month: 12, day: 31, hours: 23, minutes: 59, seconds: 59 }
+            WallClock {
+                year: 2023,
+                month: 12,
+                day: 31,
+                hours: 23,
+                minutes: 59,
+                seconds: 59
+            }
         );
     }
 
