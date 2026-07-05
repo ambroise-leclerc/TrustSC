@@ -48,6 +48,9 @@ pub const DISPLAY_160_DIGITS_GLYPH_SET_ID: &str = "SET-DISPLAY-DIGITS-160";
 /// Digit + separator glyph set id of the standard package (16 px, `0-9`, `-`, `:`, space) —
 /// the set the clock and date formatters render from.
 pub const DEFAULT_STANDARD_DIGITS_GLYPH_SET_ID: &str = "SET-ASCII-DIGITS";
+/// Printable-ASCII glyph set id of the standard package (16 px, space through `~`) — the baked
+/// charset TextInput operator entry renders from and is validated against (ADR-015).
+pub const STANDARD_ASCII_TEXT_GLYPH_SET_ID: &str = "SET-ASCII-TEXT";
 
 include!(concat!(
     env!("OUT_DIR"),
@@ -143,6 +146,8 @@ mod tests {
             ("STR-NS-NOMINAL", ["en-US", "fr-FR"]),
             ("STR-NS-ALERT", ["en-US", "fr-FR"]),
             ("STR-NS-FAULT", ["en-US", "fr-FR"]),
+            ("STR-NS-ACK", ["en-US", "fr-FR"]),
+            ("STR-NS-PATIENT-ID", ["en-US", "fr-FR"]),
         ] {
             for locale in locales {
                 assert!(
@@ -159,6 +164,27 @@ mod tests {
             assert!(
                 digits.entries.iter().any(|entry| entry.character == required),
                 "standard digit set is missing '{required}'"
+            );
+        }
+    }
+
+    #[test]
+    fn standard_package_carries_the_full_printable_ascii_text_set() {
+        let package =
+            default_standard_text_package().expect("default standard package should load");
+
+        let ascii_text = package
+            .find_numeric_glyph_set(STANDARD_ASCII_TEXT_GLYPH_SET_ID)
+            .expect("printable ASCII text glyph set should exist");
+
+        // Every printable ASCII character (space through '~'), each exactly once — the
+        // complete charset TextInput operator entry is bounded to (ADR-015).
+        assert_eq!(ascii_text.entries.len(), 95);
+        for code in 0x20u8..=0x7E {
+            let required = code as char;
+            assert!(
+                ascii_text.entries.iter().any(|entry| entry.character == required),
+                "printable ASCII set is missing '{required}'"
             );
         }
     }
