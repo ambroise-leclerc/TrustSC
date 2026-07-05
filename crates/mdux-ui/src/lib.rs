@@ -169,6 +169,12 @@ impl ButtonSpec {
         if self.source.trim().is_empty() {
             return Err(ValidationError::new("button source must not be empty"));
         }
+        if matches!(self.requirement_id, Some(requirement_id) if requirement_id.trim().is_empty())
+        {
+            return Err(ValidationError::new(
+                "button requirement_id must not be empty when declared",
+            ));
+        }
         Ok(())
     }
 }
@@ -210,6 +216,12 @@ impl TextInputSpec {
         if self.color_token.trim().is_empty() {
             return Err(ValidationError::new(
                 "text input color_token must not be empty",
+            ));
+        }
+        if matches!(self.requirement_id, Some(requirement_id) if requirement_id.trim().is_empty())
+        {
+            return Err(ValidationError::new(
+                "text input requirement_id must not be empty when declared",
             ));
         }
         Ok(())
@@ -756,6 +768,18 @@ mod tests {
         assert!(ButtonSpec { text_key: "", ..VALID }.validate().is_err());
         assert!(ButtonSpec { color_token: " ", ..VALID }.validate().is_err());
         assert!(ButtonSpec { source: "", ..VALID }.validate().is_err());
+        // A declared requirement must be usable: whitespace-only fails here, not later at
+        // RequirementId parsing during tracing.
+        assert!(
+            ButtonSpec { requirement_id: Some(" "), ..VALID }
+                .validate()
+                .is_err()
+        );
+        assert!(
+            ButtonSpec { requirement_id: Some("REQ-NS-004"), ..VALID }
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -779,6 +803,16 @@ mod tests {
         assert!(TextInputSpec { source: "", ..VALID }.validate().is_err());
         assert!(TextInputSpec { glyph_set_id: " ", ..VALID }.validate().is_err());
         assert!(TextInputSpec { color_token: "", ..VALID }.validate().is_err());
+        assert!(
+            TextInputSpec { requirement_id: Some(" "), ..VALID }
+                .validate()
+                .is_err()
+        );
+        assert!(
+            TextInputSpec { requirement_id: Some("REQ-NS-005"), ..VALID }
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
