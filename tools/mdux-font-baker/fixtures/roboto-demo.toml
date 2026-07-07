@@ -85,10 +85,45 @@ locale = "fr-FR"
 value = "DEFAUT"
 direction = "ltr"
 
+[[approved_strings]]
+id = "STR-NS-ACK"
+run_id = "RUN-NS-ACK-EN"
+locale = "en-US"
+value = "ACKNOWLEDGE"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-ACK"
+run_id = "RUN-NS-ACK-FR"
+locale = "fr-FR"
+value = "ACQUITTER"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-PATIENT-ID"
+run_id = "RUN-NS-PATIENT-ID-EN"
+locale = "en-US"
+value = "PATIENT ID"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-PATIENT-ID"
+run_id = "RUN-NS-PATIENT-ID-FR"
+locale = "fr-FR"
+value = "ID PATIENT"
+direction = "ltr"
+
 [[numeric_glyph_sets]]
 id = "SET-ASCII-DIGITS"
 locale = "en-US"
 characters = "0123456789-: "
+
+# Printable ASCII glyph set for TextInput operator entry (ADR-015): every character a bounded
+# text field may accept must exist here, baked and approved — no runtime shaping or fallback.
+[[numeric_glyph_sets]]
+id = "SET-ASCII-TEXT"
+locale = "en-US"
+characters = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
 [[numeric_templates]]
 id = "TPL-DOSE"
