@@ -139,9 +139,9 @@ buffer, applies the editing events it drains each frame, and echoes the result b
 charset and a declared maximum length.
 
 Required properties: `id`, `width`, `height`, `source` (quoted echo/event key), `max_length`
-(positive integer, a character count). Optional: `charset` (named approved charset; defaults to
-`AsciiText` → the standard package's printable-ASCII `SET-ASCII-TEXT` glyph set), `color`
-(required), `requirement` (traced when present).
+(positive integer, a character count), `color`. Optional: `charset` (named approved charset;
+defaults to `AsciiText` → the standard package's printable-ASCII `SET-ASCII-TEXT` glyph set),
+`requirement` (traced when present).
 
 Notes:
 

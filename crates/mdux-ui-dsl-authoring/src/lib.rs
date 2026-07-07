@@ -1777,9 +1777,18 @@ fn validate_text_input_budget(
                 node.id
             ))
         })?;
-    let characters = vec![widest.character; usize::from(max_length)];
-    let (required_width, required_height) =
-        measure_glyph_run(node, glyph_set, &characters, text_package)?;
+    // The worst case is max_length repetitions of one glyph, so it is computed directly from
+    // that glyph's advance and atlas extents — no need to materialize the character sequence.
+    let atlas_glyph = text_package
+        .find_glyph(widest.atlas_index, widest.glyph_id)
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "component {} references glyph set {} entry '{}', but atlas index {} glyph {} does not exist in the package — under-measuring height would let an out-of-budget component compile",
+                node.id, glyph_set.id, widest.character, widest.atlas_index, widest.glyph_id
+            ))
+        })?;
+    let required_width = (widest.advance_x.max(0) as u32).saturating_mul(u32::from(max_length));
+    let required_height = u32::from(atlas_glyph.height);
 
     if required_width > bounds.width || required_height > bounds.height {
         return Err(ValidationError::new(format!(
