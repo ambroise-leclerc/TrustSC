@@ -236,6 +236,10 @@ struct InteractionState {
     armed: Option<PressTarget>,
     focused_input: Option<usize>,
     caret: u16,
+    /// Predicted character count of the focused input's content, resynced to the echoed text
+    /// every frame. Used only to stop enqueuing `CharTyped` events the application's model
+    /// would refuse anyway (queue-pressure relief); the model stays authoritative.
+    text_length: u16,
 }
 
 impl InteractionState {
@@ -245,6 +249,7 @@ impl InteractionState {
             armed: None,
             focused_input: None,
             caret: 0,
+            text_length: 0,
         }
     }
 }
@@ -289,10 +294,18 @@ fn run_windowed(
             bindings
                 .standard
                 .find_numeric_glyph_set(&binding.glyph_set_id)
-                .map(|glyph_set| glyph_set.entries.iter().map(|entry| entry.character).collect())
-                .unwrap_or_default()
+                .map(|glyph_set| {
+                    glyph_set.entries.iter().map(|entry| entry.character).collect::<Vec<char>>()
+                })
+                .ok_or_else(|| -> BoxError {
+                    format!(
+                        "text input {} references glyph set {} missing from the standard package (inconsistent screen bindings)",
+                        binding.node_id, binding.glyph_set_id
+                    )
+                    .into()
+                })
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     let mut renderer = Some(VulkanRenderer::new(
         &window, app_name, layout, bindings, width, height,
@@ -362,7 +375,8 @@ fn run_windowed(
                         });
                         if let Some(index) = hit_input {
                             let source = input_targets[index].source;
-                            interaction.caret = echoed_len(&frame_inputs, source);
+                            interaction.text_length = echoed_len(&frame_inputs, source);
+                            interaction.caret = interaction.text_length;
                             events.push(WidgetEvent::CaretMoved {
                                 source,
                                 position: interaction.caret,
@@ -434,7 +448,8 @@ fn run_windowed(
                                     .unwrap_or(0);
                                 interaction.focused_input = Some(next);
                                 let source = input_targets[next].source;
-                                interaction.caret = echoed_len(&frame_inputs, source);
+                                interaction.text_length = echoed_len(&frame_inputs, source);
+                                interaction.caret = interaction.text_length;
                                 events.push(WidgetEvent::FocusChanged { source: Some(source) });
                                 events.push(WidgetEvent::CaretMoved {
                                     source,
@@ -453,7 +468,6 @@ fn run_windowed(
                                     logical_key,
                                     &input_targets[index],
                                     &input_charsets[index],
-                                    &frame_inputs,
                                     &mut interaction,
                                     &mut events,
                                 );
@@ -469,8 +483,11 @@ fn run_windowed(
                             input(&mut events, &mut frame_inputs);
                         }
                         if let Some(index) = interaction.focused_input {
-                            let len = echoed_len(&frame_inputs, input_targets[index].source);
-                            interaction.caret = interaction.caret.min(len);
+                            // The echoed text is authoritative (the application may transform
+                            // or reject content): resync the predictions after the echo.
+                            interaction.text_length =
+                                echoed_len(&frame_inputs, input_targets[index].source);
+                            interaction.caret = interaction.caret.min(interaction.text_length);
                         }
                         if let Some(realtime) = realtime.as_mut() {
                             realtime(&mut frame_inputs);
@@ -518,25 +535,30 @@ fn run_windowed(
 /// Routes one pressed key to the focused text input: editing keys become `WidgetEvent`s and the
 /// adapter-side caret mirrors the transition the application's `TextInputModel` will apply to
 /// the same event. Typed characters are filtered against the input's baked charset here, so an
-/// out-of-charset key never reaches the application's echo path.
+/// out-of-charset key never reaches the application's echo path. Caret movement clamps only to
+/// `max_length` — never to the (possibly stale) echoed length, whose consumer-side clamp is
+/// `CaretMoved`'s contract — and the per-frame resync against the fresh echo pulls the
+/// presentation caret back to reality.
 fn handle_editing_key(
     logical_key: &Key,
     binding: &TextInputBinding,
     allowed: &[char],
-    frame_inputs: &FrameInputs,
     interaction: &mut InteractionState,
     events: &mut FrameEvents,
 ) {
     let source = binding.source;
-    let len = echoed_len(frame_inputs, source);
     match logical_key {
         Key::Named(NamedKey::Backspace) => {
             if interaction.caret > 0 {
                 interaction.caret -= 1;
+                interaction.text_length = interaction.text_length.saturating_sub(1);
             }
             events.push(WidgetEvent::Backspace { source });
         }
         Key::Named(NamedKey::Delete) => {
+            if interaction.text_length > interaction.caret {
+                interaction.text_length -= 1;
+            }
             events.push(WidgetEvent::Delete { source });
         }
         Key::Named(NamedKey::ArrowLeft) => {
@@ -544,7 +566,7 @@ fn handle_editing_key(
             events.push(WidgetEvent::CaretMoved { source, position: interaction.caret });
         }
         Key::Named(NamedKey::ArrowRight) => {
-            interaction.caret = interaction.caret.saturating_add(1).min(len);
+            interaction.caret = interaction.caret.saturating_add(1).min(binding.max_length);
             events.push(WidgetEvent::CaretMoved { source, position: interaction.caret });
         }
         Key::Named(NamedKey::Home) => {
@@ -552,38 +574,42 @@ fn handle_editing_key(
             events.push(WidgetEvent::CaretMoved { source, position: 0 });
         }
         Key::Named(NamedKey::End) => {
-            interaction.caret = len;
-            events.push(WidgetEvent::CaretMoved { source, position: len });
+            interaction.caret = binding.max_length;
+            events.push(WidgetEvent::CaretMoved { source, position: binding.max_length });
         }
         Key::Named(NamedKey::Enter) => {
             events.push(WidgetEvent::TextCommitted { source });
         }
         Key::Named(NamedKey::Space) => {
-            push_character(' ', binding, allowed, len, interaction, events);
+            push_character(' ', binding, allowed, interaction, events);
         }
         Key::Character(text) => {
             for character in text.chars() {
-                push_character(character, binding, allowed, len, interaction, events);
+                push_character(character, binding, allowed, interaction, events);
             }
         }
         _ => {}
     }
 }
 
+/// Enqueues one typed character when it belongs to the baked charset AND the predicted content
+/// still has room — a full field enqueues nothing, so bursts past `max_length` never pressure
+/// the bounded queue with events the model would refuse.
 fn push_character(
     character: char,
     binding: &TextInputBinding,
     allowed: &[char],
-    echoed_length: u16,
     interaction: &mut InteractionState,
     events: &mut FrameEvents,
 ) {
     if !allowed.contains(&character) {
         return;
     }
-    if echoed_length < binding.max_length {
-        interaction.caret = interaction.caret.saturating_add(1).min(binding.max_length);
+    if interaction.text_length >= binding.max_length {
+        return;
     }
+    interaction.text_length += 1;
+    interaction.caret = interaction.caret.saturating_add(1).min(binding.max_length);
     events.push(WidgetEvent::CharTyped { source: binding.source, character });
 }
 
