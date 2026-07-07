@@ -21,13 +21,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mdux::realtime::{FrameInputs, ScreenBindings};
-use mdux::{screen_text::ScreenTextLayout, CompiledScreenPackage, Framework, GraphicsProfile};
+use mdux::input::{FrameEvents, WidgetEvent};
+use mdux::realtime::{ButtonBinding, FrameInputs, ScreenBindings, TextInputBinding};
+use mdux::{
+    screen_text::ScreenTextLayout, CompiledNodeKind, CompiledScreenPackage, Framework,
+    GraphicsProfile, Rect, SystemEvent,
+};
 use renderer::{civil_from_unix, BoxError, VulkanRenderer};
 use winit::{
     dpi::LogicalSize,
-    event::{Event, WindowEvent},
+    event::{ElementState, Event, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{Key, NamedKey},
     window::WindowBuilder,
 };
 
@@ -49,6 +54,7 @@ pub struct App {
     screen: &'static CompiledScreenPackage,
     locale: String,
     realtime: Option<Box<dyn FnMut(&mut FrameInputs)>>,
+    input: Option<Box<dyn FnMut(&mut FrameEvents, &mut FrameInputs)>>,
 }
 
 impl App {
@@ -58,6 +64,7 @@ impl App {
             screen,
             locale: "en-US".to_string(),
             realtime: None,
+            input: None,
         }
     }
 
@@ -73,6 +80,20 @@ impl App {
     /// Without a closure, dynamic widgets render their initial values (zeros / first state).
     pub fn with_realtime(mut self, closure: impl FnMut(&mut FrameInputs) + 'static) -> Self {
         self.realtime = Some(Box::new(closure));
+        self
+    }
+
+    /// Registers the application's input closure (ADR-015), invoked once per frame *before* the
+    /// realtime closure: drain the [`FrameEvents`] queue, apply the drained events to your own
+    /// state (typically a `TextInputModel` per text source), and echo text content back through
+    /// [`FrameInputs::set_text`]. Without a closure, interaction events accumulate and are
+    /// dropped-and-counted once the bounded queue fills; existing `with_realtime` applications
+    /// compile and behave unchanged.
+    pub fn with_input(
+        mut self,
+        closure: impl FnMut(&mut FrameEvents, &mut FrameInputs) + 'static,
+    ) -> Self {
+        self.input = Some(Box::new(closure));
         self
     }
 
@@ -156,6 +177,22 @@ impl App {
         let app_name = self.framework.identity().name.clone();
         let config = self.framework.ui_runtime().config().clone();
 
+        // CriticalButtons carry no realtime binding (static text kinds), so their dispatch
+        // targets are collected from the compiled screen directly.
+        let critical_buttons: Vec<CriticalButtonTarget> = self
+            .screen
+            .nodes
+            .iter()
+            .filter_map(|node| match node.kind {
+                CompiledNodeKind::CriticalButton(spec) => Some(CriticalButtonTarget {
+                    node_id: node.id,
+                    bounds: node.bounds,
+                    on_press: spec.on_press,
+                }),
+                _ => None,
+            })
+            .collect();
+
         run_windowed(
             &app_name,
             config.width,
@@ -164,9 +201,64 @@ impl App {
             bindings,
             frame_inputs,
             self.realtime,
+            self.input,
+            critical_buttons,
+            self.framework,
             options.auto_close_after,
         )
     }
+}
+
+/// A `CriticalButton`'s dispatch target: unlike `Button`, its press semantics are
+/// framework-governed (ADR-015 — `TriggerHalt` is audited and halts the loop; `NoOp` is
+/// forwarded to the application).
+struct CriticalButtonTarget {
+    node_id: &'static str,
+    bounds: Rect,
+    on_press: SystemEvent,
+}
+
+/// What the pointer pressed on and has not yet released (standard button arming: the press is
+/// delivered only when the release lands inside the same target).
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PressTarget {
+    Button(usize),
+    Critical(usize),
+}
+
+/// Fixed-size interaction bookkeeping owned by the event loop (ADR-015): pointer position,
+/// armed press target, the single focus slot, and the caret — presentation state, like the
+/// platform-fed clock, never application state. The application's authoritative caret lives in
+/// its `TextInputModel`; both follow the same transition rules over the same event stream, and
+/// this caret re-clamps against the echoed text every frame.
+struct InteractionState {
+    cursor: (f64, f64),
+    armed: Option<PressTarget>,
+    focused_input: Option<usize>,
+    caret: u16,
+    /// Predicted character count of the focused input's content, resynced to the echoed text
+    /// every frame. Used only to stop enqueuing `CharTyped` events the application's model
+    /// would refuse anyway (queue-pressure relief); the model stays authoritative.
+    text_length: u16,
+}
+
+impl InteractionState {
+    fn new() -> Self {
+        Self {
+            cursor: (-1.0, -1.0),
+            armed: None,
+            focused_input: None,
+            caret: 0,
+            text_length: 0,
+        }
+    }
+}
+
+fn rect_contains_point(bounds: &Rect, x: f64, y: f64) -> bool {
+    x >= f64::from(bounds.x)
+        && y >= f64::from(bounds.y)
+        && x < f64::from(bounds.x) + f64::from(bounds.width)
+        && y < f64::from(bounds.y) + f64::from(bounds.height)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -178,6 +270,9 @@ fn run_windowed(
     bindings: ScreenBindings,
     mut frame_inputs: FrameInputs,
     mut realtime: Option<Box<dyn FnMut(&mut FrameInputs)>>,
+    mut input: Option<Box<dyn FnMut(&mut FrameEvents, &mut FrameInputs)>>,
+    critical_buttons: Vec<CriticalButtonTarget>,
+    mut framework: Framework,
     auto_close_after: Option<Duration>,
 ) -> Result<(), BoxError> {
     let title = format!("{app_name} - Vulkan");
@@ -186,6 +281,31 @@ fn run_windowed(
         .with_title(&title)
         .with_inner_size(LogicalSize::new(width as f64, height as f64))
         .build(&event_loop)?;
+
+    // Interaction targets are cloned out of the bindings before they move into the renderer:
+    // hit-test bounds for buttons and text inputs, plus each input's allowed characters (the
+    // adapter filters typed characters against the baked charset so an out-of-charset key can
+    // never reach the application's echo path).
+    let button_targets: Vec<ButtonBinding> = bindings.buttons.clone();
+    let input_targets: Vec<TextInputBinding> = bindings.text_inputs.clone();
+    let input_charsets: Vec<Vec<char>> = input_targets
+        .iter()
+        .map(|binding| {
+            bindings
+                .standard
+                .find_numeric_glyph_set(&binding.glyph_set_id)
+                .map(|glyph_set| {
+                    glyph_set.entries.iter().map(|entry| entry.character).collect::<Vec<char>>()
+                })
+                .ok_or_else(|| -> BoxError {
+                    format!(
+                        "text input {} references glyph set {} missing from the standard package (inconsistent screen bindings)",
+                        binding.node_id, binding.glyph_set_id
+                    )
+                    .into()
+                })
+        })
+        .collect::<Result<_, _>>()?;
 
     let mut renderer = Some(VulkanRenderer::new(
         &window, app_name, layout, bindings, width, height,
@@ -203,6 +323,9 @@ fn run_windowed(
     let render_error: Rc<RefCell<Option<BoxError>>> = Rc::new(RefCell::new(None));
     let render_error_for_closure = Rc::clone(&render_error);
 
+    let mut interaction = InteractionState::new();
+    let mut events = FrameEvents::new();
+
     event_loop.run(move |event, event_loop_window_target| {
         event_loop_window_target.set_control_flow(ControlFlow::Poll);
 
@@ -212,12 +335,160 @@ fn run_windowed(
                 event,
             } if id == window_id => match event {
                 WindowEvent::CloseRequested => {
+                    report_input_drops(&events);
                     shutdown_renderer(&mut renderer);
                     event_loop_window_target.exit();
                 }
                 WindowEvent::Resized(_) => {}
+                WindowEvent::CursorMoved { position, .. } => {
+                    // Hit-testing happens in the logical UI surface the screen was authored in;
+                    // the pointer arrives in physical pixels (HiDPI scale ≥ 1).
+                    let logical = position.to_logical::<f64>(window.scale_factor());
+                    interaction.cursor = (logical.x, logical.y);
+                }
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    let (x, y) = interaction.cursor;
+                    interaction.armed = button_targets
+                        .iter()
+                        .position(|target| rect_contains_point(&target.bounds, x, y))
+                        .map(PressTarget::Button)
+                        .or_else(|| {
+                            critical_buttons
+                                .iter()
+                                .position(|target| rect_contains_point(&target.bounds, x, y))
+                                .map(PressTarget::Critical)
+                        });
+
+                    // Single focus slot: clicking an input focuses it (caret at the end of the
+                    // echoed content); clicking anywhere else clears focus.
+                    let hit_input = input_targets
+                        .iter()
+                        .position(|target| rect_contains_point(&target.bounds, x, y));
+                    if hit_input != interaction.focused_input {
+                        interaction.focused_input = hit_input;
+                        events.push(WidgetEvent::FocusChanged {
+                            source: hit_input.map(|index| input_targets[index].source),
+                        });
+                        if let Some(index) = hit_input {
+                            let source = input_targets[index].source;
+                            interaction.text_length = echoed_len(&frame_inputs, source);
+                            interaction.caret = interaction.text_length;
+                            events.push(WidgetEvent::CaretMoved {
+                                source,
+                                position: interaction.caret,
+                            });
+                        }
+                    }
+                }
+                WindowEvent::MouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    if let Some(armed) = interaction.armed.take() {
+                        let (x, y) = interaction.cursor;
+                        match armed {
+                            PressTarget::Button(index)
+                                if rect_contains_point(&button_targets[index].bounds, x, y) =>
+                            {
+                                events.push(WidgetEvent::ButtonPressed {
+                                    source: button_targets[index].source,
+                                });
+                            }
+                            PressTarget::Critical(index)
+                                if rect_contains_point(
+                                    &critical_buttons[index].bounds,
+                                    x,
+                                    y,
+                                ) =>
+                            {
+                                let target = &critical_buttons[index];
+                                match target.on_press {
+                                    // Framework-governed dispatch (ADR-015): the halt is
+                                    // audited evidence, then the loop exits in order.
+                                    SystemEvent::TriggerHalt => {
+                                        framework.record_runtime_event(format!(
+                                            "critical button {} pressed: trigger halt — orderly shutdown",
+                                            target.node_id
+                                        ));
+                                        println!(
+                                            "critical_halt node={} (runtime audit event recorded)",
+                                            target.node_id
+                                        );
+                                        report_input_drops(&events);
+                                        shutdown_renderer(&mut renderer);
+                                        event_loop_window_target.exit();
+                                    }
+                                    SystemEvent::NoOp => {
+                                        events.push(WidgetEvent::CriticalButtonPressed {
+                                            node_id: target.node_id,
+                                            action: SystemEvent::NoOp,
+                                        });
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                WindowEvent::KeyboardInput { event: key_event, .. }
+                    if key_event.state == ElementState::Pressed =>
+                {
+                    match &key_event.logical_key {
+                        Key::Named(NamedKey::Tab) => {
+                            // Tab cycles focus through text inputs in document order.
+                            if !input_targets.is_empty() {
+                                let next = interaction
+                                    .focused_input
+                                    .map(|index| (index + 1) % input_targets.len())
+                                    .unwrap_or(0);
+                                interaction.focused_input = Some(next);
+                                let source = input_targets[next].source;
+                                interaction.text_length = echoed_len(&frame_inputs, source);
+                                interaction.caret = interaction.text_length;
+                                events.push(WidgetEvent::FocusChanged { source: Some(source) });
+                                events.push(WidgetEvent::CaretMoved {
+                                    source,
+                                    position: interaction.caret,
+                                });
+                            }
+                        }
+                        Key::Named(NamedKey::Escape) => {
+                            if interaction.focused_input.take().is_some() {
+                                events.push(WidgetEvent::FocusChanged { source: None });
+                            }
+                        }
+                        logical_key => {
+                            if let Some(index) = interaction.focused_input {
+                                handle_editing_key(
+                                    logical_key,
+                                    &input_targets[index],
+                                    &input_charsets[index],
+                                    &mut interaction,
+                                    &mut events,
+                                );
+                            }
+                        }
+                    }
+                }
                 WindowEvent::RedrawRequested => {
                     if let Some(active_renderer) = renderer.as_mut() {
+                        // Per-frame order (ADR-015): drain events into the application, echo
+                        // text, then the realtime closure, then draw.
+                        if let Some(input) = input.as_mut() {
+                            input(&mut events, &mut frame_inputs);
+                        }
+                        if let Some(index) = interaction.focused_input {
+                            // The echoed text is authoritative (the application may transform
+                            // or reject content): resync the predictions after the echo.
+                            interaction.text_length =
+                                echoed_len(&frame_inputs, input_targets[index].source);
+                            interaction.caret = interaction.caret.min(interaction.text_length);
+                        }
                         if let Some(realtime) = realtime.as_mut() {
                             realtime(&mut frame_inputs);
                         }
@@ -231,6 +502,7 @@ fn run_windowed(
                         {
                             eprintln!("failed to render frame: {error}");
                             *render_error_for_closure.borrow_mut() = Some(error);
+                            report_input_drops(&events);
                             shutdown_renderer(&mut renderer);
                             event_loop_window_target.exit();
                         }
@@ -241,6 +513,7 @@ fn run_windowed(
             Event::AboutToWait => {
                 if let Some(auto_close_after) = auto_close_after {
                     if started_at.elapsed() >= auto_close_after {
+                        report_input_drops(&events);
                         shutdown_renderer(&mut renderer);
                         event_loop_window_target.exit();
                     }
@@ -257,6 +530,103 @@ fn run_windowed(
     }
 
     Ok(())
+}
+
+/// Routes one pressed key to the focused text input: editing keys become `WidgetEvent`s and the
+/// adapter-side caret mirrors the transition the application's `TextInputModel` will apply to
+/// the same event. Typed characters are filtered against the input's baked charset here, so an
+/// out-of-charset key never reaches the application's echo path. Caret movement clamps only to
+/// `max_length` — never to the (possibly stale) echoed length, whose consumer-side clamp is
+/// `CaretMoved`'s contract — and the per-frame resync against the fresh echo pulls the
+/// presentation caret back to reality.
+fn handle_editing_key(
+    logical_key: &Key,
+    binding: &TextInputBinding,
+    allowed: &[char],
+    interaction: &mut InteractionState,
+    events: &mut FrameEvents,
+) {
+    let source = binding.source;
+    match logical_key {
+        Key::Named(NamedKey::Backspace) => {
+            if interaction.caret > 0 {
+                interaction.caret -= 1;
+                interaction.text_length = interaction.text_length.saturating_sub(1);
+            }
+            events.push(WidgetEvent::Backspace { source });
+        }
+        Key::Named(NamedKey::Delete) => {
+            if interaction.text_length > interaction.caret {
+                interaction.text_length -= 1;
+            }
+            events.push(WidgetEvent::Delete { source });
+        }
+        Key::Named(NamedKey::ArrowLeft) => {
+            interaction.caret = interaction.caret.saturating_sub(1);
+            events.push(WidgetEvent::CaretMoved { source, position: interaction.caret });
+        }
+        Key::Named(NamedKey::ArrowRight) => {
+            interaction.caret = interaction.caret.saturating_add(1).min(binding.max_length);
+            events.push(WidgetEvent::CaretMoved { source, position: interaction.caret });
+        }
+        Key::Named(NamedKey::Home) => {
+            interaction.caret = 0;
+            events.push(WidgetEvent::CaretMoved { source, position: 0 });
+        }
+        Key::Named(NamedKey::End) => {
+            interaction.caret = binding.max_length;
+            events.push(WidgetEvent::CaretMoved { source, position: binding.max_length });
+        }
+        Key::Named(NamedKey::Enter) => {
+            events.push(WidgetEvent::TextCommitted { source });
+        }
+        Key::Named(NamedKey::Space) => {
+            push_character(' ', binding, allowed, interaction, events);
+        }
+        Key::Character(text) => {
+            for character in text.chars() {
+                push_character(character, binding, allowed, interaction, events);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Enqueues one typed character when it belongs to the baked charset AND the predicted content
+/// still has room — a full field enqueues nothing, so bursts past `max_length` never pressure
+/// the bounded queue with events the model would refuse.
+fn push_character(
+    character: char,
+    binding: &TextInputBinding,
+    allowed: &[char],
+    interaction: &mut InteractionState,
+    events: &mut FrameEvents,
+) {
+    if !allowed.contains(&character) {
+        return;
+    }
+    if interaction.text_length >= binding.max_length {
+        return;
+    }
+    interaction.text_length += 1;
+    interaction.caret = interaction.caret.saturating_add(1).min(binding.max_length);
+    events.push(WidgetEvent::CharTyped { source: binding.source, character });
+}
+
+/// Character count of a text source's last echoed content.
+fn echoed_len(frame_inputs: &FrameInputs, source: &str) -> u16 {
+    frame_inputs
+        .text(source)
+        .map(|text| text.chars().count().min(usize::from(u16::MAX)) as u16)
+        .unwrap_or(0)
+}
+
+/// Surfaces the bounded queue's overflow counter at exit (ADR-015: a dropped burst is a
+/// visible, auditable fact, never a silent one).
+fn report_input_drops(events: &FrameEvents) {
+    if events.dropped_events() > 0 {
+        println!("input_dropped_events={}", events.dropped_events());
+    }
 }
 
 /// Drops the renderer (releasing every Vulkan resource through `VulkanRenderer::drop`) while the
