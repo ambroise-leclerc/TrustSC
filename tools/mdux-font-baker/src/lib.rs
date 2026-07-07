@@ -1242,7 +1242,11 @@ mod tests {
         let workspace_root =
             find_workspace_root(&recipe_path).expect("workspace root should resolve");
 
-        assert_eq!(workspace_root, root);
+        // find_workspace_root canonicalizes its anchor, so compare canonical paths: on macOS
+        // temp_dir() returns /var/folders/..., a symlink to /private/var/folders/....
+        let canonical_root =
+            fs::canonicalize(&root).expect("temporary workspace should canonicalize");
+        assert_eq!(workspace_root, canonical_root);
         fs::remove_dir_all(root).expect("temporary workspace should be removable");
     }
 
