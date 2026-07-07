@@ -152,7 +152,7 @@ impl App {
             &image_packages,
             &self.locale,
         )?;
-        let frame_inputs = FrameInputs::from_bindings(&bindings);
+        let frame_inputs = FrameInputs::from_bindings(&bindings)?;
         let app_name = self.framework.identity().name.clone();
         let config = self.framework.ui_runtime().config().clone();
 
