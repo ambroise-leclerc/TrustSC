@@ -181,6 +181,36 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         self.render_glyph_set_characters(glyph_set_id, &characters, origin_x, origin_y)
     }
 
+    /// Renders application-echoed text from a numeric glyph set — the ADR-015 `TextInput`
+    /// path. Every character must exist in the set (the `set_text` boundary guarantees this
+    /// for echoed content); bounded by `MAX_COMMANDS` like every other runtime path, with no
+    /// shaping and no fallback.
+    pub fn render_glyph_set_text(
+        &self,
+        glyph_set_id: &str,
+        text: &str,
+        origin_x: i32,
+        origin_y: i32,
+    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+        let glyph_set = self
+            .package
+            .find_numeric_glyph_set(glyph_set_id)
+            .ok_or_else(|| ValidationError::new("unknown numeric glyph set"))?;
+
+        let mut commands = ArrayVec::new();
+        let mut cursor_x = origin_x;
+        for character in text.chars() {
+            cursor_x = self.append_numeric_commands(
+                &mut commands,
+                glyph_set,
+                &[character],
+                cursor_x,
+                origin_y,
+            )?;
+        }
+        Ok(commands)
+    }
+
     fn render_glyph_set_characters(
         &self,
         glyph_set_id: &str,
@@ -357,6 +387,31 @@ mod tests {
 
         let glyph_ids: Vec<u32> = commands.iter().map(|command| command.glyph_id).collect();
         assert_eq!(glyph_ids, vec![1, 2, 10, 11, 3, 4]);
+    }
+
+    #[test]
+    fn renders_echoed_text_from_a_glyph_set() {
+        let package = example_package();
+        let runtime = TextRuntime::<16>::new(&package).expect("package should validate");
+
+        let commands = runtime
+            .render_glyph_set_text("DIGITS", "1-2", 10, 20)
+            .expect("echoed text should render");
+
+        let glyph_ids: Vec<u32> = commands.iter().map(|command| command.glyph_id).collect();
+        assert_eq!(glyph_ids, vec![10, 2, 11]); // '1', '-', '2'
+        assert_eq!(commands[0].x, 10); // origin
+        assert_eq!(commands[1].x, 16); // one 6px advance
+        assert_eq!(commands[2].x, 22);
+        assert_eq!(commands[0].y, 20);
+
+        // Empty content renders nothing; unknown sets and characters are typed errors.
+        assert!(runtime
+            .render_glyph_set_text("DIGITS", "", 0, 0)
+            .expect("empty text is valid")
+            .is_empty());
+        assert!(runtime.render_glyph_set_text("SET-NOPE", "1", 0, 0).is_err());
+        assert!(runtime.render_glyph_set_text("DIGITS", "X", 0, 0).is_err());
     }
 
     #[test]
