@@ -1,8 +1,10 @@
 mdux::include_medui_screen!();
 
+use std::{cell::Cell, rc::Rc};
+
 use mdux::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Hazard, Requirement, RequirementId,
-    SafetyClass, UiSdkConfig, VerificationCase, VerificationMethod,
+    SafetyClass, TextInputModel, UiSdkConfig, VerificationCase, VerificationMethod, WidgetEvent,
 };
 
 /// Synthetic EEG: two drifting spectral peaks over pseudo-noise; the sedation index follows the
@@ -43,10 +45,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let req_index = RequirementId::new("REQ-NS-001")?;
     let req_stream = RequirementId::new("REQ-NS-002")?;
     let req_status = RequirementId::new("REQ-NS-003")?;
+    let req_ack = RequirementId::new("REQ-NS-004")?;
+    let req_patient_id = RequirementId::new("REQ-NS-005")?;
     for (id, verification_id, title) in [
         (&req_index, "VER-NS-001", "Display the sedation index, refreshed every frame"),
         (&req_stream, "VER-NS-002", "Display the spectral stream with visible freshness"),
         (&req_status, "VER-NS-003", "Keep the system status permanently visible"),
+        (&req_ack, "VER-NS-004", "Capture operator acknowledgment of the active alert"),
+        (
+            &req_patient_id,
+            "VER-NS-005",
+            "Bound patient identifier entry to the approved character set and length",
+        ),
     ] {
         compliance.add_requirement(Requirement::new(
             id.clone(),
@@ -82,11 +92,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut simulator = EegSimulator { tick: 0, noise: 0x9E37_79B9 };
+    // The simulator raises an alert periodically; the operator acknowledges it with the ACK
+    // button (REQ-NS-004). Shared between the input and realtime closures.
+    let alert_active = Rc::new(Cell::new(false));
+    let alert_for_input = Rc::clone(&alert_active);
+    // The application owns the patient-identifier buffer (ADR-015 controlled component) and
+    // echoes it into the frame; charset and length stay bounded by the compiled screen
+    // (REQ-NS-005).
+    let mut patient_id = TextInputModel::new("PATIENT_ID", 16);
+
     mdux_vulkan_winit::App::new(framework, screen)
+        .with_input(move |events, frame| {
+            for event in events.drain() {
+                match event {
+                    WidgetEvent::ButtonPressed { source: "ACK_BUTTON" } => {
+                        alert_for_input.set(false);
+                    }
+                    other => {
+                        patient_id.apply(&other);
+                    }
+                }
+            }
+            frame
+                .set_text("PATIENT_ID", patient_id.as_str())
+                .expect("PATIENT_ID wiring");
+        })
         .with_realtime(move |frame| {
             let (index, row) = simulator.tick();
+            // A synthetic alert fires every ~20 s at the nominal 60 Hz and latches until the
+            // operator acknowledges it.
+            if simulator.tick % 1200 == 0 {
+                alert_active.set(true);
+            }
+            let status = if alert_active.get() { 1 } else { 0 };
             frame.set_number("SEDATION_INDEX", index).expect("SEDATION_INDEX wiring");
-            frame.set_status("MONITOR_STATUS", 0).expect("MONITOR_STATUS wiring");
+            frame.set_status("MONITOR_STATUS", status).expect("MONITOR_STATUS wiring");
             frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
         })
         .run_from_env()

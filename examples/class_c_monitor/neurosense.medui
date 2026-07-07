@@ -48,6 +48,35 @@ Screen NeuroSense500 {
         source: "SEDATION_INDEX";
         color: Theme.Colors.ScoreDigits;
     }
+    Label {
+        id: patient-id-caption;
+        width: 200px;
+        height: 24px;
+        position: 1392px, 608px;
+        text: t("STR-NS-PATIENT-ID");
+        color: Theme.Colors.Title;
+    }
+    TextInput {
+        id: patient-id-input;
+        width: 512px;
+        height: 48px;
+        position: 1392px, 640px;
+        requirement: "REQ-NS-005";
+        source: "PATIENT_ID";
+        max_length: 16;
+        charset: AsciiText;
+        color: Theme.Colors.Title;
+    }
+    Button {
+        id: ack-button;
+        width: 240px;
+        height: 64px;
+        position: 1392px, 720px;
+        requirement: "REQ-NS-004";
+        label: t("STR-NS-ACK");
+        color: Theme.Colors.PrimaryAction;
+        source: "ACK_BUTTON";
+    }
     VulkanViewport {
         id: eeg-dsa;
         width: 1360px;
