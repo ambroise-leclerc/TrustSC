@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod input;
 pub mod realtime;
 pub mod screen_text;
 mod standard_images;
@@ -22,6 +23,7 @@ pub use mdux_text_schema::{
     NumericGlyphEntry, NumericGlyphSet, NumericTemplate, TextDirection, TextPackage, TextureAtlas,
 };
 pub use mdux_image_schema::{ImageEvidence, ImagePackage};
+pub use input::{DEFAULT_FRAME_EVENT_CAPACITY, FrameEvents, TextInputModel, WidgetEvent};
 pub use standard_images::{
     ACME_LOGO, ACME_LOGO_IMAGE_ID, StandardImageDefinition, default_image_packages,
 };

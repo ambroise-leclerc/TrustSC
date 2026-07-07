@@ -93,6 +93,38 @@ pub struct ImageBinding {
     pub image: ImagePackage,
 }
 
+/// A `Button`'s resolved interaction state (ADR-015): hit-test bounds, the event `source` key,
+/// and the face/pressed tints — both derived once here from the theme table, never per frame.
+/// The label itself renders through the static text path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ButtonBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub source: &'static str,
+    /// Face color, resolved from the spec's theme token.
+    pub rgba: [f32; 4],
+    /// Pressed-state tint derived from the face color at binding time.
+    pub pressed_rgba: [f32; 4],
+}
+
+/// A `TextInput`'s resolved render state (ADR-015): where echoed content renders, from which
+/// baked glyph set, with what fixed capacity. The buffer itself lives in the application (the
+/// controlled component); the caret is a flat rect drawn by the adapter, not a glyph, so
+/// `capacity` is exactly `max_length`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextInputBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub source: &'static str,
+    pub glyph_set_id: String,
+    pub max_length: u16,
+    pub color_token: &'static str,
+    /// Maximum glyph draw commands one render of this input can produce.
+    pub capacity: usize,
+}
+
 /// Every realtime binding resolved from a compiled screen, plus the packages they render from.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScreenBindings {
@@ -106,6 +138,8 @@ pub struct ScreenBindings {
     pub streams: Vec<StreamBinding>,
     pub panels: Vec<PanelBinding>,
     pub images: Vec<ImageBinding>,
+    pub buttons: Vec<ButtonBinding>,
+    pub text_inputs: Vec<TextInputBinding>,
 }
 
 impl ScreenBindings {
@@ -126,6 +160,8 @@ impl ScreenBindings {
         let mut streams = Vec::new();
         let mut panels = Vec::new();
         let mut images = Vec::new();
+        let mut buttons = Vec::new();
+        let mut text_inputs = Vec::new();
 
         for node in screen.nodes {
             match &node.kind {
@@ -312,14 +348,52 @@ impl ScreenBindings {
                         image: package.clone(),
                     });
                 }
-                // Static text kinds have no realtime state. Button and TextInput receive their
-                // interaction bindings with the ADR-015 input plane (epic #72, wave #76); until
-                // then a Button renders as static text and a TextInput renders nothing dynamic,
-                // but their spec invariants are still enforced here so hand-built screens fail
-                // at binding time, not later.
+                // Static text kinds have no realtime state.
                 CompiledNodeKind::CriticalButton(_) | CompiledNodeKind::Label(_) => {}
-                CompiledNodeKind::Button(spec) => spec.validate()?,
-                CompiledNodeKind::TextInput(spec) => spec.validate()?,
+                CompiledNodeKind::Button(spec) => {
+                    spec.validate()?;
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "button {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    buttons.push(ButtonBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        source: spec.source,
+                        rgba,
+                        pressed_rgba: pressed_tint(rgba),
+                    });
+                }
+                CompiledNodeKind::TextInput(spec) => {
+                    spec.validate()?;
+                    if resolve_color_token(spec.color_token).is_none() {
+                        return Err(ValidationError::new(format!(
+                            "text input {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        )));
+                    }
+                    let glyph_set_id = spec.glyph_set_id.to_string();
+                    if standard.find_numeric_glyph_set(&glyph_set_id).is_none() {
+                        return Err(ValidationError::new(format!(
+                            "text input {} requires glyph set {glyph_set_id} in the standard package",
+                            node.id
+                        )));
+                    }
+                    let glyph_height = max_glyph_height(&standard, &glyph_set_id)?;
+                    text_inputs.push(TextInputBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        origin_x: node.bounds.x,
+                        origin_y: centered_origin_y(node.bounds, glyph_height),
+                        source: spec.source,
+                        glyph_set_id,
+                        max_length: spec.max_length,
+                        color_token: spec.color_token,
+                        capacity: usize::from(spec.max_length),
+                    });
+                }
             }
         }
 
@@ -333,6 +407,8 @@ impl ScreenBindings {
             streams,
             panels,
             images,
+            buttons,
+            text_inputs,
         })
     }
 
@@ -342,7 +418,14 @@ impl ScreenBindings {
         self.clocks.iter().map(|binding| binding.capacity).sum::<usize>()
             + self.numbers.iter().map(|binding| binding.capacity).sum::<usize>()
             + self.statuses.iter().map(|binding| binding.capacity).sum::<usize>()
+            + self.text_inputs.iter().map(|binding| binding.capacity).sum::<usize>()
     }
+}
+
+/// The pressed-state tint of a button face: the face color darkened once at binding time
+/// (RGB × 0.8, alpha unchanged) — no color is computed per frame.
+fn pressed_tint(rgba: [f32; 4]) -> [f32; 4] {
+    [rgba[0] * 0.8, rgba[1] * 0.8, rgba[2] * 0.8, rgba[3]]
 }
 
 fn centered_origin_y(bounds: Rect, glyph_height: u32) -> i32 {
@@ -371,6 +454,18 @@ pub struct FrameInputs {
     numbers: Vec<(&'static str, i64)>,
     statuses: Vec<(&'static str, u8, usize)>, // (source, state_index, state_count)
     streams: Vec<StreamState>,
+    texts: Vec<TextSlot>,
+}
+
+/// One `TextInput` source's echoed content: the storage is reserved at construction and the
+/// approved character set is copied from the binding's baked glyph set, so `set_text` can
+/// enforce length and charset without touching the packages again.
+#[derive(Clone, Debug)]
+struct TextSlot {
+    source: &'static str,
+    value: String,
+    max_length: usize,
+    allowed: Vec<char>,
 }
 
 #[derive(Clone, Debug)]
@@ -406,6 +501,23 @@ impl FrameInputs {
                     bins: binding.bins,
                     data: vec![0.0; binding.rows * binding.bins],
                     cursor: 0,
+                })
+                .collect(),
+            texts: bindings
+                .text_inputs
+                .iter()
+                .map(|binding| TextSlot {
+                    source: binding.source,
+                    // Reserved for the worst UTF-8 case so set_text never reallocates.
+                    value: String::with_capacity(usize::from(binding.max_length) * 4),
+                    max_length: usize::from(binding.max_length),
+                    allowed: bindings
+                        .standard
+                        .find_numeric_glyph_set(&binding.glyph_set_id)
+                        .map(|glyph_set| {
+                            glyph_set.entries.iter().map(|entry| entry.character).collect()
+                        })
+                        .unwrap_or_default(),
                 })
                 .collect(),
         }
@@ -465,6 +577,44 @@ impl FrameInputs {
         stream.data[start..start + stream.bins].copy_from_slice(row);
         stream.cursor = (stream.cursor + 1) % stream.rows;
         Ok(())
+    }
+
+    /// Echoes a `TextInput` source's current content for this frame (ADR-015 controlled
+    /// component: the application owns the buffer, the renderer only draws what it is handed).
+    /// Rejects unknown sources, content longer than the declared `max_length`, and characters
+    /// outside the binding's baked glyph set — the charset boundary is enforced here, not in
+    /// the renderer.
+    pub fn set_text(&mut self, source: &str, value: &str) -> MduxResult<()> {
+        let slot = self
+            .texts
+            .iter_mut()
+            .find(|slot| slot.source == source)
+            .ok_or_else(|| ValidationError::new(format!("unknown text source {source}")))?;
+        let length = value.chars().count();
+        if length > slot.max_length {
+            return Err(ValidationError::new(format!(
+                "text source {source} accepts at most {} characters, got {length}",
+                slot.max_length
+            )));
+        }
+        for character in value.chars() {
+            if !slot.allowed.contains(&character) {
+                return Err(ValidationError::new(format!(
+                    "text source {source} rejects character '{character}' outside its approved glyph set"
+                )));
+            }
+        }
+        slot.value.clear();
+        slot.value.push_str(value);
+        Ok(())
+    }
+
+    /// The current echoed content of a text source (renderer-side read).
+    pub fn text(&self, source: &str) -> Option<&str> {
+        self.texts
+            .iter()
+            .find(|slot| slot.source == source)
+            .map(|slot| slot.value.as_str())
     }
 
     /// The current value of a numeric source (renderer-side read).
@@ -798,6 +948,154 @@ mod tests {
         )
         .expect_err("unknown image package should be rejected");
         assert!(error.to_string().contains("unknown image package"), "{error}");
+    }
+
+    const INTERACTIVE_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "InteractiveBindings",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 8,
+            padding: 16,
+        },
+        nodes: &[
+            CompiledNode {
+                id: "ack-button",
+                bounds: Rect { x: 1392, y: 720, width: 240, height: 64 },
+                kind: CompiledNodeKind::Button(mdux_ui::ButtonSpec {
+                    text_key: "STR-NS-ACK",
+                    color_token: "Theme.Colors.PrimaryAction",
+                    source: "ACK_BUTTON",
+                    requirement_id: Some("REQ-NS-004"),
+                }),
+            },
+            CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 1392, y: 640, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(mdux_ui::TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 16,
+                    glyph_set_id: "SET-ASCII-TEXT",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: Some("REQ-NS-005"),
+                }),
+            },
+        ],
+        golden_references: &[],
+    };
+
+    fn interactive_bindings() -> ScreenBindings {
+        ScreenBindings::from_screen(
+            &INTERACTIVE_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("interactive screen should bind")
+    }
+
+    #[test]
+    fn from_screen_resolves_button_and_text_input_bindings() {
+        let bindings = interactive_bindings();
+
+        assert_eq!(bindings.buttons.len(), 1);
+        let button = &bindings.buttons[0];
+        assert_eq!(button.node_id, "ack-button");
+        assert_eq!(button.source, "ACK_BUTTON");
+        let face = crate::resolve_color_token("Theme.Colors.PrimaryAction").expect("face rgba");
+        assert_eq!(button.rgba, face);
+        // Pressed tint is derived once at binding time: darker face, same alpha.
+        assert_eq!(
+            button.pressed_rgba,
+            [face[0] * 0.8, face[1] * 0.8, face[2] * 0.8, face[3]]
+        );
+
+        assert_eq!(bindings.text_inputs.len(), 1);
+        let input = &bindings.text_inputs[0];
+        assert_eq!(input.node_id, "patient-id-input");
+        assert_eq!(input.source, "PATIENT_ID");
+        assert_eq!(input.glyph_set_id, "SET-ASCII-TEXT");
+        assert_eq!(input.max_length, 16);
+        assert_eq!(input.capacity, 16);
+        assert_eq!(input.origin_x, 1392);
+        assert!(input.origin_y >= input.bounds.y);
+
+        // The text input's capacity joins the dynamic quad budget; the button's label is
+        // static text and contributes nothing here.
+        assert_eq!(bindings.max_dynamic_quads(), 16);
+    }
+
+    #[test]
+    fn from_screen_rejects_a_text_input_whose_glyph_set_is_not_baked() {
+        const UNBAKED_CHARSET: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "UnbakedCharset",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 16, y: 16, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(mdux_ui::TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 16,
+                    glyph_set_id: "SET-DOES-NOT-EXIST",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: None,
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &UNBAKED_CHARSET,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("an unbaked glyph set should be rejected");
+        assert!(
+            error.to_string().contains("requires glyph set SET-DOES-NOT-EXIST"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn set_text_enforces_source_length_and_charset() {
+        let bindings = interactive_bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings);
+
+        // Empty until the application echoes something.
+        assert_eq!(inputs.text("PATIENT_ID"), Some(""));
+
+        inputs.set_text("PATIENT_ID", "PID-2026 #47").expect("printable ASCII fits");
+        assert_eq!(inputs.text("PATIENT_ID"), Some("PID-2026 #47"));
+
+        let error = inputs
+            .set_text("UNKNOWN", "X")
+            .expect_err("unknown sources are rejected");
+        assert!(error.to_string().contains("unknown text source UNKNOWN"), "{error}");
+
+        let error = inputs
+            .set_text("PATIENT_ID", "ABCDEFGHIJKLMNOPQ")
+            .expect_err("17 characters exceed max_length 16");
+        assert!(
+            error.to_string().contains("accepts at most 16 characters, got 17"),
+            "{error}"
+        );
+
+        let error = inputs
+            .set_text("PATIENT_ID", "CAFÉ")
+            .expect_err("a character outside printable ASCII is rejected");
+        assert!(
+            error.to_string().contains("rejects character 'É'"),
+            "{error}"
+        );
+
+        // Failed writes never corrupt the echoed value.
+        assert_eq!(inputs.text("PATIENT_ID"), Some("PID-2026 #47"));
     }
 
     #[test]
