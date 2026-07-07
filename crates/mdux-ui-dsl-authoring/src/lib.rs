@@ -15,6 +15,11 @@ use mdux_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent, THEME_COLORS, r
 /// Kept in sync with `mdux::DEFAULT_STANDARD_DIGITS_GLYPH_SET_ID`.
 pub const CLOCK_GLYPH_SET_ID: &str = "SET-ASCII-DIGITS";
 
+/// Glyph set `TextInput` operator entry renders from when `charset: AsciiText` is declared or
+/// defaulted (printable ASCII in the standard package). Kept in sync with
+/// `mdux::STANDARD_ASCII_TEXT_GLYPH_SET_ID` (ADR-015).
+pub const ASCII_TEXT_GLYPH_SET_ID: &str = "SET-ASCII-TEXT";
+
 /// The approved text packages a screen compiles against: every static label budget checks the
 /// `standard` package (all locales), while `NumericDisplay` templates resolve across the
 /// `displays` packages with unique-match semantics (ADR-014 — zero matches and multiple
@@ -202,6 +207,21 @@ enum NodeKind {
     },
     Image {
         image_id: String,
+    },
+    /// Application-semantic interactive button (ADR-015): no SystemEvent, events by source key.
+    Button {
+        label_text_key: String,
+        color_token: String,
+        source: String,
+        requirement_id: Option<String>,
+    },
+    /// Operator-editable text field (ADR-015): bounded controlled component over a baked charset.
+    TextInput {
+        source: String,
+        max_length: u16,
+        glyph_set_id: String,
+        color_token: String,
+        requirement_id: Option<String>,
     },
 }
 
@@ -612,6 +632,8 @@ enum ComponentKind {
     NumericDisplay,
     StatusIndicator,
     Image,
+    Button,
+    TextInput,
 }
 
 fn parse_component_start(line_number: usize, line: &str) -> MduxResult<ComponentKind> {
@@ -627,6 +649,8 @@ fn parse_component_start(line_number: usize, line: &str) -> MduxResult<Component
         "NumericDisplay" => Ok(ComponentKind::NumericDisplay),
         "StatusIndicator" => Ok(ComponentKind::StatusIndicator),
         "Image" => Ok(ComponentKind::Image),
+        "Button" => Ok(ComponentKind::Button),
+        "TextInput" => Ok(ComponentKind::TextInput),
         other => Err(ValidationError::new(format!(
             "unsupported component `{other}` at line {line_number}"
         ))),
@@ -654,6 +678,8 @@ fn parse_component_properties(
     let mut state_text_keys = None;
     let mut color_tokens = None;
     let mut position = None;
+    let mut max_length = None;
+    let mut charset = None;
 
     for (property_line_number, property_line) in properties {
         let property_line = property_line.trim_end_matches(';');
@@ -694,6 +720,10 @@ fn parse_component_properties(
                 color_tokens = Some(parse_token_list(*property_line_number, value)?)
             }
             "position" => position = Some(parse_position(*property_line_number, value)?),
+            "max_length" => {
+                max_length = Some(parse_max_length(*property_line_number, value)?)
+            }
+            "charset" => charset = Some(parse_charset(*property_line_number, value)?),
             other => {
                 return Err(ValidationError::new(format!(
                     "unsupported property `{other}` at line {property_line_number}"
@@ -815,6 +845,53 @@ fn parse_component_properties(
                 parse_image_key(source_line, &raw)?
             },
         },
+        ComponentKind::Button => {
+            if on_press.is_some() {
+                return Err(ValidationError::new(format!(
+                    "Button {id} must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
+                )));
+            }
+            NodeKind::Button {
+                label_text_key: label_text_key.ok_or_else(|| {
+                    ValidationError::new(format!("Button {id} must declare `label`"))
+                })?,
+                color_token: color_token.ok_or_else(|| {
+                    ValidationError::new(format!("Button {id} must declare `color`"))
+                })?,
+                source: {
+                    let (source_line, raw) = source.ok_or_else(|| {
+                        ValidationError::new(format!("Button {id} must declare `source`"))
+                    })?;
+                    parse_quoted(source_line, "source", &raw)?
+                },
+                requirement_id,
+            }
+        }
+        ComponentKind::TextInput => {
+            if on_press.is_some() {
+                return Err(ValidationError::new(format!(
+                    "TextInput {id} must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
+                )));
+            }
+            NodeKind::TextInput {
+                source: {
+                    let (source_line, raw) = source.ok_or_else(|| {
+                        ValidationError::new(format!("TextInput {id} must declare `source`"))
+                    })?;
+                    parse_quoted(source_line, "source", &raw)?
+                },
+                max_length: max_length.ok_or_else(|| {
+                    ValidationError::new(format!("TextInput {id} must declare `max_length`"))
+                })?,
+                // `charset` is optional: absent means the printable-ASCII default (ADR-015).
+                glyph_set_id: charset
+                    .unwrap_or_else(|| ASCII_TEXT_GLYPH_SET_ID.to_string()),
+                color_token: color_token.ok_or_else(|| {
+                    ValidationError::new(format!("TextInput {id} must declare `color`"))
+                })?,
+                requirement_id,
+            }
+        }
     };
 
     Ok(NodeDefinition {
@@ -900,6 +977,32 @@ fn parse_clock_format(line_number: usize, raw: &str) -> MduxResult<ClockFormat> 
         "DateTimeSeconds" => Ok(ClockFormat::DateTimeSeconds),
         other => Err(ValidationError::new(format!(
             "unsupported clock format `{other}` at line {line_number}"
+        ))),
+    }
+}
+
+/// Parses `max_length: <N>;` — a plain positive integer (a character count, not pixels).
+fn parse_max_length(line_number: usize, raw: &str) -> MduxResult<u16> {
+    let value = raw.trim().parse::<u16>().map_err(|_| {
+        ValidationError::new(format!(
+            "max_length must be a positive integer at line {line_number}"
+        ))
+    })?;
+    if value == 0 {
+        return Err(ValidationError::new(format!(
+            "max_length must be greater than zero at line {line_number}"
+        )));
+    }
+    Ok(value)
+}
+
+/// Parses `charset: <Name>;` — a named approved charset resolving to a baked glyph set
+/// (ADR-015). The set of names is closed; growing it means baking a new approved glyph set.
+fn parse_charset(line_number: usize, raw: &str) -> MduxResult<String> {
+    match raw.trim() {
+        "AsciiText" => Ok(ASCII_TEXT_GLYPH_SET_ID.to_string()),
+        other => Err(ValidationError::new(format!(
+            "unsupported charset `{other}` at line {line_number}; approved charsets are: AsciiText"
         ))),
     }
 }
@@ -1394,9 +1497,15 @@ impl CompileContext<'_, '_> {
                     text_key,
                     color_token,
                 } => (Some(text_key.clone()), Some(color_token.clone())),
+                NodeKind::Button {
+                    label_text_key,
+                    color_token,
+                    ..
+                } => (Some(label_text_key.clone()), Some(color_token.clone())),
                 // Dynamic content: the golden reference pins bounds (and color for the numeric
-                // display); the rendered text varies at runtime by design.
-                NodeKind::NumericDisplay { color_token, .. } => {
+                // display and text input); the rendered text varies at runtime by design.
+                NodeKind::NumericDisplay { color_token, .. }
+                | NodeKind::TextInput { color_token, .. } => {
                     (None, Some(color_token.clone()))
                 }
                 NodeKind::StatusIndicator { .. }
@@ -1465,7 +1574,9 @@ fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> MduxResult<()> {
         NodeKind::CriticalButton { color_token, .. }
         | NodeKind::Label { color_token, .. }
         | NodeKind::NumericDisplay { color_token, .. }
-        | NodeKind::Panel { color_token } => check(color_token),
+        | NodeKind::Panel { color_token }
+        | NodeKind::Button { color_token, .. }
+        | NodeKind::TextInput { color_token, .. } => check(color_token),
         NodeKind::StatusIndicator { color_tokens, .. } => {
             for token in color_tokens {
                 check(token)?;
@@ -1520,6 +1631,20 @@ fn validate_node_text_budget(
         NodeKind::Clock { format } => {
             validate_clock_budget(node, *format, bounds, text_packages.standard)
         }
+        NodeKind::Button { label_text_key, .. } => {
+            validate_static_text_budget(node, label_text_key, bounds, text_packages.standard)
+        }
+        NodeKind::TextInput {
+            max_length,
+            glyph_set_id,
+            ..
+        } => validate_text_input_budget(
+            node,
+            *max_length,
+            glyph_set_id,
+            bounds,
+            text_packages.standard,
+        ),
         // Panels and Images carry no text.
         NodeKind::Panel { .. } | NodeKind::Image { .. } => Ok(()),
         NodeKind::NumericDisplay { template_id, .. } => {
@@ -1615,6 +1740,60 @@ fn validate_clock_budget(
         return Err(ValidationError::new(format!(
             "Clock {} does not fit its bounds: required width={required_width} height={required_height}, available width={} height={}",
             node.id, bounds.width, bounds.height
+        )));
+    }
+
+    Ok(())
+}
+
+/// ADR-015: operator-typed content must fit its pinned box in the worst case — `max_length`
+/// occurrences of the widest glyph (advance-wise) of the declared charset. The ADR-010/014
+/// budget doctrine applied to typed content, exactly as the NumericDisplay check applies it to
+/// template-formatted numbers: an over-budget `max_length` is a compile error, not a clipped
+/// field on a bench.
+fn validate_text_input_budget(
+    node: &NodeDefinition,
+    max_length: u16,
+    glyph_set_id: &str,
+    bounds: RectSpec,
+    text_package: &TextPackage,
+) -> MduxResult<()> {
+    let glyph_set = text_package
+        .find_numeric_glyph_set(glyph_set_id)
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "TextInput {} requires glyph set {glyph_set_id} in the approved text package",
+                node.id
+            ))
+        })?;
+
+    let widest = glyph_set
+        .entries
+        .iter()
+        .max_by_key(|entry| entry.advance_x)
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "TextInput {} charset glyph set {glyph_set_id} is empty",
+                node.id
+            ))
+        })?;
+    // The worst case is max_length repetitions of one glyph, so it is computed directly from
+    // that glyph's advance and atlas extents — no need to materialize the character sequence.
+    let atlas_glyph = text_package
+        .find_glyph(widest.atlas_index, widest.glyph_id)
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "component {} references glyph set {} entry '{}', but atlas index {} glyph {} does not exist in the package — under-measuring height would let an out-of-budget component compile",
+                node.id, glyph_set.id, widest.character, widest.atlas_index, widest.glyph_id
+            ))
+        })?;
+    let required_width = (widest.advance_x.max(0) as u32).saturating_mul(u32::from(max_length));
+    let required_height = u32::from(atlas_glyph.height);
+
+    if required_width > bounds.width || required_height > bounds.height {
+        return Err(ValidationError::new(format!(
+            "TextInput {} does not fit its bounds: max_length {max_length} of the widest '{}' glyph requires width={required_width} height={required_height}, available width={} height={}",
+            node.id, widest.character, bounds.width, bounds.height
         )));
     }
 
@@ -1917,6 +2096,25 @@ fn emit_node_kind(kind: &NodeKind, crate_path: &str) -> String {
         ),
         NodeKind::Image { image_id } => format!(
             "{crate_path}::CompiledNodeKind::Image({crate_path}::ImageSpec {{ image_id: {image_id:?} }})"
+        ),
+        NodeKind::Button {
+            label_text_key,
+            color_token,
+            source,
+            requirement_id,
+        } => format!(
+            "{crate_path}::CompiledNodeKind::Button({crate_path}::ButtonSpec {{ text_key: {label_text_key:?}, color_token: {color_token:?}, source: {source:?}, requirement_id: {} }})",
+            emit_optional_string(requirement_id.as_deref())
+        ),
+        NodeKind::TextInput {
+            source,
+            max_length,
+            glyph_set_id,
+            color_token,
+            requirement_id,
+        } => format!(
+            "{crate_path}::CompiledNodeKind::TextInput({crate_path}::TextInputSpec {{ source: {source:?}, max_length: {max_length}, glyph_set_id: {glyph_set_id:?}, color_token: {color_token:?}, requirement_id: {} }})",
+            emit_optional_string(requirement_id.as_deref())
         ),
     }
 }
@@ -2665,6 +2863,233 @@ Screen PositionedMonitor {
             error.to_string().contains("cannot use the ColorHash CV check"),
             "{error}"
         );
+    }
+
+    const INTERACTIVE_MEDUI: &str = r#"
+Screen InteractivePanel {
+    layout: Vertical { spacing: 8px; padding: 16px; }
+
+    Button {
+        id: ack-button;
+        width: 240px;
+        height: 64px;
+        label: t("STR-ACK");
+        color: Theme.Colors.PrimaryAction;
+        source: "ACK_BUTTON";
+        requirement: "REQ-NS-004";
+    }
+
+    TextInput {
+        id: patient-id-input;
+        width: 512px;
+        height: 48px;
+        position: 16px, 200px;
+        source: "PATIENT_ID";
+        max_length: 16;
+        charset: AsciiText;
+        color: Theme.Colors.Title;
+    }
+}
+"#;
+
+    fn compile_interactive(source: &str) -> MduxResult<String> {
+        compile_medui_source_to_rust(
+            source,
+            CompileOptions::new(800, 480),
+            TextPackages::standard_only(&interactive_text_package()),
+            ImagePackages::none(),
+        )
+    }
+
+    #[test]
+    fn emits_button_and_text_input_kinds_with_golden_references() {
+        let generated =
+            compile_interactive(INTERACTIVE_MEDUI).expect("interactive screen should compile");
+
+        assert!(generated.contains(
+            r#"::mdux::CompiledNodeKind::Button(::mdux::ButtonSpec { text_key: "STR-ACK", color_token: "Theme.Colors.PrimaryAction", source: "ACK_BUTTON", requirement_id: Some("REQ-NS-004") })"#
+        ));
+        assert!(generated.contains(
+            r#"::mdux::CompiledNodeKind::TextInput(::mdux::TextInputSpec { source: "PATIENT_ID", max_length: 16, glyph_set_id: "SET-ASCII-TEXT", color_token: "Theme.Colors.Title", requirement_id: None })"#
+        ));
+        // The positioned TextInput gets the automatic ADR-014 Bounds golden reference pinning
+        // box and tint but never content (dynamic, NumericDisplay precedent).
+        assert!(generated.contains(r#"node_id: "patient-id-input""#));
+        assert!(generated.contains(
+            "bounds: ::mdux::Rect { x: 16, y: 200, width: 512, height: 48 }"
+        ));
+        let golden_section = generated
+            .split("golden_references: &[")
+            .nth(1)
+            .expect("golden section exists");
+        assert!(golden_section.contains(r#"color_token: Some("Theme.Colors.Title")"#));
+        assert!(!golden_section.contains(r#"text_key: Some("STR-ACK")"#)); // button is not safety/positioned
+    }
+
+    #[test]
+    fn text_input_charset_defaults_to_ascii_text() {
+        let source = INTERACTIVE_MEDUI.replace("        charset: AsciiText;\n", "");
+        let generated = compile_interactive(&source).expect("default charset should compile");
+        assert!(generated.contains(r#"glyph_set_id: "SET-ASCII-TEXT""#));
+    }
+
+    #[test]
+    fn rejects_on_press_on_interactive_widgets() {
+        let source = INTERACTIVE_MEDUI.replace(
+            "        source: \"ACK_BUTTON\";\n",
+            "        source: \"ACK_BUTTON\";\n        on_press: SystemEvent.NoOp;\n",
+        );
+        let error = compile_interactive(&source).expect_err("on_press on Button must fail");
+        assert_eq!(
+            error.to_string(),
+            "Button ack-button must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
+        );
+
+        let source = INTERACTIVE_MEDUI.replace(
+            "        source: \"PATIENT_ID\";\n",
+            "        source: \"PATIENT_ID\";\n        on_press: SystemEvent.TriggerHalt;\n",
+        );
+        let error = compile_interactive(&source).expect_err("on_press on TextInput must fail");
+        assert!(
+            error.to_string().starts_with("TextInput patient-id-input must not declare `on_press`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_charsets_and_invalid_max_length() {
+        let source = INTERACTIVE_MEDUI.replace("charset: AsciiText;", "charset: Klingon;");
+        let error = compile_interactive(&source).expect_err("unknown charset must fail");
+        assert!(
+            error.to_string().contains("unsupported charset `Klingon`"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("approved charsets are: AsciiText"), "{error}");
+
+        let source = INTERACTIVE_MEDUI.replace("max_length: 16;", "max_length: 0;");
+        let error = compile_interactive(&source).expect_err("zero max_length must fail");
+        assert!(
+            error.to_string().contains("max_length must be greater than zero"),
+            "{error}"
+        );
+
+        let source = INTERACTIVE_MEDUI.replace("        max_length: 16;\n", "");
+        let error = compile_interactive(&source).expect_err("missing max_length must fail");
+        assert_eq!(
+            error.to_string(),
+            "TextInput patient-id-input must declare `max_length`"
+        );
+    }
+
+    #[test]
+    fn rejects_a_text_input_budget_exceeding_its_pinned_box() {
+        // 50 occurrences of the widest glyph ('W', advance 12) require 600px > 512px available.
+        let source = INTERACTIVE_MEDUI.replace("max_length: 16;", "max_length: 50;");
+        let error = compile_interactive(&source).expect_err("over-budget max_length must fail");
+        assert_eq!(
+            error.to_string(),
+            "TextInput patient-id-input does not fit its bounds: max_length 50 of the widest 'W' glyph requires width=600 height=16, available width=512 height=48"
+        );
+    }
+
+    #[test]
+    fn rejects_a_button_without_a_source() {
+        let source = INTERACTIVE_MEDUI.replace("        source: \"ACK_BUTTON\";\n", "");
+        let error = compile_interactive(&source).expect_err("Button without source must fail");
+        assert_eq!(error.to_string(), "Button ack-button must declare `source`");
+    }
+
+    /// Standard-package fixture for interactive screens: the ACK button label in en-US and a
+    /// same-width fr-FR, plus the printable-ASCII text glyph set ('A' at 8px advance and the
+    /// widest glyph 'W' at 12px) the TextInput budget measures against.
+    fn interactive_text_package() -> TextPackage {
+        let glyph = |glyph_id: u32, width: u16, advance_x: i32| AtlasGlyph {
+            atlas_index: 0,
+            glyph_id,
+            x: 0,
+            y: 0,
+            width,
+            height: 16,
+            bearing_x: 0,
+            bearing_y: 0,
+            advance_x,
+        };
+        let string = |id: &str, locale: &str, value: &str| ApprovedString {
+            id: id.to_string(),
+            locale: locale.to_string(),
+            value: value.to_string(),
+            direction: TextDirection::LeftToRight,
+        };
+        let run = |id: &str, source: &str, locale: &str, glyph_count: usize| CompiledTextRun {
+            id: id.to_string(),
+            source_string_id: source.to_string(),
+            locale: locale.to_string(),
+            bidi_level: 0,
+            glyphs: (0..glyph_count)
+                .map(|index| CompiledGlyph {
+                    atlas_index: 0,
+                    glyph_id: 1,
+                    x: index as i32 * 8,
+                    y: 0,
+                    advance_x: 8,
+                })
+                .collect(),
+        };
+
+        TextPackage {
+            fonts: vec![FontAsset {
+                family: "Approved Sans".to_string(),
+                source_path: "fonts/approved.ttf".to_string(),
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+                face_index: 0,
+                pixel_height: 16,
+                locales: vec!["en-US".to_string(), "fr-FR".to_string()],
+            }],
+            approved_strings: vec![
+                string("STR-ACK", "en-US", "ACK"),
+                string("STR-ACK", "fr-FR", "ACQ"),
+            ],
+            atlases: vec![TextureAtlas {
+                width: 4,
+                height: 4,
+                pixels: vec![1; 16],
+            }],
+            atlas_glyphs: vec![glyph(1, 8, 8), glyph(50, 8, 8), glyph(51, 12, 12)],
+            runs: vec![
+                run("RUN-ACK-EN", "STR-ACK", "en-US", 3),
+                run("RUN-ACK-FR", "STR-ACK", "fr-FR", 3),
+            ],
+            numeric_glyph_sets: vec![NumericGlyphSet {
+                id: ASCII_TEXT_GLYPH_SET_ID.to_string(),
+                locale: "en-US".to_string(),
+                entries: vec![
+                    mdux_text_schema::NumericGlyphEntry {
+                        character: 'A',
+                        glyph_id: 50,
+                        atlas_index: 0,
+                        advance_x: 8,
+                    },
+                    mdux_text_schema::NumericGlyphEntry {
+                        character: 'W',
+                        glyph_id: 51,
+                        atlas_index: 0,
+                        advance_x: 12,
+                    },
+                ],
+            }],
+            numeric_templates: vec![],
+            evidence: DeterminismEvidence {
+                package_sha256:
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .to_string(),
+                toolchain_id: "rust-1.87.0".to_string(),
+                unicode_version: "15.1.0".to_string(),
+                build_recipe_sha256:
+                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                        .to_string(),
+            },
+        }
     }
 
     /// Standard-package fixture for monitor screens: title and status strings in en-US and a

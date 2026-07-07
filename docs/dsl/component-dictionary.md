@@ -115,6 +115,44 @@ Notes:
 - `@safety_critical` accepts `Bounds` only; `ColorHash` over image content is rejected
 - typically combined with `position:` (e.g. a brand mark pinned to the top bar)
 
+## `Button`
+
+The application-semantic interactive button (ADR-015). A press is delivered to the application
+as a `ButtonPressed { source }` event through the bounded outbound event plane — by data, not by
+callback. What a press *means* belongs to the application; framework-governed system events
+belong to `CriticalButton`, so declaring `on_press` on a `Button` is a compile error.
+
+Required properties: `id`, `width`, `height`, `label` (`t("key")`), `color`,
+`source` (quoted event key, e.g. `"ACK_BUTTON"`). Optional: `requirement` (traced when present).
+
+Notes:
+
+- the label is static approved text, budgeted at compile time against **every** approved locale
+- the face and pressed tints are derived from the `color` token at binding time, never per frame
+- eligible for `@safety_critical`; its golden reference pins label key, color and bounds
+
+## `TextInput`
+
+An operator-editable text field (ADR-015): a **controlled component** — the application owns the
+buffer, applies the editing events it drains each frame, and echoes the result back through
+`FrameInputs::set_text`; the renderer stores nothing. Content is restricted to a baked, approved
+charset and a declared maximum length.
+
+Required properties: `id`, `width`, `height`, `source` (quoted echo/event key), `max_length`
+(positive integer, a character count), `color`. Optional: `charset` (named approved charset;
+defaults to `AsciiText` → the standard package's printable-ASCII `SET-ASCII-TEXT` glyph set),
+`requirement` (traced when present).
+
+Notes:
+
+- budgeted at compile time as `max_length ×` the widest glyph advance of the declared charset —
+  an over-budget `max_length` **fails the compile**, mirroring the `NumericDisplay` fit check
+- `on_press` is rejected, like on `Button`
+- the golden reference pins bounds and color; the typed content varies at runtime by design
+  (`text_key: None`, the `NumericDisplay` precedent)
+- the charset boundary is re-enforced at runtime: `set_text` rejects characters outside the
+  baked glyph set and content beyond `max_length` with typed errors
+
 ## Precise positioning (`position:`, any leaf component)
 
 Any leaf component may declare `position: <X>px, <Y>px;` — the **absolute screen coordinates**
