@@ -27,7 +27,7 @@ use mdux::{
     screen_text::ScreenTextLayout, CompiledNodeKind, CompiledScreenPackage, Framework,
     GraphicsProfile, Rect, SystemEvent,
 };
-use renderer::{civil_from_unix, BoxError, VulkanRenderer};
+use renderer::{civil_from_unix, BoxError, InteractionSnapshot, VulkanRenderer};
 use winit::{
     dpi::LogicalSize,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -497,8 +497,27 @@ fn run_windowed(
                             .map(|elapsed| elapsed.as_secs() as i64)
                             .unwrap_or(0);
                         let clock = civil_from_unix(now);
+                        // A button face renders pressed while armed AND still under the
+                        // pointer — releasing outside disarms visually, matching dispatch.
+                        let (cursor_x, cursor_y) = interaction.cursor;
+                        let snapshot = InteractionSnapshot {
+                            pressed_button: match interaction.armed {
+                                Some(PressTarget::Button(index))
+                                    if rect_contains_point(
+                                        &button_targets[index].bounds,
+                                        cursor_x,
+                                        cursor_y,
+                                    ) =>
+                                {
+                                    Some(index)
+                                }
+                                _ => None,
+                            },
+                            focused_input: interaction.focused_input,
+                            caret: interaction.caret,
+                        };
                         if let Err(error) =
-                            active_renderer.draw_frame(&window, &frame_inputs, clock)
+                            active_renderer.draw_frame(&window, &frame_inputs, clock, snapshot)
                         {
                             eprintln!("failed to render frame: {error}");
                             *render_error_for_closure.borrow_mut() = Some(error);

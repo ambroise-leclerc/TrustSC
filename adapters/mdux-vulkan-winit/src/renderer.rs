@@ -282,6 +282,39 @@ pub struct VulkanRenderer {
     image_pipeline_layout: vk::PipelineLayout,
     image_pipeline: vk::Pipeline,
     authored_surface_extent: vk::Extent2D,
+    // Interactive widget chrome (ADR-015): button faces, text-input fields and the caret — a
+    // small persistently mapped flat-rect region rewritten each frame through the same flat
+    // pipeline as the panel underlays, drawn between the images and the text overlay.
+    interactive_rect_buffer: vk::Buffer,
+    interactive_rect_memory: vk::DeviceMemory,
+    interactive_rect_ptr: Option<std::ptr::NonNull<FlatVertex>>,
+    interactive_rect_capacity_vertices: usize,
+    interactive_rect_written_vertices: u32,
+    interactive_rect_staging: Vec<FlatVertex>,
+    // Per-text-input chrome, derived once from the theme table (ADR-015 §6): no color is
+    // computed per frame.
+    text_input_chrome: Vec<TextInputChrome>,
+}
+
+/// Which widget renders pressed/focused this frame, and where the caret sits — the event
+/// loop's presentation snapshot handed to [`VulkanRenderer::draw_frame`] (ADR-015 §6).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InteractionSnapshot {
+    /// Index into the screen's button bindings whose face renders with the pressed tint.
+    pub pressed_button: Option<usize>,
+    /// Index into the screen's text-input bindings that renders focused (field highlight +
+    /// caret).
+    pub focused_input: Option<usize>,
+    /// Caret position (character index) inside the focused input's echoed content.
+    pub caret: u16,
+}
+
+/// A text input's render chrome, resolved once at construction from the governed theme table.
+struct TextInputChrome {
+    field_rgba: [f32; 4],
+    focused_field_rgba: [f32; 4],
+    caret_rgba: [f32; 4],
+    caret_height: u32,
 }
 
 impl VulkanRenderer {
@@ -382,12 +415,20 @@ impl VulkanRenderer {
                 width: authored_surface_width.max(1),
                 height: authored_surface_height.max(1),
             },
+            interactive_rect_buffer: vk::Buffer::null(),
+            interactive_rect_memory: vk::DeviceMemory::null(),
+            interactive_rect_ptr: None,
+            interactive_rect_capacity_vertices: 0,
+            interactive_rect_written_vertices: 0,
+            interactive_rect_staging: Vec::new(),
+            text_input_chrome: Vec::new(),
         };
 
         renderer.create_text_static_resources()?;
         renderer.create_dynamic_text_resources()?;
         renderer.create_waterfall_resources()?;
         renderer.create_panel_and_image_static_resources()?;
+        renderer.create_interactive_rect_resources()?;
         renderer.recreate_swapchain(window)?;
         Ok(renderer)
     }
@@ -412,6 +453,7 @@ impl VulkanRenderer {
         window: &Window,
         inputs: &FrameInputs,
         clock: WallClock,
+        interaction: InteractionSnapshot,
     ) -> Result<(), BoxError> {
         let size = window.inner_size();
         if size.width == 0 || size.height == 0 {
@@ -449,6 +491,7 @@ impl VulkanRenderer {
         // buffer and the mapped buffers has fully completed, so all are safe to rewrite.
         self.write_waterfall_heights(inputs)?;
         let dynamic_standard_vertices = self.write_dynamic_vertices(inputs, clock)?;
+        self.write_interactive_rects(inputs, interaction)?;
         self.record_command_buffer(image_index as usize, dynamic_standard_vertices)?;
 
         let wait_semaphores = [self.image_available_semaphore];
@@ -638,6 +681,12 @@ impl VulkanRenderer {
                     .iter()
                     .map(|binding| binding.capacity),
             )
+            .chain(
+                self.bindings
+                    .text_inputs
+                    .iter()
+                    .map(|binding| binding.capacity),
+            )
             .sum();
         let per_display_quads =
             accumulate_display_quads(&self.bindings.numbers, self.bindings.displays.len())?;
@@ -658,6 +707,12 @@ impl VulkanRenderer {
             .chain(
                 self.bindings
                     .numbers
+                    .iter()
+                    .map(|binding| (binding.node_id, binding.capacity)),
+            )
+            .chain(
+                self.bindings
+                    .text_inputs
                     .iter()
                     .map(|binding| (binding.node_id, binding.capacity)),
             )
@@ -834,6 +889,27 @@ impl VulkanRenderer {
             )?;
         }
 
+        // Text inputs echo application-owned content (ADR-015 controlled component): the
+        // renderer draws exactly what the frame handed it and stores nothing.
+        for binding in &self.bindings.text_inputs {
+            let text = inputs.text(binding.source).unwrap_or("");
+            let commands = standard_runtime.render_glyph_set_text(
+                &binding.glyph_set_id,
+                text,
+                binding.origin_x,
+                binding.origin_y,
+            )?;
+            write_glyph_quads(
+                vertices,
+                &mut standard_cursor,
+                self.dynamic_standard_capacity_vertices,
+                &commands,
+                &self.bindings.standard,
+                surface_width,
+                surface_height,
+            )?;
+        }
+
         for resources in &mut self.display_resources {
             resources.written_vertices = 0;
         }
@@ -877,7 +953,10 @@ impl VulkanRenderer {
     /// Uploads every governed image's RGBA texture and builds the panel/image pipeline layouts
     /// once.
     fn create_panel_and_image_static_resources(&mut self) -> Result<(), BoxError> {
-        if !self.bindings.panels.is_empty() {
+        if !self.bindings.panels.is_empty()
+            || !self.bindings.buttons.is_empty()
+            || !self.bindings.text_inputs.is_empty()
+        {
             let layout_info = vk::PipelineLayoutCreateInfo::default();
             self.flat_pipeline_layout =
                 unsafe { self.device.create_pipeline_layout(&layout_info, None)? };
@@ -948,6 +1027,14 @@ impl VulkanRenderer {
             self.flat_vertex_buffer = buffer;
             self.flat_vertex_buffer_memory = memory;
             self.flat_vertex_count = vertices.len() as u32;
+        }
+
+        // The flat pipeline serves both the static panel underlays and the per-frame
+        // interactive chrome (ADR-015), so it exists whenever either does.
+        if !self.bindings.panels.is_empty()
+            || !self.bindings.buttons.is_empty()
+            || !self.bindings.text_inputs.is_empty()
+        {
             self.flat_pipeline =
                 create_flat_pipeline(&self.device, self.render_pass, self.flat_pipeline_layout)?;
         }
@@ -973,6 +1060,155 @@ impl VulkanRenderer {
                 create_image_pipeline(&self.device, self.render_pass, self.image_pipeline_layout)?;
         }
 
+        Ok(())
+    }
+
+    /// Allocates the interactive-chrome machinery once (ADR-015): a persistently mapped
+    /// flat-rect region sized for every button face, every text-input field and one caret, plus
+    /// each input's chrome colors derived from the governed theme table. Nothing here runs per
+    /// frame.
+    fn create_interactive_rect_resources(&mut self) -> Result<(), BoxError> {
+        let quad_count = self.bindings.buttons.len() + self.bindings.text_inputs.len();
+        if quad_count == 0 {
+            return Ok(());
+        }
+        // +1 quad for the caret of the focused input.
+        let capacity_vertices = (quad_count + 1) * 6;
+
+        for binding in &self.bindings.text_inputs {
+            let neutral =
+                mdux::resolve_color_token("Theme.Colors.Neutral").unwrap_or([0.5, 0.5, 0.5, 1.0]);
+            let caret_rgba = mdux::resolve_color_token(binding.color_token)
+                .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+            let caret_height = self
+                .bindings
+                .standard
+                .find_numeric_glyph_set(&binding.glyph_set_id)
+                .map(|glyph_set| {
+                    glyph_set
+                        .entries
+                        .iter()
+                        .filter_map(|entry| {
+                            self.bindings
+                                .standard
+                                .find_glyph(entry.atlas_index, entry.glyph_id)
+                                .map(|glyph| u32::from(glyph.height))
+                        })
+                        .max()
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0)
+                .max(4);
+            self.text_input_chrome.push(TextInputChrome {
+                field_rgba: scale_rgb(neutral, 0.35),
+                focused_field_rgba: scale_rgb(neutral, 0.55),
+                caret_rgba,
+                caret_height,
+            });
+        }
+
+        let buffer_size = vk::DeviceSize::try_from(capacity_vertices * size_of::<FlatVertex>())?;
+        let (buffer, memory) = create_buffer(
+            &self.instance,
+            &self.device,
+            self.physical_device,
+            buffer_size,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        let mapped = unsafe {
+            self.device
+                .map_memory(memory, 0, buffer_size, vk::MemoryMapFlags::empty())?
+        };
+        self.interactive_rect_buffer = buffer;
+        self.interactive_rect_memory = memory;
+        self.interactive_rect_ptr = std::ptr::NonNull::new(mapped.cast::<FlatVertex>());
+        self.interactive_rect_capacity_vertices = capacity_vertices;
+        self.interactive_rect_staging = Vec::with_capacity(capacity_vertices);
+        Ok(())
+    }
+
+    /// Rewrites the interactive-chrome region from this frame's presentation snapshot: button
+    /// faces (pressed tint when armed), text-input fields (focus highlight) and the focused
+    /// input's caret at its character position. Staging capacity is reserved once; no per-frame
+    /// allocation.
+    fn write_interactive_rects(
+        &mut self,
+        inputs: &FrameInputs,
+        interaction: InteractionSnapshot,
+    ) -> Result<(), BoxError> {
+        let Some(pointer) = self.interactive_rect_ptr else {
+            self.interactive_rect_written_vertices = 0;
+            return Ok(());
+        };
+        let (surface_width, surface_height) = self.authored_surface_size();
+        let mut staging = std::mem::take(&mut self.interactive_rect_staging);
+        staging.clear();
+
+        for (index, binding) in self.bindings.buttons.iter().enumerate() {
+            let rgba = if interaction.pressed_button == Some(index) {
+                binding.pressed_rgba
+            } else {
+                binding.rgba
+            };
+            push_flat_quad(&mut staging, binding.bounds, rgba, surface_width, surface_height);
+        }
+
+        for (index, binding) in self.bindings.text_inputs.iter().enumerate() {
+            let chrome = &self.text_input_chrome[index];
+            let rgba = if interaction.focused_input == Some(index) {
+                chrome.focused_field_rgba
+            } else {
+                chrome.field_rgba
+            };
+            push_flat_quad(&mut staging, binding.bounds, rgba, surface_width, surface_height);
+        }
+
+        if let Some(index) = interaction.focused_input {
+            if let (Some(binding), Some(chrome)) = (
+                self.bindings.text_inputs.get(index),
+                self.text_input_chrome.get(index),
+            ) {
+                let text = inputs.text(binding.source).unwrap_or("");
+                let caret_x = binding.origin_x
+                    + glyph_set_text_advance(
+                        &self.bindings.standard,
+                        &binding.glyph_set_id,
+                        text,
+                        interaction.caret,
+                    );
+                let caret_bounds = mdux::Rect {
+                    x: caret_x,
+                    y: binding.origin_y,
+                    width: 2,
+                    height: chrome.caret_height,
+                };
+                push_flat_quad(
+                    &mut staging,
+                    caret_bounds,
+                    chrome.caret_rgba,
+                    surface_width,
+                    surface_height,
+                );
+            }
+        }
+
+        if staging.len() > self.interactive_rect_capacity_vertices {
+            let written = staging.len();
+            self.interactive_rect_staging = staging;
+            return Err(box_error(format!(
+                "interactive chrome wrote {written} vertices, above the fixed capacity of {}",
+                self.interactive_rect_capacity_vertices
+            )));
+        }
+
+        // Safety: mapped once at creation with exactly this capacity; the in-flight fence waited
+        // in draw_frame guarantees the GPU is done reading the previous frame's contents.
+        unsafe {
+            std::ptr::copy_nonoverlapping(staging.as_ptr(), pointer.as_ptr(), staging.len());
+        }
+        self.interactive_rect_written_vertices = staging.len() as u32;
+        self.interactive_rect_staging = staging;
         Ok(())
     }
 
@@ -1291,6 +1527,39 @@ impl VulkanRenderer {
                 }
             }
 
+            // Interactive chrome (ADR-015): button faces, text-input fields and the caret —
+            // above panels/waterfalls/images, beneath the text overlay so labels and echoed
+            // content render on top of their faces.
+            if self.flat_pipeline != vk::Pipeline::null()
+                && self.interactive_rect_written_vertices > 0
+            {
+                let viewport = vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                };
+                let scissor = vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                };
+                let vertex_buffers = [self.interactive_rect_buffer];
+                let offsets = [0];
+                self.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.flat_pipeline,
+                );
+                self.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                self.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                self.device
+                    .cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                self.device
+                    .cmd_draw(command_buffer, self.interactive_rect_written_vertices, 1, 0, 0);
+            }
+
             let has_static =
                 self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
             let has_dynamic = self.text_pipeline != vk::Pipeline::null()
@@ -1499,6 +1768,17 @@ impl VulkanRenderer {
 
     fn destroy_text_static_objects(&mut self) {
         unsafe {
+            if self.interactive_rect_ptr.take().is_some() {
+                self.device.unmap_memory(self.interactive_rect_memory);
+            }
+            if self.interactive_rect_buffer != vk::Buffer::null() {
+                self.device.destroy_buffer(self.interactive_rect_buffer, None);
+                self.interactive_rect_buffer = vk::Buffer::null();
+            }
+            if self.interactive_rect_memory != vk::DeviceMemory::null() {
+                self.device.free_memory(self.interactive_rect_memory, None);
+                self.interactive_rect_memory = vk::DeviceMemory::null();
+            }
             if self.dynamic_vertex_ptr.take().is_some() {
                 self.device.unmap_memory(self.dynamic_vertex_buffer_memory);
             }
@@ -2491,6 +2771,36 @@ fn push_flat_quad(
         vertex(right, bottom),
         vertex(left, bottom),
     ]);
+}
+
+/// RGB scaled once at construction (alpha untouched) — pressed/field tint derivation.
+fn scale_rgb(rgba: [f32; 4], factor: f32) -> [f32; 4] {
+    [rgba[0] * factor, rgba[1] * factor, rgba[2] * factor, rgba[3]]
+}
+
+/// Pixel advance of the first `characters` characters of `text` in a glyph set — the caret's
+/// x offset inside a text input. Characters missing from the set advance zero (they cannot
+/// occur in echoed content, which the `set_text` boundary already validated).
+fn glyph_set_text_advance(
+    package: &mdux::TextPackage,
+    glyph_set_id: &str,
+    text: &str,
+    characters: u16,
+) -> i32 {
+    let Some(glyph_set) = package.find_numeric_glyph_set(glyph_set_id) else {
+        return 0;
+    };
+    text.chars()
+        .take(usize::from(characters))
+        .map(|character| {
+            glyph_set
+                .entries
+                .iter()
+                .find(|entry| entry.character == character)
+                .map(|entry| entry.advance_x.max(0))
+                .unwrap_or(0)
+        })
+        .sum()
 }
 
 /// One image quad's 6 textured vertices (full 0..1 UV range) in NDC.
