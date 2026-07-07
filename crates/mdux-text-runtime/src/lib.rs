@@ -268,6 +268,22 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
     ) -> MduxResult<i32> {
         let mut cursor_x = origin_x;
 
+        // Baseline alignment: `origin_y` is the top of the set's tallest ascender, and every
+        // glyph drops by the difference between that ascent and its own bearing so baselines
+        // line up ('a' sits lower than 'A', descenders extend below). `bearing_y` is the glyph
+        // top above the baseline as baked; digit-only sets share one ascent, so the clock and
+        // numeric paths are byte-identical to before. Bounded scan, no allocation.
+        let set_ascent = glyph_set
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                self.package
+                    .find_glyph(entry.atlas_index, entry.glyph_id)
+                    .map(|atlas_glyph| i32::from(atlas_glyph.bearing_y))
+            })
+            .max()
+            .unwrap_or(0);
+
         for character in characters {
             let entry = glyph_set
                 .entries
@@ -291,7 +307,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
                         atlas_index: entry.atlas_index,
                         glyph_id: entry.glyph_id,
                         x: cursor_x,
-                        y: origin_y,
+                        y: origin_y + (set_ascent - i32::from(atlas_glyph.bearing_y)),
                         width: atlas_glyph.width,
                         height: atlas_glyph.height,
                     })
@@ -412,6 +428,30 @@ mod tests {
             .is_empty());
         assert!(runtime.render_glyph_set_text("SET-NOPE", "1", 0, 0).is_err());
         assert!(runtime.render_glyph_set_text("DIGITS", "X", 0, 0).is_err());
+    }
+
+    #[test]
+    fn baseline_aligns_glyphs_of_different_ascents() {
+        // Give '1' a tall ascent (12) and '-' a shorter one (6): the shorter glyph must drop
+        // by the difference so baselines align, instead of the tops lining up.
+        let mut package = example_package();
+        for atlas_glyph in &mut package.atlas_glyphs {
+            if atlas_glyph.glyph_id == 10 {
+                atlas_glyph.bearing_y = 12;
+            }
+            if atlas_glyph.glyph_id == 2 {
+                atlas_glyph.bearing_y = 6;
+            }
+        }
+        let runtime = TextRuntime::<16>::from_validated_package(&package);
+
+        let commands = runtime
+            .render_glyph_set_text("DIGITS", "1-1", 0, 100)
+            .expect("echoed text should render");
+
+        assert_eq!(commands[0].y, 100); // tallest ascender sits at the origin
+        assert_eq!(commands[1].y, 106); // shorter glyph drops by the ascent difference
+        assert_eq!(commands[2].y, 100);
     }
 
     #[test]
