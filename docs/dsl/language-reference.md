@@ -79,6 +79,33 @@ Screen NeuroSense500 {
 }
 ```
 
+## Interactive widgets (ADR-015)
+
+```text
+    Button {
+        id: ack-button;
+        width: 240px;
+        height: 64px;
+        position: 1392px, 720px;
+        label: t("STR-NS-ACK");
+        color: Theme.Colors.PrimaryAction;
+        source: "ACK_BUTTON";
+        requirement: "REQ-NS-004";
+    }
+
+    TextInput {
+        id: patient-id-input;
+        width: 512px;
+        height: 48px;
+        position: 1392px, 640px;
+        source: "PATIENT_ID";
+        max_length: 16;
+        charset: AsciiText;
+        color: Theme.Colors.Title;
+        requirement: "REQ-NS-005";
+    }
+```
+
 ## Rules
 
 - ids use ASCII alphanumeric characters, `_`, or `-`
@@ -94,6 +121,13 @@ Screen NeuroSense500 {
 - `StatusIndicator` requires `requirement`, `source`, and `states`; `colors` is optional
 - `Image` requires `source: img("IMAGE-ID")` and dimensions equal to the baked image's
   intrinsic size (no scaling)
+- `Button` requires `label`, `color`, and `source` (a quoted event key); `requirement` is
+  optional; declaring `on_press` is a compile error — framework-governed system events belong
+  to `CriticalButton` (ADR-015)
+- `TextInput` requires `source`, `max_length` (a positive character count), and `color`;
+  `charset` is optional (defaults to `AsciiText`, the printable-ASCII baked glyph set) and
+  `requirement` is optional; the compiler enforces
+  `max_length × widest-glyph-advance ≤ width` against the declared charset
 - any leaf component may declare `position: <X>px, <Y>px` — absolute screen coordinates, out of
   flow, fixed sizes only; the compiler enforces containment, no-overlap, text budgets in the
   pinned box, and emits an automatic `Bounds` golden reference (ADR-014)
