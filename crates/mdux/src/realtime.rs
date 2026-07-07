@@ -480,8 +480,33 @@ struct StreamState {
 }
 
 impl FrameInputs {
-    pub fn from_bindings(bindings: &ScreenBindings) -> Self {
-        Self {
+    /// Fails only on an internally inconsistent `ScreenBindings` (a text input referencing a
+    /// glyph set absent from the standard package). `ScreenBindings::from_screen` already
+    /// guarantees the invariant, but the fields are public, so a hand-built or mutated value
+    /// must fail fast here rather than surface later as misleading `set_text` charset errors.
+    pub fn from_bindings(bindings: &ScreenBindings) -> MduxResult<Self> {
+        let mut texts = Vec::with_capacity(bindings.text_inputs.len());
+        for binding in &bindings.text_inputs {
+            let glyph_set = bindings
+                .standard
+                .find_numeric_glyph_set(&binding.glyph_set_id)
+                .ok_or_else(|| {
+                    ValidationError::new(format!(
+                        "text input {} references glyph set {} missing from the standard package \
+                         (inconsistent screen bindings)",
+                        binding.node_id, binding.glyph_set_id
+                    ))
+                })?;
+            texts.push(TextSlot {
+                source: binding.source,
+                // Reserved for the worst UTF-8 case so set_text never reallocates.
+                value: String::with_capacity(usize::from(binding.max_length) * 4),
+                max_length: usize::from(binding.max_length),
+                allowed: glyph_set.entries.iter().map(|entry| entry.character).collect(),
+            });
+        }
+
+        Ok(Self {
             numbers: bindings
                 .numbers
                 .iter()
@@ -503,24 +528,8 @@ impl FrameInputs {
                     cursor: 0,
                 })
                 .collect(),
-            texts: bindings
-                .text_inputs
-                .iter()
-                .map(|binding| TextSlot {
-                    source: binding.source,
-                    // Reserved for the worst UTF-8 case so set_text never reallocates.
-                    value: String::with_capacity(usize::from(binding.max_length) * 4),
-                    max_length: usize::from(binding.max_length),
-                    allowed: bindings
-                        .standard
-                        .find_numeric_glyph_set(&binding.glyph_set_id)
-                        .map(|glyph_set| {
-                            glyph_set.entries.iter().map(|entry| entry.character).collect()
-                        })
-                        .unwrap_or_default(),
-                })
-                .collect(),
-        }
+            texts,
+        })
     }
 
     /// Sets the current value of a `NumericDisplay` source. The value is range-checked at render
@@ -733,7 +742,7 @@ mod tests {
     #[test]
     fn frame_inputs_validate_sources_and_ranges() {
         let bindings = bindings();
-        let mut inputs = FrameInputs::from_bindings(&bindings);
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
 
         inputs.set_number("SEDATION_INDEX", 47).expect("known source");
         assert_eq!(inputs.number("SEDATION_INDEX"), Some(47));
@@ -764,7 +773,7 @@ mod tests {
     #[test]
     fn stream_ring_wraps_and_overwrites_oldest() {
         let bindings = bindings();
-        let mut inputs = FrameInputs::from_bindings(&bindings);
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
 
         for index in 0..(DEFAULT_STREAM_ROWS + 2) {
             let row = vec![index as f32; DEFAULT_STREAM_BINS];
@@ -1063,9 +1072,25 @@ mod tests {
     }
 
     #[test]
+    fn from_bindings_fails_fast_on_inconsistent_text_input_bindings() {
+        // ScreenBindings::from_screen guarantees the glyph set exists, but the fields are
+        // public: a hand-mutated value must fail here, not as misleading set_text charset
+        // errors later.
+        let mut bindings = interactive_bindings();
+        bindings.text_inputs[0].glyph_set_id = "SET-GONE".to_string();
+
+        let error = FrameInputs::from_bindings(&bindings)
+            .expect_err("a text input referencing a missing glyph set must fail fast");
+        assert!(
+            error.to_string().contains("glyph set SET-GONE missing from the standard package"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn set_text_enforces_source_length_and_charset() {
         let bindings = interactive_bindings();
-        let mut inputs = FrameInputs::from_bindings(&bindings);
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
 
         // Empty until the application echoes something.
         assert_eq!(inputs.text("PATIENT_ID"), Some(""));
