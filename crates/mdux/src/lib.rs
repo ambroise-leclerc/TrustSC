@@ -26,11 +26,11 @@ pub use standard_images::{
     ACME_LOGO, ACME_LOGO_IMAGE_ID, StandardImageDefinition, default_image_packages,
 };
 pub use mdux_ui::{
-    ClockFormat, ClockSpec, CompiledNode, CompiledNodeKind, CompiledScreenPackage,
+    ButtonSpec, ClockFormat, ClockSpec, CompiledNode, CompiledNodeKind, CompiledScreenPackage,
     CriticalButtonSpec, CvCheckKind, FrameStatistics, GoldenReferenceEntry, GraphicsProfile,
     ImageSpec, LabelSpec, LayoutKind, LayoutSpec, MedicalUiRuntime, NumericDisplaySpec,
-    PanelSpec, PipelineMode, Rect, StatusIndicatorSpec, SystemEvent, THEME_COLORS, UiComponent,
-    UiSdkConfig, ViewportReservation, resolve_color_token,
+    PanelSpec, PipelineMode, Rect, StatusIndicatorSpec, SystemEvent, THEME_COLORS, TextInputSpec,
+    UiComponent, UiSdkConfig, ViewportReservation, resolve_color_token,
 };
 pub use standard_text::{
     DEFAULT_DISPLAY_DIGITS_GLYPH_SET_ID, DEFAULT_DISPLAY_FONT,
@@ -172,9 +172,19 @@ impl FrameworkBuilder {
 
                 // Dynamic requirement-bearing nodes render varying content, so their traced
                 // component uses a stable descriptive label instead of an approved string: the
-                // node id for a numeric display, the first state's approved label for a status
-                // indicator.
+                // node id for a numeric display or a text input, the first state's approved
+                // label for a status indicator. (A requirement-bearing Button carries a static
+                // approved label, so the dual-Some branch above already traced it.)
                 match &node.kind {
+                    CompiledNodeKind::TextInput(spec) => {
+                        if let Some(requirement_id) = spec.requirement_id {
+                            self.ui_components.push(UiComponent::new(
+                                node.id,
+                                node.id,
+                                vec![RequirementId::new(requirement_id)?],
+                            )?);
+                        }
+                    }
                     CompiledNodeKind::NumericDisplay(spec) => {
                         self.ui_components.push(UiComponent::new(
                             node.id,

@@ -312,8 +312,14 @@ impl ScreenBindings {
                         image: package.clone(),
                     });
                 }
-                // Static text kinds have no realtime state.
+                // Static text kinds have no realtime state. Button and TextInput receive their
+                // interaction bindings with the ADR-015 input plane (epic #72, wave #76); until
+                // then a Button renders as static text and a TextInput renders nothing dynamic,
+                // but their spec invariants are still enforced here so hand-built screens fail
+                // at binding time, not later.
                 CompiledNodeKind::CriticalButton(_) | CompiledNodeKind::Label(_) => {}
+                CompiledNodeKind::Button(spec) => spec.validate()?,
+                CompiledNodeKind::TextInput(spec) => spec.validate()?,
             }
         }
 
@@ -792,6 +798,73 @@ mod tests {
         )
         .expect_err("unknown image package should be rejected");
         assert!(error.to_string().contains("unknown image package"), "{error}");
+    }
+
+    #[test]
+    fn from_screen_rejects_invalid_interactive_specs_at_binding_time() {
+        const ZERO_CAPACITY_INPUT: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenTextInput",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 16, y: 16, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(mdux_ui::TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 0,
+                    glyph_set_id: "SET-ASCII-TEXT",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: None,
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &ZERO_CAPACITY_INPUT,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("zero-capacity text input should be rejected at binding time");
+        assert!(
+            error.to_string().contains("max_length must be greater than zero"),
+            "{error}"
+        );
+
+        const EMPTY_SOURCE_BUTTON: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenButton",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "ack-button",
+                bounds: Rect { x: 16, y: 16, width: 240, height: 64 },
+                kind: CompiledNodeKind::Button(mdux_ui::ButtonSpec {
+                    text_key: "STR-NS-ACK",
+                    color_token: "Theme.Colors.PrimaryAction",
+                    source: "",
+                    requirement_id: None,
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &EMPTY_SOURCE_BUTTON,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("empty button source should be rejected at binding time");
+        assert!(error.to_string().contains("button source must not be empty"), "{error}");
     }
 
     #[test]
