@@ -99,15 +99,17 @@ Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit 
 glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
 application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
 
-## A complete Class C monitor in 156 lines
+## A complete Class C monitor in 225 lines
 
 `examples/class_c_monitor` is the **Acme NeuroSense 500**, a fictional depth-of-anesthesia
-monitor modeling a genuine IEC 62304 **Class C** configuration — and, since ADR-014, a
-**pixel-exact positioned layout**: a 1920×1080 surface pinned in the `.medui` file itself, a
-full-width light-gray top bar, the governed Acme logo at **exactly (1768, 8)**, and a 512×512
-sedation-index box with 160 px (= 120 pt) digits. Every `position:` is verified by the compiler
-(containment, no-overlap, i18n text budgets inside the pinned box) and pinned as an automatic
-golden reference — the layout specification *is* the evidence:
+monitor modeling a genuine IEC 62304 **Class C** configuration — with, since ADR-014, a
+**pixel-exact positioned layout** (a 1920×1080 surface pinned in the `.medui` file itself, a
+full-width light-gray top bar, the governed Acme logo at **exactly (1768, 8)**, a 512×512
+sedation-index box with 160 px = 120 pt digits) and, since ADR-015, **operator interaction**: a
+bounded patient-identifier `TextInput` (printable ASCII, 16 characters, full caret editing) and
+an ACKNOWLEDGE `Button` that clears the monitor's periodic alert. Every `position:` is verified
+by the compiler (containment, no-overlap, i18n text budgets inside the pinned box) and pinned as
+an automatic golden reference — the layout specification *is* the evidence:
 
 ```text
 +---------------------------------------------------------------------------+
@@ -117,16 +119,20 @@ golden reference — the layout specification *is* the evidence:
 |                                                   |      [  4 7  ]       |
 |          EEG DSA waterfall 1360x984               |    160px digits      |
 |                                                   +-----------------------+
-|                                                   |        (free)        |
+|                                                   | PATIENT ID           |
+|                                                   | [PID-2026 47_     ]  |  TextInput (1392,640) 512x48
+|                                                   | [ ACKNOWLEDGE ]      |  Button    (1392,720) 240x64
 +---------------------------------------------------+-----------------------+
 ```
 
-If a future translation outgrows the pinned title box, or two positioned components collide,
-**the build fails** — the alert happens at compile time, never on a bench. The clock still
-costs zero application code, and the app still has no `ash`/`winit`/`shaderc` dependency.
-The whole application:
+If a future translation outgrows the pinned title box, or two positioned components collide, or
+the 16-character identifier budget no longer fits its box, **the build fails** — the alert
+happens at compile time, never on a bench. Interaction flows one way out through the bounded
+`FrameEvents` queue and one way back in through `set_text` (the application owns the buffer; the
+renderer stores nothing), the clock still costs zero application code, and the app still has no
+`ash`/`winit`/`shaderc` dependency. The whole application:
 
-**`neurosense.medui`** (58 lines):
+**`neurosense.medui`** (87 lines):
 
 ```text
 Screen NeuroSense500 {
@@ -179,6 +185,35 @@ Screen NeuroSense500 {
         source: "SEDATION_INDEX";
         color: Theme.Colors.ScoreDigits;
     }
+    Label {
+        id: patient-id-caption;
+        width: 200px;
+        height: 24px;
+        position: 1392px, 608px;
+        text: t("STR-NS-PATIENT-ID");
+        color: Theme.Colors.Title;
+    }
+    TextInput {
+        id: patient-id-input;
+        width: 512px;
+        height: 48px;
+        position: 1392px, 640px;
+        requirement: "REQ-NS-005";
+        source: "PATIENT_ID";
+        max_length: 16;
+        charset: AsciiText;
+        color: Theme.Colors.Title;
+    }
+    Button {
+        id: ack-button;
+        width: 240px;
+        height: 64px;
+        position: 1392px, 720px;
+        requirement: "REQ-NS-004";
+        label: t("STR-NS-ACK");
+        color: Theme.Colors.PrimaryAction;
+        source: "ACK_BUTTON";
+    }
     VulkanViewport {
         id: eeg-dsa;
         width: 1360px;
@@ -199,14 +234,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-**`src/main.rs`** (93 lines, EEG simulator included):
+**`src/main.rs`** (133 lines, EEG simulator included):
 
 ```rust
 mdux::include_medui_screen!();
 
+use std::{cell::Cell, rc::Rc};
+
 use mdux::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Hazard, Requirement, RequirementId,
-    SafetyClass, UiSdkConfig, VerificationCase, VerificationMethod,
+    SafetyClass, TextInputModel, UiSdkConfig, VerificationCase, VerificationMethod, WidgetEvent,
 };
 
 /// Synthetic EEG: two drifting spectral peaks over pseudo-noise; the sedation index follows the
@@ -247,10 +284,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let req_index = RequirementId::new("REQ-NS-001")?;
     let req_stream = RequirementId::new("REQ-NS-002")?;
     let req_status = RequirementId::new("REQ-NS-003")?;
+    let req_ack = RequirementId::new("REQ-NS-004")?;
+    let req_patient_id = RequirementId::new("REQ-NS-005")?;
     for (id, verification_id, title) in [
         (&req_index, "VER-NS-001", "Display the sedation index, refreshed every frame"),
         (&req_stream, "VER-NS-002", "Display the spectral stream with visible freshness"),
         (&req_status, "VER-NS-003", "Keep the system status permanently visible"),
+        (&req_ack, "VER-NS-004", "Capture operator acknowledgment of the active alert"),
+        (
+            &req_patient_id,
+            "VER-NS-005",
+            "Bound patient identifier entry to the approved character set and length",
+        ),
     ] {
         compliance.add_requirement(Requirement::new(
             id.clone(),
@@ -286,20 +331,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut simulator = EegSimulator { tick: 0, noise: 0x9E37_79B9 };
+    // The simulator raises an alert periodically; the operator acknowledges it with the ACK
+    // button (REQ-NS-004). Shared between the input and realtime closures.
+    let alert_active = Rc::new(Cell::new(false));
+    let alert_for_input = Rc::clone(&alert_active);
+    // The application owns the patient-identifier buffer (ADR-015 controlled component) and
+    // echoes it into the frame; charset and length stay bounded by the compiled screen
+    // (REQ-NS-005).
+    let mut patient_id = TextInputModel::new("PATIENT_ID", 16);
+
     mdux_vulkan_winit::App::new(framework, screen)
+        .with_input(move |events, frame| {
+            for event in events.drain() {
+                match event {
+                    WidgetEvent::ButtonPressed { source: "ACK_BUTTON" } => {
+                        alert_for_input.set(false);
+                    }
+                    other => {
+                        patient_id.apply(&other);
+                    }
+                }
+            }
+            frame
+                .set_text("PATIENT_ID", patient_id.as_str())
+                .expect("PATIENT_ID wiring");
+        })
         .with_realtime(move |frame| {
             let (index, row) = simulator.tick();
+            // A synthetic alert fires every ~20 s at the nominal 60 Hz and latches until the
+            // operator acknowledges it.
+            if simulator.tick % 1200 == 0 {
+                alert_active.set(true);
+            }
+            let status = if alert_active.get() { 1 } else { 0 };
             frame.set_number("SEDATION_INDEX", index).expect("SEDATION_INDEX wiring");
-            frame.set_status("MONITOR_STATUS", 0).expect("MONITOR_STATUS wiring");
+            frame.set_status("MONITOR_STATUS", status).expect("MONITOR_STATUS wiring");
             frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
         })
         .run_from_env()
 }
 ```
 
-Run it with `cargo run -p class_c_monitor` (windowed; note the `HOST PREVIEW` banner and the
-`runtime` audit event in the diagnostics), or `-- --headless-smoke` for the CI path — the
-smoke output shows `golden_refs=6`: every positioned node is pinned evidence.
+Run it with `cargo run -p class_c_monitor` (windowed; type into the patient-ID field — click or
+Tab to focus, arrows/Home/End move the caret — and acknowledge the alert that fires every ~20 s;
+note the `HOST PREVIEW` banner and the `runtime` audit event in the diagnostics), or
+`-- --headless-smoke` for the CI path — the smoke output shows `golden_refs=9`: every positioned
+node is pinned evidence.
 
 ## Vulkan prerequisites
 

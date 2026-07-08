@@ -254,6 +254,20 @@ impl InteractionState {
     }
 }
 
+/// Maps a pointer position from physical window coordinates into the authored UI surface —
+/// the coordinate space of every compiled node's bounds — by the inverse of the ratio the
+/// renderer uses to scale authored geometry to the swapchain extent.
+fn authored_cursor(
+    physical: (f64, f64),
+    window_physical: (u32, u32),
+    authored: (u32, u32),
+) -> (f64, f64) {
+    (
+        physical.0 * f64::from(authored.0) / f64::from(window_physical.0.max(1)),
+        physical.1 * f64::from(authored.1) / f64::from(window_physical.1.max(1)),
+    )
+}
+
 fn rect_contains_point(bounds: &Rect, x: f64, y: f64) -> bool {
     x >= f64::from(bounds.x)
         && y >= f64::from(bounds.y)
@@ -341,10 +355,16 @@ fn run_windowed(
                 }
                 WindowEvent::Resized(_) => {}
                 WindowEvent::CursorMoved { position, .. } => {
-                    // Hit-testing happens in the logical UI surface the screen was authored in;
-                    // the pointer arrives in physical pixels (HiDPI scale ≥ 1).
-                    let logical = position.to_logical::<f64>(window.scale_factor());
-                    interaction.cursor = (logical.x, logical.y);
+                    // Hit-testing happens in the authored UI surface. The renderer scales the
+                    // authored geometry to the swapchain extent (HiDPI, and windows clamped
+                    // smaller than the authored surface by the window manager), so the pointer
+                    // maps from physical window coordinates into authored coordinates by the
+                    // inverse ratio — logical coordinates alone are NOT enough.
+                    let size = window.inner_size();
+                    interaction.cursor =
+                        authored_cursor((position.x, position.y), (size.width, size.height), (
+                            width, height,
+                        ));
                 }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
@@ -645,6 +665,31 @@ fn echoed_len(frame_inputs: &FrameInputs, source: &str) -> u16 {
 fn report_input_drops(events: &FrameEvents) {
     if events.dropped_events() > 0 {
         println!("input_dropped_events={}", events.dropped_events());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_maps_from_physical_window_into_the_authored_surface() {
+        // Retina, window exactly the authored surface: 2x physical, authored 1920x1080.
+        assert_eq!(
+            authored_cursor((2784.0, 1440.0), (3840, 2160), (1920, 1080)),
+            (1392.0, 720.0)
+        );
+        // Window clamped smaller than the authored surface (macOS laptop): the renderer
+        // scales content down, so the pointer scales up by the same ratio.
+        assert_eq!(
+            authored_cursor((696.0, 360.0), (960, 540), (1920, 1080)),
+            (1392.0, 720.0)
+        );
+        // 1:1 window, no scaling.
+        assert_eq!(
+            authored_cursor((100.0, 50.0), (1920, 1080), (1920, 1080)),
+            (100.0, 50.0)
+        );
     }
 }
 
