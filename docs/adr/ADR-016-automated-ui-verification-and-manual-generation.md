@@ -112,10 +112,13 @@ so reports are byte-reproducible and no serde enters governed or adapter code.
   TextPresence and InkContainment pass identically on every conformant implementation, because
   no Tier-1 check compares antialiased pixels byte-wise.
 - **Tier 2 — ColorHash is exact and backend-scoped.** Glyph antialiasing legitimately differs
-  across rasterizers, so hashes are pinned per `backend_id` (normalized device name). The
-  committed baselines are **llvmpipe only** (lavapipe, the CI software rasterizer): CI
-  byte-compares them on every run and any mismatch fails. On any other backend the check
-  reports `no_baseline` — informational, and **never a pass**.
+  across rasterizers, so hashes are pinned per `backend_id` — a normalized device name. The
+  committed baselines are **lavapipe only** (Mesa's Vulkan software rasterizer, installed in
+  CI): CI byte-compares them on every run and any mismatch fails. On any other backend the
+  check reports `no_baseline` — informational, and **never a pass**. Naming note: lavapipe
+  reports its Vulkan device name as `llvmpipe (LLVM …)` after its rasterization core; the
+  `backend_id` normalization maps that device name to `lavapipe`, and every baseline path, CI
+  step and document uses `lavapipe` exclusively.
 - No quantization: quantized hashes flip on bucket edges without giving real tolerance; the
   honest statement is that this hash is exact regression evidence for one backend.
 
@@ -136,8 +139,8 @@ event → expected → observed trace lands in the report.
 ### 5. Evidence reports — a new ADR-007 artifact class
 
 One report per `(application, locale)` under `generated/verification/<app>/<locale>/`:
-`report.json`, `screenshot.ppm`, and `step-<scenario>-<label>.ppm` captures; committed llvmpipe
-baselines under `generated/verification/<app>/baselines/llvmpipe/`. The report (schema v1)
+`report.json`, `screenshot.ppm`, and `step-<scenario>-<label>.ppm` captures; committed lavapipe
+baselines under `generated/verification/<app>/baselines/lavapipe/`. The report (schema v1)
 records: tool name/version, device identity and safety class, screen id, locale, surface
 extent, backend id and device name, the pinned clock, the screenshot digest, every check with
 its expected and measured values (RGBA and max channel delta, ink bounds, coverage ppm,
@@ -181,7 +184,7 @@ the package carries, automatically including locales added later.
 ### 8. CI — lavapipe as the reference software rasterizer
 
 The workflow installs `mesa-vulkan-drivers` (lavapipe; surfaceless, no display server), runs
-`--verify-ui --locales=all` for every example, byte-compares the committed llvmpipe ColorHash
+`--verify-ui --locales=all` for every example, byte-compares the committed lavapipe ColorHash
 baselines, regenerates the committed manual and byte-compares it (the evidence doctrine applied
 to documentation), and uploads `generated/verification/` as build artifacts so every CI run
 leaves inspectable regulatory evidence.
@@ -192,7 +195,7 @@ leaves inspectable regulatory evidence.
   rendered pixels on every CI run, and `ColorHash` gains its first precise definition.
 - Verification reuses the exact production render path — there is no second renderer to drift —
   at the cost of the adapter growing an offscreen module and the render pass one parameter.
-- The exact-pixel tier is honestly backend-scoped: llvmpipe baselines are enforced, developer
+- The exact-pixel tier is honestly backend-scoped: lavapipe baselines are enforced, developer
   GPUs report informationally. The certified gate never depends on antialiasing agreement.
 - Every supported translation now produces committed, rendered evidence per release; adding a
   locale to the text package automatically adds it to verification and to the manual.
