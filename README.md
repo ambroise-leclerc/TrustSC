@@ -440,6 +440,7 @@ cargo run --locked -q -p class_c_monitor -- --headless-smoke
   - `ADR-013`: host preview of Vulkan SC profiles and the bounded realtime contract
   - `ADR-014`: precise positioning, image asset governance, and theme colors
   - `ADR-015`: widget organization principles — compiled-retained structure, immediate-mode data plane, bounded input events
+  - `ADR-016`: automated UI verification and manual generation — offscreen rendering, rendered-truth checks, and evidence reports
 - Host-only third-party tooling used for the default Roboto bake path is tracked in `docs/governance/soup-register.toml`.
 
 ## Default Roboto asset governance
