@@ -249,6 +249,17 @@ impl AuditEventSink for MemoryAuditSink {
     }
 }
 
+/// One row of the requirement trace matrix: a requirement, its source clause, and the
+/// verification cases and hazards that reference it. The structured form of a
+/// `trace_matrix_export` line (ADR-016 §5), consumed by evidence reports without re-parsing text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraceRow {
+    pub requirement_id: String,
+    pub clause: String,
+    pub verification_ids: Vec<String>,
+    pub hazard_ids: Vec<String>,
+}
+
 pub struct ComplianceProgram {
     device: DeviceContext,
     requirements: Vec<Requirement>,
@@ -357,29 +368,47 @@ impl ComplianceProgram {
         Ok(())
     }
 
+    /// The structured sibling of [`trace_matrix_export`](Self::trace_matrix_export): one row per
+    /// requirement, in the same order, so evidence reports (ADR-016 §5) can join REQ → VER/hazard
+    /// without parsing pipe-delimited text.
+    pub fn trace_rows(&self) -> Vec<TraceRow> {
+        self.requirements
+            .iter()
+            .map(|requirement| {
+                let verification_ids = self
+                    .verifications
+                    .iter()
+                    .filter(|case| case.requirement == requirement.id)
+                    .map(|case| case.id.clone())
+                    .collect();
+
+                let hazard_ids = self
+                    .hazards
+                    .iter()
+                    .filter(|hazard| hazard.controlled_by.iter().any(|id| id == &requirement.id))
+                    .map(|hazard| hazard.id.clone())
+                    .collect();
+
+                TraceRow {
+                    requirement_id: requirement.id.to_string(),
+                    clause: requirement.source_clause.clone(),
+                    verification_ids,
+                    hazard_ids,
+                }
+            })
+            .collect()
+    }
+
     pub fn trace_matrix_export(&self) -> String {
         let mut lines = vec!["requirement_id|clause|verification_ids|hazard_ids".to_string()];
 
-        for requirement in &self.requirements {
-            let verification_ids = self
-                .verifications
-                .iter()
-                .filter(|case| case.requirement == requirement.id)
-                .map(|case| case.id.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
-
-            let hazard_ids = self
-                .hazards
-                .iter()
-                .filter(|hazard| hazard.controlled_by.iter().any(|id| id == &requirement.id))
-                .map(|hazard| hazard.id.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
-
+        for row in self.trace_rows() {
             lines.push(format!(
                 "{}|{}|{}|{}",
-                requirement.id, requirement.source_clause, verification_ids, hazard_ids
+                row.requirement_id,
+                row.clause,
+                row.verification_ids.join(","),
+                row.hazard_ids.join(",")
             ));
         }
 
@@ -451,5 +480,61 @@ mod tests {
             error.to_string(),
             "Class C programs must include at least one hazard definition"
         );
+    }
+
+    #[test]
+    fn trace_rows_match_the_text_export_line_for_line() {
+        let device = DeviceContext::new("Acme", "Ventilator", "alarm-ui", "0.1.0", SafetyClass::C)
+            .expect("device should be valid");
+        let requirement_id = RequirementId::new("REQ-ALARM-001").expect("id should be valid");
+
+        let mut program = ComplianceProgram::new(device);
+        program.add_requirement(
+            Requirement::new(
+                requirement_id.clone(),
+                "Render alarm state",
+                "IEC62304-5.3",
+                "Verify alarm screen rendering",
+            )
+            .expect("requirement should be valid"),
+        );
+        program.add_hazard(
+            Hazard::new(
+                "HAZ-ALARM-001",
+                "Alarm suppression due to non-deterministic UI update",
+                vec![requirement_id.clone()],
+            )
+            .expect("hazard should be valid"),
+        );
+        program.add_verification(
+            VerificationCase::new(
+                "VER-ALARM-001",
+                requirement_id,
+                VerificationMethod::Test,
+                "Offline deterministic frame trace",
+            )
+            .expect("verification should be valid"),
+        );
+
+        let rows = program.trace_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].requirement_id, "REQ-ALARM-001");
+        assert_eq!(rows[0].clause, "IEC62304-5.3");
+        assert_eq!(rows[0].verification_ids, vec!["VER-ALARM-001".to_string()]);
+        assert_eq!(rows[0].hazard_ids, vec!["HAZ-ALARM-001".to_string()]);
+
+        let export = program.trace_matrix_export();
+        let export_lines: Vec<&str> = export.lines().collect();
+        assert_eq!(export_lines.len(), rows.len() + 1);
+        for (row, line) in rows.iter().zip(export_lines.iter().skip(1)) {
+            let expected = format!(
+                "{}|{}|{}|{}",
+                row.requirement_id,
+                row.clause,
+                row.verification_ids.join(","),
+                row.hazard_ids.join(",")
+            );
+            assert_eq!(line, &expected);
+        }
     }
 }
