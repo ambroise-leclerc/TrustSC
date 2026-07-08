@@ -847,7 +847,6 @@ dependencies = [
 name = "mdux-ui-verify"
 version = "0.1.0"
 dependencies = [
- "mdux-core",
  "mdux-ui",
 ]
 

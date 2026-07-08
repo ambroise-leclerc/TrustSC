@@ -237,7 +237,12 @@ pub(crate) fn chrome_color_check(
         }
     }
 
-    let outcome = if max_channel_delta <= CHROME_TOLERANCE {
+    // Zero samples (e.g. a truncated frame buffer, or bands that fall entirely outside it)
+    // must never read as a pass: max_channel_delta would still be at its initial 0 with no
+    // pixel ever actually measured against the theme token.
+    let outcome = if sample_count == 0 {
+        CheckOutcome::Fail
+    } else if max_channel_delta <= CHROME_TOLERANCE {
         CheckOutcome::Pass
     } else {
         CheckOutcome::Fail

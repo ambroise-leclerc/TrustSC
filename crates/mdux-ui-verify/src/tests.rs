@@ -136,6 +136,26 @@ fn chrome_color_tolerance_edge_off_by_one_still_passes() {
 }
 
 #[test]
+fn chrome_color_fails_when_no_pixel_could_be_sampled() {
+    // A 1x1 frame: every coordinate in the button's chrome bands falls outside width/height, so
+    // frame.pixel() returns None everywhere and sample_count stays 0. This must fail, not read
+    // as a Pass with max_channel_delta still at its untouched initial 0.
+    let builder = FrameBuilder::new(1, 1, BACKGROUND);
+    let node = button_node(BUTTON_BOUNDS);
+
+    let result = chrome_color_check(&node, &builder.frame(), None).expect("chrome region");
+
+    assert_eq!(result.outcome, CheckOutcome::Fail);
+    match result.payload {
+        CheckPayload::ChromeColor { sample_count, max_channel_delta, .. } => {
+            assert_eq!(sample_count, 0);
+            assert_eq!(max_channel_delta, 0);
+        }
+        other => panic!("expected ChromeColor payload, got {other:?}"),
+    }
+}
+
+#[test]
 fn chrome_color_fails_when_off_by_two_channels() {
     let mut builder = FrameBuilder::new(300, 200, BACKGROUND);
     let off_by_two = [
