@@ -27,6 +27,9 @@ jobs:
         with:
           workspaces: . -> target
 
+      - name: Install lavapipe (Mesa's Vulkan software rasterizer, ADR-016 §8)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
+
       - name: Build workspace
         run: cargo build --locked --workspace
 

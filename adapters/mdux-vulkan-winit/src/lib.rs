@@ -13,6 +13,7 @@
 //! # }
 //! ```
 
+mod offscreen;
 mod renderer;
 
 use std::{
@@ -28,6 +29,8 @@ use mdux::{
     GraphicsProfile, Rect, SystemEvent,
 };
 use renderer::{civil_from_unix, BoxError, InteractionSnapshot, VulkanRenderer};
+
+pub use offscreen::{CapturedFrame, OffscreenRenderer};
 use winit::{
     dpi::LogicalSize,
     event::{ElementState, Event, MouseButton, WindowEvent},
