@@ -164,6 +164,7 @@ struct CompiledClock {
     seconds: u8,
 }
 
+#[derive(Debug)]
 enum CompiledStep {
     Event(CompiledEvent),
     ExpectText { source: String, value: String },
@@ -175,6 +176,7 @@ enum CompiledStep {
 /// Mirrors `mdux::WidgetEvent` exactly (ADR-015): every variant that can arrive from scripted
 /// interaction, none that the framework dispatches itself (`CriticalButtonPressed` is
 /// framework-governed and has no scenario authoring surface).
+#[derive(Debug)]
 enum CompiledEvent {
     ButtonPressed { source: String },
     CharTyped { source: String, character: char },
@@ -277,19 +279,19 @@ fn compile_step(path: &Path, index: usize, step: &StepTable) -> Result<CompiledS
     }
     if let Some(expect_text) = &step.expect_text {
         return Ok(CompiledStep::ExpectText {
-            source: expect_text.source.clone(),
+            source: require_non_empty_source(path, index, "expect_text", &expect_text.source)?,
             value: expect_text.value.clone(),
         });
     }
     if let Some(expect_status) = &step.expect_status {
         return Ok(CompiledStep::ExpectStatus {
-            source: expect_status.source.clone(),
+            source: require_non_empty_source(path, index, "expect_status", &expect_status.source)?,
             value: expect_status.value,
         });
     }
     if let Some(expect_number) = &step.expect_number {
         return Ok(CompiledStep::ExpectNumber {
-            source: expect_number.source.clone(),
+            source: require_non_empty_source(path, index, "expect_number", &expect_number.source)?,
             value: expect_number.value,
         });
     }
@@ -304,20 +306,69 @@ fn compile_step(path: &Path, index: usize, step: &StepTable) -> Result<CompiledS
     Ok(CompiledStep::Capture { label })
 }
 
+/// Rejects an empty or whitespace-only `source` for an `expect_*` step, naming the file, step
+/// index and field so an authoring mistake fails at build time with a precise pointer rather
+/// than as a scenario that can never match any real widget source key.
+fn require_non_empty_source(
+    path: &Path,
+    index: usize,
+    step_kind: &str,
+    source: &str,
+) -> Result<String, DynError> {
+    if source.trim().is_empty() {
+        return Err(format!(
+            "{}: step {index} {step_kind} source must not be empty",
+            path.display()
+        )
+        .into());
+    }
+    Ok(source.to_string())
+}
+
+/// Fields an event table may legally set beyond `kind`/`source`, per event kind — anything else
+/// present is an authoring mistake (e.g. a stray `position` on `CharTyped`) that must fail at
+/// build time instead of being silently accepted and discarded.
+struct AllowedEventFields {
+    character: bool,
+    position: bool,
+}
+
 fn compile_event(path: &Path, index: usize, table: &EventTable) -> Result<CompiledEvent, DynError> {
     let require_source = |kind: &str| -> Result<String, DynError> {
         table
             .source
             .clone()
-            .filter(|source| !source.is_empty())
+            .filter(|source| !source.trim().is_empty())
             .ok_or_else(|| {
                 format!("{}: step {index} event kind {kind} requires a non-empty source", path.display()).into()
             })
     };
 
+    let reject_unused_fields = |kind: &str, allowed: AllowedEventFields| -> Result<(), DynError> {
+        if !allowed.character && table.character.is_some() {
+            return Err(format!(
+                "{}: step {index} event kind {kind} does not accept `character`",
+                path.display()
+            )
+            .into());
+        }
+        if !allowed.position && table.position.is_some() {
+            return Err(format!(
+                "{}: step {index} event kind {kind} does not accept `position`",
+                path.display()
+            )
+            .into());
+        }
+        Ok(())
+    };
+
     match table.kind.as_str() {
-        "ButtonPressed" => Ok(CompiledEvent::ButtonPressed { source: require_source("ButtonPressed")? }),
+        "ButtonPressed" => {
+            reject_unused_fields("ButtonPressed", AllowedEventFields { character: false, position: false })?;
+            Ok(CompiledEvent::ButtonPressed { source: require_source("ButtonPressed")? })
+        }
         "CharTyped" => {
+            reject_unused_fields("CharTyped", AllowedEventFields { character: true, position: false })?;
             let source = require_source("CharTyped")?;
             let character_value = table.character.as_deref().ok_or_else(|| -> DynError {
                 format!("{}: step {index} event kind CharTyped requires a character", path.display()).into()
@@ -336,19 +387,32 @@ fn compile_event(path: &Path, index: usize, table: &EventTable) -> Result<Compil
             }
             Ok(CompiledEvent::CharTyped { source, character })
         }
-        "Backspace" => Ok(CompiledEvent::Backspace { source: require_source("Backspace")? }),
-        "Delete" => Ok(CompiledEvent::Delete { source: require_source("Delete")? }),
+        "Backspace" => {
+            reject_unused_fields("Backspace", AllowedEventFields { character: false, position: false })?;
+            Ok(CompiledEvent::Backspace { source: require_source("Backspace")? })
+        }
+        "Delete" => {
+            reject_unused_fields("Delete", AllowedEventFields { character: false, position: false })?;
+            Ok(CompiledEvent::Delete { source: require_source("Delete")? })
+        }
         "CaretMoved" => {
+            reject_unused_fields("CaretMoved", AllowedEventFields { character: false, position: true })?;
             let source = require_source("CaretMoved")?;
             let position = table.position.ok_or_else(|| -> DynError {
                 format!("{}: step {index} event kind CaretMoved requires a position", path.display()).into()
             })?;
             Ok(CompiledEvent::CaretMoved { source, position })
         }
-        "TextCommitted" => Ok(CompiledEvent::TextCommitted { source: require_source("TextCommitted")? }),
-        "FocusChanged" => Ok(CompiledEvent::FocusChanged {
-            source: table.source.clone().filter(|source| !source.is_empty()),
-        }),
+        "TextCommitted" => {
+            reject_unused_fields("TextCommitted", AllowedEventFields { character: false, position: false })?;
+            Ok(CompiledEvent::TextCommitted { source: require_source("TextCommitted")? })
+        }
+        "FocusChanged" => {
+            reject_unused_fields("FocusChanged", AllowedEventFields { character: false, position: false })?;
+            Ok(CompiledEvent::FocusChanged {
+                source: table.source.clone().filter(|source| !source.trim().is_empty()),
+            })
+        }
         other => Err(format!("{}: step {index} has unknown event kind {other:?}", path.display()).into()),
     }
 }
@@ -444,4 +508,93 @@ fn emit_event(event: &CompiledEvent) -> String {
 
 fn emit_optional_string(value: Option<&str>) -> String {
     value.map(|entry| format!("Some({entry:?})")).unwrap_or_else(|| "None".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_path() -> PathBuf {
+        PathBuf::from("scenario.toml")
+    }
+
+    fn event_table(kind: &str) -> EventTable {
+        EventTable {
+            kind: kind.to_string(),
+            source: Some("ACK_BUTTON".to_string()),
+            character: None,
+            position: None,
+        }
+    }
+
+    #[test]
+    fn rejects_whitespace_only_source_on_an_expect_step() {
+        let step = StepTable {
+            event: None,
+            expect_text: Some(ExpectTextTable {
+                source: "   ".to_string(),
+                value: "A".to_string(),
+            }),
+            expect_status: None,
+            expect_number: None,
+            capture: None,
+        };
+
+        let error = compile_step(&sample_path(), 0, &step)
+            .expect_err("a whitespace-only expect_text source must be rejected");
+        assert!(
+            error.to_string().contains("expect_text source must not be empty"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_whitespace_only_source_on_an_event() {
+        let mut table = event_table("ButtonPressed");
+        table.source = Some("   ".to_string());
+
+        let error = compile_event(&sample_path(), 0, &table)
+            .expect_err("a whitespace-only event source must be rejected");
+        assert!(error.to_string().contains("requires a non-empty source"), "{error}");
+    }
+
+    #[test]
+    fn rejects_a_character_field_on_an_event_kind_that_does_not_accept_one() {
+        let mut table = event_table("ButtonPressed");
+        table.character = Some("A".to_string());
+
+        let error = compile_event(&sample_path(), 0, &table)
+            .expect_err("ButtonPressed must not accept a character field");
+        assert!(
+            error.to_string().contains("ButtonPressed does not accept `character`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_position_field_on_an_event_kind_that_does_not_accept_one() {
+        let mut table = event_table("CharTyped");
+        table.character = Some("A".to_string());
+        table.position = Some(3);
+
+        let error = compile_event(&sample_path(), 0, &table)
+            .expect_err("CharTyped must not accept a position field");
+        assert!(
+            error.to_string().contains("CharTyped does not accept `position`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn accepts_the_fields_each_event_kind_declares() {
+        let mut char_typed = event_table("CharTyped");
+        char_typed.character = Some("A".to_string());
+        assert!(compile_event(&sample_path(), 0, &char_typed).is_ok());
+
+        let mut caret_moved = event_table("CaretMoved");
+        caret_moved.position = Some(4);
+        assert!(compile_event(&sample_path(), 0, &caret_moved).is_ok());
+
+        assert!(compile_event(&sample_path(), 0, &event_table("ButtonPressed")).is_ok());
+    }
 }

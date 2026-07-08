@@ -51,9 +51,10 @@ pub struct ScenarioScript {
 }
 
 /// One step's evidence: what was scripted, what was expected (if anything), what was actually
-/// observed, and whether the step passed. `Event` and `Capture` steps always pass — there is
-/// nothing to assert — but still land in the trace, so the full event → expected → observed
-/// sequence is reconstructable from `ScenarioTrace::steps` alone.
+/// observed, and whether the step passed. `Capture` steps always pass — there is nothing to
+/// assert. `Event` steps pass unless the bounded `FrameEvents` queue was full and silently
+/// dropped them (ADR-015); either way every step lands in the trace, so the full
+/// event → expected → observed sequence is reconstructable from `ScenarioTrace::steps` alone.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StepTrace {
     pub index: usize,
@@ -113,15 +114,23 @@ pub fn run_scenario(
     for (index, step) in script.steps.iter().enumerate() {
         match *step {
             ScenarioStep::Event(event) => {
-                events.push(event);
+                // FrameEvents is a bounded queue (ADR-015): a dropped event must fail the step
+                // rather than let the scenario "pass" while silently never delivering the
+                // scripted input.
+                let queued = events.push(event);
                 needs_frame = true;
                 steps.push(StepTrace {
                     index,
                     description: format!("event {event:?}"),
                     expected: None,
-                    observed: None,
-                    passed: true,
+                    observed: if queued {
+                        None
+                    } else {
+                        Some("dropped: FrameEvents queue is full".to_string())
+                    },
+                    passed: queued,
                 });
+                passed &= queued;
             }
             ScenarioStep::ExpectText { source, value } => {
                 settle_frame(&mut needs_frame, events, frame_inputs, input_closure, realtime_closure);
@@ -367,5 +376,45 @@ mod tests {
         assert_eq!(trace.steps[1].expected.as_deref(), Some("WRONG"));
         // Replay continues past the failed expectation, and the still-true one still passes.
         assert!(trace.steps[2].passed);
+    }
+
+    #[test]
+    fn a_dropped_event_fails_its_step_instead_of_silently_passing() {
+        let bindings = bindings();
+        let mut frame_inputs = FrameInputs::from_bindings(&bindings).expect("frame inputs");
+        // Capacity 1: the second queued event has nowhere to go before the frame settles.
+        let mut events = FrameEvents::with_capacity(1);
+
+        // Neither closure runs: with no Expect*/Capture step in the script, settle_frame is
+        // never called, so both Event steps push directly into the still-full queue.
+        let mut input = |_events: &mut FrameEvents, _frame: &mut FrameInputs| {};
+        let mut realtime = |_frame: &mut FrameInputs| {};
+
+        let script = ScenarioScript {
+            id: "overflow-test",
+            requirement_ids: &[],
+            clock: ScenarioClock { year: 2026, month: 1, day: 1, hours: 0, minutes: 0, seconds: 0 },
+            steps: &[
+                ScenarioStep::Event(WidgetEvent::CharTyped { source: "PATIENT_ID", character: 'A' }),
+                ScenarioStep::Event(WidgetEvent::CharTyped { source: "PATIENT_ID", character: 'B' }),
+            ],
+        };
+
+        let trace = run_scenario(
+            &script,
+            &mut events,
+            &mut frame_inputs,
+            &mut input,
+            &mut realtime,
+            |_label, _frame_inputs| {},
+        );
+
+        assert!(!trace.passed, "a dropped event must fail the scenario, not pass silently");
+        assert!(trace.steps[0].passed, "the first event fit in the queue and should pass");
+        assert!(!trace.steps[1].passed, "the second event was dropped and must fail");
+        assert_eq!(
+            trace.steps[1].observed.as_deref(),
+            Some("dropped: FrameEvents queue is full")
+        );
     }
 }
