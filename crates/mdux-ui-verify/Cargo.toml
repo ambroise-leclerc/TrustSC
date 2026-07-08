@@ -1,0 +1,8 @@
+[package]
+name = "mdux-ui-verify"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mdux-core = { path = "../mdux-core" }
+mdux-ui = { path = "../mdux-ui" }

@@ -844,6 +844,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-ui-verify"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+ "mdux-ui",
+]
+
+[[package]]
 name = "mdux-vulkan-winit"
 version = "0.1.0"
 dependencies = [

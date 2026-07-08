@@ -6,6 +6,7 @@ members = [
     "crates/mdux-image-schema",
     "crates/mdux-ui",
     "crates/mdux-ui-dsl-authoring",
+    "crates/mdux-ui-verify",
     "crates/mdux",
     "crates/mdux-build",
     "crates/mdux-text-schema",
