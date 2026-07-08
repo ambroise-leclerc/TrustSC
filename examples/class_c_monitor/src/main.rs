@@ -1,36 +1,11 @@
 mdux::include_medui_screen!();
+mdux::include_scenarios!();
 
-use std::{cell::Cell, rc::Rc};
-
+use class_c_monitor::app_logic::AppLogic;
 use mdux::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Hazard, Requirement, RequirementId,
-    SafetyClass, TextInputModel, UiSdkConfig, VerificationCase, VerificationMethod, WidgetEvent,
+    SafetyClass, UiSdkConfig, VerificationCase, VerificationMethod,
 };
-
-/// Synthetic EEG: two drifting spectral peaks over pseudo-noise; the sedation index follows the
-/// dominant peak. Stands in for the acquisition front-end a real device would have.
-struct EegSimulator {
-    tick: u32,
-    noise: u32,
-}
-
-impl EegSimulator {
-    fn tick(&mut self) -> (i64, [f32; 64]) {
-        self.tick += 1;
-        let time = self.tick as f32 / 60.0;
-        let peak_a = 12.0 + 6.0 * (time / 5.0).sin();
-        let peak_b = 38.0 + 10.0 * (time / 9.0).cos();
-        let mut row = [0.0f32; 64];
-        for (bin, sample) in row.iter_mut().enumerate() {
-            self.noise = self.noise.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let noise = (self.noise >> 24) as f32 / 255.0 * 0.12;
-            let lobe = |peak: f32, width: f32| (-((bin as f32 - peak) / width).powi(2)).exp();
-            *sample = (0.85 * lobe(peak_a, 4.0) + 0.55 * lobe(peak_b, 7.0) + noise).min(1.0);
-        }
-        let index = (46.0 + 18.0 * (time / 7.0).sin()).clamp(0.0, 99.0) as i64;
-        (index, row)
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = DeviceContext::new(
@@ -91,43 +66,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_screen(screen)
         .build()?;
 
-    let mut simulator = EegSimulator { tick: 0, noise: 0x9E37_79B9 };
-    // The simulator raises an alert periodically; the operator acknowledges it with the ACK
-    // button (REQ-NS-004). Shared between the input and realtime closures.
-    let alert_active = Rc::new(Cell::new(false));
-    let alert_for_input = Rc::clone(&alert_active);
-    // The application owns the patient-identifier buffer (ADR-015 controlled component) and
-    // echoes it into the frame; charset and length stay bounded by the compiled screen
-    // (REQ-NS-005).
-    let mut patient_id = TextInputModel::new("PATIENT_ID", 16);
+    // The interaction/realtime state and the two closures registered below are shared, verbatim,
+    // with the scenario test (tests/scenarios.rs) through the class_c_monitor library crate —
+    // there is no second, test-only implementation of this behavior.
+    let (input, realtime) = AppLogic::new().into_closures();
 
     mdux_vulkan_winit::App::new(framework, screen)
-        .with_input(move |events, frame| {
-            for event in events.drain() {
-                match event {
-                    WidgetEvent::ButtonPressed { source: "ACK_BUTTON" } => {
-                        alert_for_input.set(false);
-                    }
-                    other => {
-                        patient_id.apply(&other);
-                    }
-                }
-            }
-            frame
-                .set_text("PATIENT_ID", patient_id.as_str())
-                .expect("PATIENT_ID wiring");
-        })
-        .with_realtime(move |frame| {
-            let (index, row) = simulator.tick();
-            // A synthetic alert fires every ~20 s at the nominal 60 Hz and latches until the
-            // operator acknowledges it.
-            if simulator.tick % 1200 == 0 {
-                alert_active.set(true);
-            }
-            let status = if alert_active.get() { 1 } else { 0 };
-            frame.set_number("SEDATION_INDEX", index).expect("SEDATION_INDEX wiring");
-            frame.set_status("MONITOR_STATUS", status).expect("MONITOR_STATUS wiring");
-            frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
-        })
+        .with_input(input)
+        .with_realtime(realtime)
         .run_from_env()
 }

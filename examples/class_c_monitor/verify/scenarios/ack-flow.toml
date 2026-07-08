@@ -1,0 +1,24 @@
+# Behavior evidence for REQ-NS-004 (operator acknowledgment) and REQ-NS-005 (patient identifier
+# entry): type into PATIENT_ID, see it echoed back, press ACK and see MONITOR_STATUS return to
+# nominal (ADR-016 §4).
+id = "ack-flow"
+requirement_ids = ["REQ-NS-004", "REQ-NS-005"]
+clock = "2026-01-01T12:00:00Z"
+
+[[step]]
+event = { kind = "CharTyped", source = "PATIENT_ID", character = "A" }
+
+[[step]]
+expect_text = { source = "PATIENT_ID", value = "A" }
+
+[[step]]
+capture = "typed"
+
+[[step]]
+event = { kind = "ButtonPressed", source = "ACK_BUTTON" }
+
+[[step]]
+expect_status = { source = "MONITOR_STATUS", value = 0 }
+
+[[step]]
+capture = "acknowledged"

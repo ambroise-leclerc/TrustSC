@@ -22,6 +22,9 @@ use std::{
 
 use mdux_ui_dsl_authoring::{CompileOptions, ImagePackages, TextPackages};
 
+mod scenario;
+pub use scenario::ScenarioSet;
+
 type DynError = Box<dyn std::error::Error>;
 
 /// Builder for compiling one `.medui` file into the generated Rust module consumed by

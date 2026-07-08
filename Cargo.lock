@@ -742,6 +742,8 @@ version = "0.1.0"
 dependencies = [
  "mdux",
  "mdux-ui-dsl-authoring",
+ "serde",
+ "toml",
 ]
 
 [[package]]
