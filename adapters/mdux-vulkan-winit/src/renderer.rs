@@ -871,7 +871,10 @@ impl VulkanRenderer {
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
 
-        copy_image_to_buffer(
+        // Both the copy and the map can fail; every exit path from here must still free the
+        // staging buffer/memory, so the fallible work happens in one expression and cleanup runs
+        // unconditionally afterward rather than via early `?` returns that would leak them.
+        let result = copy_image_to_buffer(
             &self.device,
             self.command_pool,
             self.graphics_queue,
@@ -879,20 +882,26 @@ impl VulkanRenderer {
             staging_buffer,
             extent.width,
             extent.height,
-        )?;
-
-        let mut rgba = vec![0u8; byte_count as usize];
-        unsafe {
-            let mapped =
-                self.device
-                    .map_memory(staging_memory, 0, byte_count, vk::MemoryMapFlags::empty())?;
+        )
+        .and_then(|()| unsafe {
+            let mapped = self.device.map_memory(
+                staging_memory,
+                0,
+                byte_count,
+                vk::MemoryMapFlags::empty(),
+            )?;
+            let mut rgba = vec![0u8; byte_count as usize];
             ptr::copy_nonoverlapping(mapped.cast::<u8>(), rgba.as_mut_ptr(), byte_count as usize);
             self.device.unmap_memory(staging_memory);
+            Ok(rgba)
+        });
+
+        unsafe {
             self.device.destroy_buffer(staging_buffer, None);
             self.device.free_memory(staging_memory, None);
         }
 
-        Ok(rgba)
+        result
     }
 
     fn create_depth_resources(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
@@ -2512,8 +2521,9 @@ fn create_image_view(
 
 /// `final_layout` is the layout the render pass automatically transitions the color attachment
 /// to when it ends: `PRESENT_SRC_KHR` for a windowed swapchain image, `TRANSFER_SRC_OPTIMAL` for
-/// the offscreen target (ADR-016 §1) — which then needs no extra barrier before
-/// `copy_image_to_buffer`.
+/// the offscreen target (ADR-016 §1). The trailing subpass dependency below makes that
+/// transition's writes visible to a subsequent transfer read, so `copy_image_to_buffer` needs no
+/// separate `vkCmdPipelineBarrier` of its own — the render pass itself is the barrier.
 fn create_render_pass(
     device: &ash::Device,
     format: vk::Format,
@@ -2547,7 +2557,7 @@ fn create_render_pass(
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .color_attachments(&color_references)
         .depth_stencil_attachment(&depth_reference);
-    let dependency = vk::SubpassDependency::default()
+    let entry_dependency = vk::SubpassDependency::default()
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
         .src_stage_mask(
@@ -2563,10 +2573,23 @@ fn create_render_pass(
                 | vk::AccessFlags::COLOR_ATTACHMENT_WRITE
                 | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         );
+    // Without this, the automatic UNDEFINED -> final_layout transition at render pass end is
+    // only ordered by the implicit external dependency's default (no) access mask — sufficient
+    // for a swapchain image the presentation engine synchronizes separately, but not for a
+    // subsequent vkCmdCopyImageToBuffer transfer read of the offscreen target, which could
+    // observe undefined data on a stricter driver. This makes the color attachment write visible
+    // to that read explicitly; harmless (an unexercised wait) on the windowed present path.
+    let exit_dependency = vk::SubpassDependency::default()
+        .src_subpass(0)
+        .dst_subpass(vk::SUBPASS_EXTERNAL)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags::TRANSFER)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
 
     let attachments = [color_attachment, depth_attachment];
     let subpasses = [subpass];
-    let dependencies = [dependency];
+    let dependencies = [entry_dependency, exit_dependency];
     let create_info = vk::RenderPassCreateInfo::default()
         .attachments(&attachments)
         .subpasses(&subpasses)
@@ -3909,7 +3932,9 @@ fn copy_buffer_to_image(
 
 /// The offscreen readback's one-shot copy (ADR-016 §1): `image` must already be in
 /// `TRANSFER_SRC_OPTIMAL` — true by construction, since the offscreen render pass's color
-/// attachment `final_layout` puts it there automatically at the end of every render pass.
+/// attachment `final_layout` puts it there automatically at the end of every render pass, and
+/// that render pass's trailing subpass dependency (`create_render_pass`) makes the write visible
+/// to this transfer read, so no separate barrier is issued here.
 fn copy_image_to_buffer(
     device: &ash::Device,
     command_pool: vk::CommandPool,
