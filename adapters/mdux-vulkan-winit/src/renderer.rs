@@ -32,6 +32,11 @@ const IMAGE_FRAG_SPV: &[u8] = include_bytes!("../shaders/generated/image.frag.sp
 /// Vertical exaggeration applied to the waterfall's normalized 0..1 samples.
 const WATERFALL_HEIGHT_SCALE: f32 = 0.45;
 
+/// Offscreen render target format (ADR-016 §1): straight RGBA, no shader color conversion, so a
+/// solid fill's expected byte is exactly `round(255 * token_float)`.
+const OFFSCREEN_COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
+const BYTES_PER_PIXEL: u32 = 4;
+
 #[derive(Clone, Copy)]
 struct QueueFamilies {
     graphics: u32,
@@ -219,7 +224,9 @@ pub struct VulkanRenderer {
     _entry: Entry,
     instance: Instance,
     surface_loader: khr::surface::Instance,
-    surface: vk::SurfaceKHR,
+    // `None` for an offscreen-constructed renderer (ADR-016 §1): there is no window, no
+    // presentable surface, and every present-support filter and swapchain call is skipped.
+    surface: Option<vk::SurfaceKHR>,
     physical_device: vk::PhysicalDevice,
     device: ash::Device,
     graphics_queue: vk::Queue,
@@ -294,6 +301,11 @@ pub struct VulkanRenderer {
     // Per-text-input chrome, derived once from the theme table (ADR-015 §6): no color is
     // computed per frame.
     text_input_chrome: Vec<TextInputChrome>,
+    // Offscreen render target (ADR-016 §1): the single color image an offscreen-constructed
+    // renderer renders into instead of a swapchain image. Null for a windowed renderer.
+    offscreen_image: vk::Image,
+    offscreen_image_memory: vk::DeviceMemory,
+    offscreen_image_view: vk::ImageView,
 }
 
 /// Which widget renders pressed/focused this frame, and where the caret sits — the event
@@ -317,6 +329,33 @@ struct TextInputChrome {
     caret_height: u32,
 }
 
+/// Every already-created Vulkan/runtime object [`VulkanRenderer::new`] and
+/// [`VulkanRenderer::new_offscreen`] hand to [`VulkanRenderer::assemble`] — the single place that
+/// fills in the struct's remaining null/empty sentinels, shared by both constructors so the two
+/// paths cannot drift on a field neither of them explicitly sets.
+struct AssembledDevice {
+    entry: Entry,
+    instance: Instance,
+    surface_loader: khr::surface::Instance,
+    surface: Option<vk::SurfaceKHR>,
+    physical_device: vk::PhysicalDevice,
+    device: ash::Device,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
+    queue_families: QueueFamilies,
+    swapchain_loader: khr::swapchain::Device,
+    command_pool: vk::CommandPool,
+    image_available_semaphore: vk::Semaphore,
+    render_finished_semaphore: vk::Semaphore,
+    in_flight_fence: vk::Fence,
+    device_name: String,
+    text_layout: ScreenTextLayout,
+    bindings: ScreenBindings,
+    depth_format: vk::Format,
+    authored_surface_width: u32,
+    authored_surface_height: u32,
+}
+
 impl VulkanRenderer {
     pub fn new(
         window: &Window,
@@ -327,7 +366,7 @@ impl VulkanRenderer {
         authored_surface_height: u32,
     ) -> Result<Self, BoxError> {
         let entry = unsafe { Entry::load()? };
-        let instance = create_instance(&entry, window, app_name)?;
+        let instance = create_instance(&entry, Some(window), app_name)?;
         let surface = unsafe {
             ash_window::create_surface(
                 &entry,
@@ -339,9 +378,9 @@ impl VulkanRenderer {
         };
         let surface_loader = khr::surface::Instance::new(&entry, &instance);
         let (physical_device, queue_families, device_name) =
-            pick_physical_device(&instance, &surface_loader, surface)?;
+            pick_physical_device(&instance, &surface_loader, Some(surface))?;
         let (device, graphics_queue, present_queue) =
-            create_logical_device(&instance, physical_device, queue_families)?;
+            create_logical_device(&instance, physical_device, queue_families, true)?;
         let swapchain_loader = khr::swapchain::Device::new(&instance, &device);
         let command_pool = create_command_pool(&device, queue_families.graphics)?;
         let (image_available_semaphore, render_finished_semaphore, in_flight_fence) =
@@ -355,28 +394,127 @@ impl VulkanRenderer {
         }
         let depth_format = find_depth_format(&instance, physical_device)?;
 
-        let mut renderer = Self {
-            _entry: entry,
+        let mut renderer = Self::assemble(AssembledDevice {
+            entry,
             instance,
             surface_loader,
-            surface,
+            surface: Some(surface),
             physical_device,
             device,
             graphics_queue,
             present_queue,
             queue_families,
             swapchain_loader,
-            swapchain: vk::SwapchainKHR::null(),
-            swapchain_image_views: Vec::new(),
-            render_pass: vk::RenderPass::null(),
-            framebuffers: Vec::new(),
             command_pool,
-            command_buffers: Vec::new(),
             image_available_semaphore,
             render_finished_semaphore,
             in_flight_fence,
             device_name,
             text_layout,
+            bindings,
+            depth_format,
+            authored_surface_width,
+            authored_surface_height,
+        });
+
+        renderer.create_text_static_resources()?;
+        renderer.create_dynamic_text_resources()?;
+        renderer.create_waterfall_resources()?;
+        renderer.create_panel_and_image_static_resources()?;
+        renderer.create_interactive_rect_resources()?;
+        renderer.recreate_swapchain(window)?;
+        Ok(renderer)
+    }
+
+    /// Builds an [`OffscreenRenderer`]-backing renderer (ADR-016 §1): a headless instance (no
+    /// `ash_window` WSI extensions, no surface), a device picked for a graphics queue only (no
+    /// present-support filter), and one `R8G8B8A8_UNORM` color image at `width`x`height` — the
+    /// authored surface extent — instead of a swapchain. Every resource builder and
+    /// `record_command_buffer` are the exact same code path presented frames use; only the
+    /// target (swapchain image vs. this single offscreen image) differs.
+    pub fn new_offscreen(
+        app_name: &str,
+        text_layout: ScreenTextLayout,
+        bindings: ScreenBindings,
+        authored_surface_width: u32,
+        authored_surface_height: u32,
+    ) -> Result<Self, BoxError> {
+        let entry = unsafe { Entry::load()? };
+        let instance = create_instance(&entry, None, app_name)?;
+        let surface_loader = khr::surface::Instance::new(&entry, &instance);
+        let (physical_device, queue_families, device_name) =
+            pick_physical_device(&instance, &surface_loader, None)?;
+        let (device, graphics_queue, present_queue) =
+            create_logical_device(&instance, physical_device, queue_families, false)?;
+        let swapchain_loader = khr::swapchain::Device::new(&instance, &device);
+        let command_pool = create_command_pool(&device, queue_families.graphics)?;
+        let (image_available_semaphore, render_finished_semaphore, in_flight_fence) =
+            create_sync_objects(&device)?;
+
+        TextRuntime::<1>::new(&bindings.standard)?;
+        for display in &bindings.displays {
+            TextRuntime::<1>::new(display)?;
+        }
+        let depth_format = find_depth_format(&instance, physical_device)?;
+
+        let mut renderer = Self::assemble(AssembledDevice {
+            entry,
+            instance,
+            surface_loader,
+            surface: None,
+            physical_device,
+            device,
+            graphics_queue,
+            present_queue,
+            queue_families,
+            swapchain_loader,
+            command_pool,
+            image_available_semaphore,
+            render_finished_semaphore,
+            in_flight_fence,
+            device_name,
+            text_layout,
+            bindings,
+            depth_format,
+            authored_surface_width,
+            authored_surface_height,
+        });
+
+        renderer.create_text_static_resources()?;
+        renderer.create_dynamic_text_resources()?;
+        renderer.create_waterfall_resources()?;
+        renderer.create_panel_and_image_static_resources()?;
+        renderer.create_interactive_rect_resources()?;
+        renderer.create_offscreen_target()?;
+        Ok(renderer)
+    }
+
+    /// Assembles the struct literal shared by the windowed and offscreen constructors: every
+    /// field not yet meaningful before the first swapchain/offscreen-target build gets its null
+    /// or empty sentinel here, exactly once.
+    fn assemble(built: AssembledDevice) -> Self {
+        Self {
+            _entry: built.entry,
+            instance: built.instance,
+            surface_loader: built.surface_loader,
+            surface: built.surface,
+            physical_device: built.physical_device,
+            device: built.device,
+            graphics_queue: built.graphics_queue,
+            present_queue: built.present_queue,
+            queue_families: built.queue_families,
+            swapchain_loader: built.swapchain_loader,
+            swapchain: vk::SwapchainKHR::null(),
+            swapchain_image_views: Vec::new(),
+            render_pass: vk::RenderPass::null(),
+            framebuffers: Vec::new(),
+            command_pool: built.command_pool,
+            command_buffers: Vec::new(),
+            image_available_semaphore: built.image_available_semaphore,
+            render_finished_semaphore: built.render_finished_semaphore,
+            in_flight_fence: built.in_flight_fence,
+            device_name: built.device_name,
+            text_layout: built.text_layout,
             text_atlas: TextAtlasResources::default(),
             text_descriptor_set_layout: vk::DescriptorSetLayout::null(),
             text_descriptor_pool: vk::DescriptorPool::null(),
@@ -386,7 +524,7 @@ impl VulkanRenderer {
             text_vertex_buffer: vk::Buffer::null(),
             text_vertex_buffer_memory: vk::DeviceMemory::null(),
             text_vertex_count: 0,
-            bindings,
+            bindings: built.bindings,
             dynamic_vertex_buffer: vk::Buffer::null(),
             dynamic_vertex_buffer_memory: vk::DeviceMemory::null(),
             dynamic_vertex_ptr: None,
@@ -395,7 +533,7 @@ impl VulkanRenderer {
             depth_image: vk::Image::null(),
             depth_image_memory: vk::DeviceMemory::null(),
             depth_image_view: vk::ImageView::null(),
-            depth_format,
+            depth_format: built.depth_format,
             current_extent: vk::Extent2D {
                 width: 0,
                 height: 0,
@@ -412,8 +550,8 @@ impl VulkanRenderer {
             image_pipeline_layout: vk::PipelineLayout::null(),
             image_pipeline: vk::Pipeline::null(),
             authored_surface_extent: vk::Extent2D {
-                width: authored_surface_width.max(1),
-                height: authored_surface_height.max(1),
+                width: built.authored_surface_width.max(1),
+                height: built.authored_surface_height.max(1),
             },
             interactive_rect_buffer: vk::Buffer::null(),
             interactive_rect_memory: vk::DeviceMemory::null(),
@@ -422,15 +560,10 @@ impl VulkanRenderer {
             interactive_rect_written_vertices: 0,
             interactive_rect_staging: Vec::new(),
             text_input_chrome: Vec::new(),
-        };
-
-        renderer.create_text_static_resources()?;
-        renderer.create_dynamic_text_resources()?;
-        renderer.create_waterfall_resources()?;
-        renderer.create_panel_and_image_static_resources()?;
-        renderer.create_interactive_rect_resources()?;
-        renderer.recreate_swapchain(window)?;
-        Ok(renderer)
+            offscreen_image: vk::Image::null(),
+            offscreen_image_memory: vk::DeviceMemory::null(),
+            offscreen_image_view: vk::ImageView::null(),
+        }
     }
 
     fn authored_surface_size(&self) -> (f32, f32) {
@@ -446,6 +579,12 @@ impl VulkanRenderer {
 
     pub fn device_name(&self) -> &str {
         &self.device_name
+    }
+
+    /// The renderer's current target extent (window swapchain extent, or the offscreen image's
+    /// fixed authored extent).
+    pub(crate) fn current_extent(&self) -> (u32, u32) {
+        (self.current_extent.width, self.current_extent.height)
     }
 
     pub fn draw_frame(
@@ -542,8 +681,10 @@ impl VulkanRenderer {
 
         self.destroy_swapchain_objects();
 
-        let support =
-            query_swapchain_support(self.physical_device, &self.surface_loader, self.surface)?;
+        let surface = self
+            .surface
+            .expect("recreate_swapchain is only called for a windowed renderer");
+        let support = query_swapchain_support(self.physical_device, &self.surface_loader, surface)?;
         let surface_format = choose_surface_format(&support.formats)?;
         let present_mode = choose_present_mode(&support.present_modes);
         let extent = choose_extent(&support.capabilities, window);
@@ -562,7 +703,7 @@ impl VulkanRenderer {
             };
 
         let create_info = vk::SwapchainCreateInfoKHR::default()
-            .surface(self.surface)
+            .surface(surface)
             .min_image_count(image_count)
             .image_format(surface_format.format)
             .image_color_space(surface_format.color_space)
@@ -591,8 +732,12 @@ impl VulkanRenderer {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        self.render_pass =
-            create_render_pass(&self.device, surface_format.format, self.depth_format)?;
+        self.render_pass = create_render_pass(
+            &self.device,
+            surface_format.format,
+            self.depth_format,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+        )?;
         self.create_depth_resources(extent)?;
         self.framebuffers = self
             .swapchain_image_views
@@ -620,6 +765,143 @@ impl VulkanRenderer {
         // here: the first draw after a swapchain (re)creation records before submitting.
 
         Ok(())
+    }
+
+    /// Builds the offscreen counterpart of `recreate_swapchain`: one `R8G8B8A8_UNORM` color
+    /// image (`COLOR_ATTACHMENT | TRANSFER_SRC`) at the authored surface extent instead of a
+    /// swapchain, whose final layout is `TRANSFER_SRC_OPTIMAL` so `read_offscreen_pixels` needs
+    /// no extra transition before its copy. Runs once — there is no resize to react to.
+    fn create_offscreen_target(&mut self) -> Result<(), BoxError> {
+        let extent = self.authored_surface_extent;
+
+        let (image, memory) = create_image(
+            &self.instance,
+            &self.device,
+            self.physical_device,
+            extent.width,
+            extent.height,
+            OFFSCREEN_COLOR_FORMAT,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+        let image_view = create_image_view(
+            &self.device,
+            image,
+            OFFSCREEN_COLOR_FORMAT,
+            vk::ImageAspectFlags::COLOR,
+        )?;
+        self.offscreen_image = image;
+        self.offscreen_image_memory = memory;
+        self.offscreen_image_view = image_view;
+
+        self.render_pass = create_render_pass(
+            &self.device,
+            OFFSCREEN_COLOR_FORMAT,
+            self.depth_format,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        )?;
+        self.create_depth_resources(extent)?;
+        self.framebuffers = vec![create_framebuffer(
+            &self.device,
+            self.render_pass,
+            self.offscreen_image_view,
+            self.depth_image_view,
+            extent,
+        )?];
+
+        self.create_text_swapchain_resources(extent)?;
+        self.create_panel_and_image_swapchain_resources()?;
+        self.command_buffers = allocate_command_buffers(&self.device, self.command_pool, 1)?;
+        self.current_extent = extent;
+
+        Ok(())
+    }
+
+    /// Renders one frame into the offscreen target (ADR-016 §1): the same per-frame writes and
+    /// `record_command_buffer` presented frames use, submitted without semaphores (there is no
+    /// swapchain image to synchronize against) and waited synchronously — the next
+    /// `read_offscreen_pixels` call can assume the GPU is idle.
+    pub(crate) fn draw_frame_offscreen(
+        &mut self,
+        inputs: &FrameInputs,
+        clock: WallClock,
+        interaction: InteractionSnapshot,
+    ) -> Result<(), BoxError> {
+        unsafe {
+            self.device
+                .wait_for_fences(&[self.in_flight_fence], true, u64::MAX)?;
+        }
+
+        self.write_waterfall_heights(inputs)?;
+        let dynamic_standard_vertices = self.write_dynamic_vertices(inputs, clock)?;
+        self.write_interactive_rects(inputs, interaction)?;
+        self.record_command_buffer(0, dynamic_standard_vertices)?;
+
+        let command_buffers = [self.command_buffers[0]];
+        let submit_info = vk::SubmitInfo::default().command_buffers(&command_buffers);
+
+        unsafe {
+            self.device.reset_fences(&[self.in_flight_fence])?;
+            self.device
+                .queue_submit(self.graphics_queue, &[submit_info], self.in_flight_fence)?;
+            self.device
+                .wait_for_fences(&[self.in_flight_fence], true, u64::MAX)?;
+        }
+
+        Ok(())
+    }
+
+    /// One-shot image-to-buffer copy of the offscreen color image into a tightly packed RGBA
+    /// byte vector (ADR-016 §1): a fresh `TRANSFER_DST | HOST_VISIBLE | HOST_COHERENT` staging
+    /// buffer is created, filled through `copy_image_to_buffer`, mapped, copied out and freed —
+    /// there is no per-frame readback buffer to keep alive between captures.
+    pub(crate) fn read_offscreen_pixels(&mut self) -> Result<Vec<u8>, BoxError> {
+        let extent = self.current_extent;
+        let byte_count = vk::DeviceSize::from(extent.width)
+            * vk::DeviceSize::from(extent.height)
+            * vk::DeviceSize::from(BYTES_PER_PIXEL);
+
+        let (staging_buffer, staging_memory) = create_buffer(
+            &self.instance,
+            &self.device,
+            self.physical_device,
+            byte_count,
+            vk::BufferUsageFlags::TRANSFER_DST,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+
+        // Both the copy and the map can fail; every exit path from here must still free the
+        // staging buffer/memory, so the fallible work happens in one expression and cleanup runs
+        // unconditionally afterward rather than via early `?` returns that would leak them.
+        let result = copy_image_to_buffer(
+            &self.device,
+            self.command_pool,
+            self.graphics_queue,
+            self.offscreen_image,
+            staging_buffer,
+            extent.width,
+            extent.height,
+        )
+        .and_then(|()| unsafe {
+            let mapped = self.device.map_memory(
+                staging_memory,
+                0,
+                byte_count,
+                vk::MemoryMapFlags::empty(),
+            )?;
+            let mut rgba = vec![0u8; byte_count as usize];
+            ptr::copy_nonoverlapping(mapped.cast::<u8>(), rgba.as_mut_ptr(), byte_count as usize);
+            self.device.unmap_memory(staging_memory);
+            Ok(rgba)
+        });
+
+        unsafe {
+            self.device.destroy_buffer(staging_buffer, None);
+            self.device.free_memory(staging_memory, None);
+        }
+
+        result
     }
 
     fn create_depth_resources(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
@@ -1763,6 +2045,19 @@ impl VulkanRenderer {
                     .destroy_swapchain(self.swapchain, None);
                 self.swapchain = vk::SwapchainKHR::null();
             }
+
+            if self.offscreen_image_view != vk::ImageView::null() {
+                self.device.destroy_image_view(self.offscreen_image_view, None);
+                self.offscreen_image_view = vk::ImageView::null();
+            }
+            if self.offscreen_image != vk::Image::null() {
+                self.device.destroy_image(self.offscreen_image, None);
+                self.offscreen_image = vk::Image::null();
+            }
+            if self.offscreen_image_memory != vk::DeviceMemory::null() {
+                self.device.free_memory(self.offscreen_image_memory, None);
+                self.offscreen_image_memory = vk::DeviceMemory::null();
+            }
         }
     }
 
@@ -1924,13 +2219,24 @@ impl Drop for VulkanRenderer {
                 .destroy_semaphore(self.image_available_semaphore, None);
             self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);
-            self.surface_loader.destroy_surface(self.surface, None);
+            if let Some(surface) = self.surface {
+                self.surface_loader.destroy_surface(surface, None);
+            }
             self.instance.destroy_instance(None);
         }
     }
 }
 
-fn create_instance(entry: &Entry, window: &Window, app_name: &str) -> Result<Instance, BoxError> {
+/// Builds the Vulkan instance. `window` is `Some` for a windowed renderer — its WSI extensions
+/// (`ash_window::enumerate_required_extensions`) are added and, on macOS, portability
+/// enumeration is enabled alongside them when the loader offers it — and `None` for a headless
+/// offscreen renderer, which skips WSI extensions entirely but keeps the same macOS portability
+/// handling (ADR-016 §1): MoltenVK still requires it regardless of whether a surface exists.
+fn create_instance(
+    entry: &Entry,
+    window: Option<&Window>,
+    app_name: &str,
+) -> Result<Instance, BoxError> {
     let app_name = CString::new(app_name)?;
     let engine_name = CString::new("mdux-vulkan-winit")?;
     let app_info = vk::ApplicationInfo::default()
@@ -1940,10 +2246,17 @@ fn create_instance(entry: &Entry, window: &Window, app_name: &str) -> Result<Ins
         .engine_version(vk::make_api_version(0, 0, 1, 0))
         .api_version(vk::API_VERSION_1_0);
 
+    // Headless (offscreen): no WSI extensions at all — there is no surface to present to.
+    let platform_extensions: Vec<*const std::os::raw::c_char> = match window {
+        Some(window) => {
+            ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec()
+        }
+        None => Vec::new(),
+    };
+
     #[cfg(target_os = "macos")]
     let (required_extensions, instance_flags) = {
-        let mut required_extensions =
-            ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec();
+        let mut required_extensions = platform_extensions;
         let mut instance_flags = vk::InstanceCreateFlags::empty();
         let available_extensions = unsafe { entry.enumerate_instance_extension_properties(None)? };
         if extension_names_contain(&available_extensions, khr::portability_enumeration::NAME)
@@ -1960,10 +2273,8 @@ fn create_instance(entry: &Entry, window: &Window, app_name: &str) -> Result<Ins
     };
 
     #[cfg(not(target_os = "macos"))]
-    let (required_extensions, instance_flags) = (
-        ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?.to_vec(),
-        vk::InstanceCreateFlags::empty(),
-    );
+    let (required_extensions, instance_flags) =
+        (platform_extensions, vk::InstanceCreateFlags::empty());
 
     let instance_info = vk::InstanceCreateInfo::default()
         .flags(instance_flags)
@@ -1974,10 +2285,14 @@ fn create_instance(entry: &Entry, window: &Window, app_name: &str) -> Result<Ins
     Ok(instance)
 }
 
+/// Picks a physical device. `surface` is `Some` for a windowed renderer — a queue family must
+/// support both graphics and presentation to that surface — and `None` for a headless offscreen
+/// renderer (ADR-016 §1), which drops the present-support filter and requires only a graphics
+/// queue.
 fn pick_physical_device(
     instance: &Instance,
     surface_loader: &khr::surface::Instance,
-    surface: vk::SurfaceKHR,
+    surface: Option<vk::SurfaceKHR>,
 ) -> Result<(vk::PhysicalDevice, QueueFamilies, String), BoxError> {
     let devices = unsafe { instance.enumerate_physical_devices()? };
 
@@ -1994,16 +2309,18 @@ fn pick_physical_device(
         }
     }
 
-    Err(box_error(
-        "no Vulkan device with graphics and present support was found",
-    ))
+    Err(box_error(if surface.is_some() {
+        "no Vulkan device with graphics and present support was found"
+    } else {
+        "no Vulkan device with graphics support was found"
+    }))
 }
 
 fn find_queue_families(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     surface_loader: &khr::surface::Instance,
-    surface: vk::SurfaceKHR,
+    surface: Option<vk::SurfaceKHR>,
 ) -> Result<Option<QueueFamilies>, BoxError> {
     let queue_families =
         unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
@@ -2015,29 +2332,50 @@ fn find_queue_families(
             graphics = Some(index as u32);
         }
 
-        let present_support = unsafe {
-            surface_loader.get_physical_device_surface_support(
-                physical_device,
-                index as u32,
-                surface,
-            )?
-        };
-        if present_support {
-            present = Some(index as u32);
-        }
+        match surface {
+            Some(surface) => {
+                let present_support = unsafe {
+                    surface_loader.get_physical_device_surface_support(
+                        physical_device,
+                        index as u32,
+                        surface,
+                    )?
+                };
+                if present_support {
+                    present = Some(index as u32);
+                }
 
-        if let (Some(graphics), Some(present)) = (graphics, present) {
-            return Ok(Some(QueueFamilies { graphics, present }));
+                if let (Some(graphics), Some(present)) = (graphics, present) {
+                    return Ok(Some(QueueFamilies { graphics, present }));
+                }
+            }
+            // Headless: no presentation to filter on — the graphics family alone is enough,
+            // and it also stands in for `present` so the rest of the renderer (which always
+            // has both) needs no offscreen-specific branching.
+            None => {
+                if let Some(graphics) = graphics {
+                    return Ok(Some(QueueFamilies {
+                        graphics,
+                        present: graphics,
+                    }));
+                }
+            }
         }
     }
 
     Ok(None)
 }
 
+/// Creates the logical device. `enable_swapchain` adds the `VK_KHR_swapchain` device extension
+/// (windowed only — the extension requires `VK_KHR_surface` at the instance level, which a
+/// headless offscreen instance never enables). The macOS `VK_KHR_portability_subset` check is
+/// unconditional: MoltenVK requires it whenever the physical device reports it, regardless of
+/// whether a swapchain is in use.
 fn create_logical_device(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     queue_families: QueueFamilies,
+    enable_swapchain: bool,
 ) -> Result<(ash::Device, vk::Queue, vk::Queue), BoxError> {
     let priorities = [1.0_f32];
     let mut queue_infos = vec![vk::DeviceQueueCreateInfo::default()
@@ -2052,19 +2390,19 @@ fn create_logical_device(
         );
     }
 
+    let mut extensions = Vec::new();
+    if enable_swapchain {
+        extensions.push(khr::swapchain::NAME.as_ptr());
+    }
+
     #[cfg(target_os = "macos")]
-    let extensions = {
-        let mut extensions = vec![khr::swapchain::NAME.as_ptr()];
+    {
         let available_extensions =
             unsafe { instance.enumerate_device_extension_properties(physical_device)? };
         if extension_names_contain(&available_extensions, khr::portability_subset::NAME) {
             extensions.push(khr::portability_subset::NAME.as_ptr());
         }
-        extensions
-    };
-
-    #[cfg(not(target_os = "macos"))]
-    let extensions = vec![khr::swapchain::NAME.as_ptr()];
+    }
 
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
@@ -2181,10 +2519,16 @@ fn create_image_view(
     Ok(image_view)
 }
 
+/// `final_layout` is the layout the render pass automatically transitions the color attachment
+/// to when it ends: `PRESENT_SRC_KHR` for a windowed swapchain image, `TRANSFER_SRC_OPTIMAL` for
+/// the offscreen target (ADR-016 §1). The trailing subpass dependency below makes that
+/// transition's writes visible to a subsequent transfer read, so `copy_image_to_buffer` needs no
+/// separate `vkCmdPipelineBarrier` of its own — the render pass itself is the barrier.
 fn create_render_pass(
     device: &ash::Device,
     format: vk::Format,
     depth_format: vk::Format,
+    final_layout: vk::ImageLayout,
 ) -> Result<vk::RenderPass, BoxError> {
     let color_attachment = vk::AttachmentDescription::default()
         .format(format)
@@ -2192,7 +2536,7 @@ fn create_render_pass(
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::STORE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+        .final_layout(final_layout);
     let depth_attachment = vk::AttachmentDescription::default()
         .format(depth_format)
         .samples(vk::SampleCountFlags::TYPE_1)
@@ -2213,7 +2557,7 @@ fn create_render_pass(
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .color_attachments(&color_references)
         .depth_stencil_attachment(&depth_reference);
-    let dependency = vk::SubpassDependency::default()
+    let entry_dependency = vk::SubpassDependency::default()
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .dst_subpass(0)
         .src_stage_mask(
@@ -2229,10 +2573,23 @@ fn create_render_pass(
                 | vk::AccessFlags::COLOR_ATTACHMENT_WRITE
                 | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         );
+    // Without this, the automatic UNDEFINED -> final_layout transition at render pass end is
+    // only ordered by the implicit external dependency's default (no) access mask — sufficient
+    // for a swapchain image the presentation engine synchronizes separately, but not for a
+    // subsequent vkCmdCopyImageToBuffer transfer read of the offscreen target, which could
+    // observe undefined data on a stricter driver. This makes the color attachment write visible
+    // to that read explicitly; harmless (an unexercised wait) on the windowed present path.
+    let exit_dependency = vk::SubpassDependency::default()
+        .src_subpass(0)
+        .dst_subpass(vk::SUBPASS_EXTERNAL)
+        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+        .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags::TRANSFER)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
 
     let attachments = [color_attachment, depth_attachment];
     let subpasses = [subpass];
-    let dependencies = [dependency];
+    let dependencies = [entry_dependency, exit_dependency];
     let create_info = vk::RenderPassCreateInfo::default()
         .attachments(&attachments)
         .subpasses(&subpasses)
@@ -3573,6 +3930,49 @@ fn copy_buffer_to_image(
     end_single_time_commands(device, command_pool, queue, command_buffer)
 }
 
+/// The offscreen readback's one-shot copy (ADR-016 §1): `image` must already be in
+/// `TRANSFER_SRC_OPTIMAL` — true by construction, since the offscreen render pass's color
+/// attachment `final_layout` puts it there automatically at the end of every render pass, and
+/// that render pass's trailing subpass dependency (`create_render_pass`) makes the write visible
+/// to this transfer read, so no separate barrier is issued here.
+fn copy_image_to_buffer(
+    device: &ash::Device,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    image: vk::Image,
+    buffer: vk::Buffer,
+    width: u32,
+    height: u32,
+) -> Result<(), BoxError> {
+    let command_buffer = begin_single_time_commands(device, command_pool)?;
+    let subresource_layers = vk::ImageSubresourceLayers::default()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .mip_level(0)
+        .base_array_layer(0)
+        .layer_count(1);
+    let region = vk::BufferImageCopy::default()
+        .buffer_offset(0)
+        .buffer_row_length(0)
+        .buffer_image_height(0)
+        .image_subresource(subresource_layers)
+        .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+        .image_extent(vk::Extent3D {
+            width,
+            height,
+            depth: 1,
+        });
+    unsafe {
+        device.cmd_copy_image_to_buffer(
+            command_buffer,
+            image,
+            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            buffer,
+            &[region],
+        );
+    }
+    end_single_time_commands(device, command_pool, queue, command_buffer)
+}
+
 fn begin_single_time_commands(
     device: &ash::Device,
     command_pool: vk::CommandPool,
@@ -3676,6 +4076,7 @@ mod tests {
         CriticalButtonSpec, LayoutKind, LayoutSpec, Rect, SystemEvent,
         DEFAULT_STANDARD_HELLO_WORLD_STRING_ID,
     };
+    use crate::offscreen::OffscreenRenderer;
 
     const SCREEN: CompiledScreenPackage = CompiledScreenPackage {
         screen_id: "RendererTest",
@@ -4138,5 +4539,125 @@ mod tests {
             *slot = byte as std::ffi::c_char;
         }
         extension_property
+    }
+
+    /// A 64x64 fixture with one `Panel` covering the left half in
+    /// `Theme.Colors.PrimaryAction` — enough to prove the offscreen path (ADR-016 §1) renders
+    /// the exact theme bytes inside the panel and the exact clear color everywhere else, at
+    /// pixel coordinates equal to the authored surface (no swapchain, no scaling).
+    const OFFSCREEN_TEST_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "OffscreenPixelTest",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 0,
+            padding: 0,
+        },
+        nodes: &[CompiledNode {
+            id: "left-panel",
+            bounds: Rect { x: 0, y: 0, width: 32, height: 64 },
+            kind: CompiledNodeKind::Panel(mdux::PanelSpec {
+                color_token: "Theme.Colors.PrimaryAction",
+            }),
+        }],
+        golden_references: &[],
+    };
+
+    /// Renders [`OFFSCREEN_TEST_SCREEN`] offscreen and asserts, byte-exactly, that a pixel
+    /// inside the panel matches `Theme.Colors.PrimaryAction` and a pixel outside it matches the
+    /// render pass's clear color — proving the whole offscreen path end to end (headless
+    /// instance, no-present device pick, offscreen color target, command recording, one-shot
+    /// readback) without ever presenting a window. Skips (rather than fails) when no Vulkan
+    /// device is available, so contributors without a loader/driver are not broken; it runs for
+    /// real on a MoltenVK-capable Mac and on lavapipe in CI.
+    #[test]
+    fn offscreen_render_produces_exact_theme_and_clear_color_bytes() {
+        let standard = match mdux::default_standard_text_package() {
+            Ok(package) => package,
+            Err(error) => {
+                eprintln!("skipping offscreen render test: {error}");
+                return;
+            }
+        };
+        let displays = mdux::default_display_text_packages()
+            .expect("display packages should load alongside the standard package");
+        let text_layout =
+            ScreenTextLayout::from_screen(&OFFSCREEN_TEST_SCREEN, standard.clone(), "en-US")
+                .expect("layout should build");
+        let bindings =
+            ScreenBindings::from_screen(&OFFSCREEN_TEST_SCREEN, standard, displays, &[], "en-US")
+                .expect("bindings should resolve");
+
+        let mut renderer =
+            match OffscreenRenderer::new("offscreen-pixel-test", text_layout, bindings, 64, 64) {
+                Ok(renderer) => renderer,
+                Err(error) => {
+                    eprintln!("skipping offscreen render test: no Vulkan device available: {error}");
+                    return;
+                }
+            };
+
+        let inputs = FrameInputs::from_bindings(
+            &ScreenBindings::from_screen(
+                &OFFSCREEN_TEST_SCREEN,
+                mdux::default_standard_text_package().expect("standard package"),
+                mdux::default_display_text_packages().expect("display packages"),
+                &[],
+                "en-US",
+            )
+            .expect("bindings should resolve"),
+        )
+        .expect("frame inputs should build from bindings");
+        let clock = WallClock {
+            year: 2026,
+            month: 1,
+            day: 1,
+            hours: 12,
+            minutes: 0,
+            seconds: 0,
+        };
+
+        renderer
+            .draw_frame(&inputs, clock, InteractionSnapshot::default())
+            .expect("offscreen frame should render");
+        let frame = renderer.read_pixels().expect("pixels should read back");
+
+        assert_eq!(frame.width, 64);
+        assert_eq!(frame.height, 64);
+        assert_eq!(frame.rgba.len(), 64 * 64 * 4);
+
+        let byte_at = |x: u32, y: u32| -> [u8; 4] {
+            let offset = ((y * frame.width + x) * 4) as usize;
+            [
+                frame.rgba[offset],
+                frame.rgba[offset + 1],
+                frame.rgba[offset + 2],
+                frame.rgba[offset + 3],
+            ]
+        };
+        let expected_bytes = |rgba: [f32; 4]| -> [u8; 4] {
+            [
+                (rgba[0] * 255.0).round() as u8,
+                (rgba[1] * 255.0).round() as u8,
+                (rgba[2] * 255.0).round() as u8,
+                (rgba[3] * 255.0).round() as u8,
+            ]
+        };
+
+        let panel_rgba = mdux::resolve_color_token("Theme.Colors.PrimaryAction")
+            .expect("PrimaryAction is a governed theme token");
+        assert_eq!(
+            byte_at(8, 32),
+            expected_bytes(panel_rgba),
+            "pixel inside the panel should match Theme.Colors.PrimaryAction exactly"
+        );
+
+        let clear_rgba = [0.12, 0.18, 0.35, 1.0];
+        assert_eq!(
+            byte_at(48, 32),
+            expected_bytes(clear_rgba),
+            "pixel outside the panel should match the render pass clear color exactly"
+        );
+
+        assert!(!renderer.device_name().is_empty());
     }
 }
