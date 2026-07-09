@@ -73,10 +73,11 @@ impl ScreenTextLayout {
                 ))
             })?;
 
-            // A Button's label centers inside its face (ADR-015); every other static text
-            // kind keeps its top-left anchoring. The compile-time budget guarantees the run
-            // fits, so the centering offsets never push it outside the node's bounds.
-            if matches!(node.kind, CompiledNodeKind::Button(_)) {
+            // A Button's or CriticalButton's label centers inside its face (ADR-015); every
+            // other static text kind keeps its top-left anchoring. The compile-time budget
+            // guarantees the run fits, so the centering offsets never push it outside the
+            // node's bounds.
+            if matches!(node.kind, CompiledNodeKind::Button(_) | CompiledNodeKind::CriticalButton(_)) {
                 origin_x += (node.bounds.width.saturating_sub(run_bounds.width()) / 2) as i32;
                 origin_y += (node.bounds.height.saturating_sub(run_bounds.height()) / 2) as i32;
             }
@@ -181,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn origin_matches_node_bounds_minus_run_bounds() {
+    fn critical_button_origin_centers_the_run_inside_its_bounds() {
         let package = default_standard_text_package().expect("standard package should load");
         let package_for_bounds = default_standard_text_package().expect("second load");
         let layout = ScreenTextLayout::from_screen(&SCREEN, package, "en-US")
@@ -196,6 +197,44 @@ mod tests {
             .expect("run bounds should be measurable");
 
         let node = SCREEN.find_node("greeting-label").expect("node should exist");
+        let expected_x = node.bounds.x - run_bounds.min_x
+            + (node.bounds.width.saturating_sub(run_bounds.width()) / 2) as i32;
+        let expected_y = node.bounds.y - run_bounds.min_y
+            + (node.bounds.height.saturating_sub(run_bounds.height()) / 2) as i32;
+        assert_eq!(run.origin_x, expected_x);
+        assert_eq!(run.origin_y, expected_y);
+    }
+
+    #[test]
+    fn label_origin_stays_top_left_anchored() {
+        const LABEL_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "ScreenTextLabelTest",
+            layout: LayoutSpec { kind: LayoutKind::Vertical, spacing: 8, padding: 16 },
+            nodes: &[CompiledNode {
+                id: "greeting-label",
+                bounds: Rect { x: 24, y: 40, width: 400, height: 80 },
+                kind: CompiledNodeKind::Label(crate::LabelSpec {
+                    text_key: DEFAULT_STANDARD_HELLO_WORLD_STRING_ID,
+                    color_token: "Theme.Colors.Title",
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let package = default_standard_text_package().expect("standard package should load");
+        let package_for_bounds = default_standard_text_package().expect("second load");
+        let layout = ScreenTextLayout::from_screen(&LABEL_SCREEN, package, "en-US")
+            .expect("layout should build");
+
+        let run = layout.find_run("greeting-label").expect("run should exist");
+        let compiled_run = package_for_bounds
+            .find_run(&run.run_id)
+            .expect("run should exist in a freshly loaded package");
+        let run_bounds = package_for_bounds
+            .measure_run_bounds(compiled_run)
+            .expect("run bounds should be measurable");
+
+        let node = LABEL_SCREEN.find_node("greeting-label").expect("node should exist");
         assert_eq!(run.origin_x, node.bounds.x - run_bounds.min_x);
         assert_eq!(run.origin_y, node.bounds.y - run_bounds.min_y);
     }

@@ -1255,6 +1255,7 @@ impl VulkanRenderer {
     fn create_panel_and_image_static_resources(&mut self) -> Result<(), BoxError> {
         if !self.bindings.panels.is_empty()
             || !self.bindings.buttons.is_empty()
+            || !self.bindings.critical_button_chrome.is_empty()
             || !self.bindings.text_inputs.is_empty()
         {
             let layout_info = vk::PipelineLayoutCreateInfo::default();
@@ -1330,9 +1331,10 @@ impl VulkanRenderer {
         }
 
         // The flat pipeline serves both the static panel underlays and the per-frame
-        // interactive chrome (ADR-015), so it exists whenever either does.
+        // interactive chrome (ADR-015), so it exists whenever any of those does.
         if !self.bindings.panels.is_empty()
             || !self.bindings.buttons.is_empty()
+            || !self.bindings.critical_button_chrome.is_empty()
             || !self.bindings.text_inputs.is_empty()
         {
             self.flat_pipeline =
@@ -1368,7 +1370,9 @@ impl VulkanRenderer {
     /// each input's chrome colors derived from the governed theme table. Nothing here runs per
     /// frame.
     fn create_interactive_rect_resources(&mut self) -> Result<(), BoxError> {
-        let quad_count = self.bindings.buttons.len() + self.bindings.text_inputs.len();
+        let quad_count = self.bindings.buttons.len()
+            + self.bindings.critical_button_chrome.len()
+            + self.bindings.text_inputs.len();
         if quad_count == 0 {
             return Ok(());
         }
@@ -1452,6 +1456,13 @@ impl VulkanRenderer {
                 binding.rgba
             };
             push_flat_quad(&mut staging, binding.bounds, rgba, surface_width, surface_height);
+        }
+
+        // CriticalButtons have no rendering-visible pressed state here: their press is
+        // dispatched through the adapter's separate framework-governed path (ADR-015 §4), which
+        // does not feed this presentation snapshot. Only the static face renders.
+        for binding in &self.bindings.critical_button_chrome {
+            push_flat_quad(&mut staging, binding.bounds, binding.rgba, surface_width, surface_height);
         }
 
         for (index, binding) in self.bindings.text_inputs.iter().enumerate() {
