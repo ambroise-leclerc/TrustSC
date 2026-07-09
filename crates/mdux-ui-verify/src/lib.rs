@@ -21,6 +21,13 @@ use std::collections::HashMap;
 use mdux_ui::{CompiledNodeKind, CompiledScreenPackage, CvCheckKind, Rect};
 
 pub use report::{ScenarioTraceRow, TraceRow, VerificationReport, emit_report_json};
+pub use sha256::sha256_hex;
+
+/// This crate's identity as recorded in every [`VerificationReport`] it produces — `tool_version`
+/// tracks the crate's own `Cargo.toml` version, so a report always names the exact engine that
+/// produced it.
+pub const TOOL_NAME: &str = "mdux-ui-verify";
+pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// One captured frame's tightly packed, row-major RGBA8 pixels — the same layout ADR-016 §1's
 /// offscreen `read_pixels()` produces.
@@ -242,7 +249,7 @@ pub fn verify_frame(
     for node in screen.nodes {
         let requirement_id = node.kind.requirement_id().map(str::to_string);
 
-        if let Some(result) = checks::chrome_color_check(node, &frame, requirement_id.clone()) {
+        if let Some(result) = checks::chrome_color_check(node, screen.nodes, &frame, requirement_id.clone()) {
             results.push(result);
         }
 
@@ -259,6 +266,7 @@ pub fn verify_frame(
         if let Some(glyph_count) = expectations.glyph_count(node.id) {
             results.push(checks::text_presence_check(
                 node,
+                screen.nodes,
                 glyph_count,
                 &frame,
                 expectations,
@@ -276,6 +284,7 @@ pub fn verify_frame(
         if checks::declares_cv_check(entry, CvCheckKind::Bounds) {
             results.push(checks::golden_bounds_check(
                 entry,
+                screen.nodes,
                 &frame,
                 expectations,
                 requirement_id.clone(),

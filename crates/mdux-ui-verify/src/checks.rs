@@ -165,6 +165,41 @@ fn theme_bytes(rgba: [f32; 4]) -> [u8; 4] {
     ]
 }
 
+/// The background a pixel at `(x, y)` should be compared against when deciding whether it is
+/// "ink". Two layers, checked nearest-first:
+/// 1. A non-Panel chrome-bearing node (`Button`/`CriticalButton`/`TextInput`) whose bounds
+///    contain the point: its own resolved face color, since that node's label glyphs render on
+///    top of its own solid fill, not on whatever sits behind it.
+/// 2. A [`Panel`](CompiledNodeKind::Panel) whose bounds contain the point: its resolved fill —
+///    panels are full-bleed decorative underlays that other nodes render on top of (ADR-014,
+///    exempt from the overlap rule).
+/// Falls back to `fallback` (the frame's clear color) if neither layer applies. Without this, any
+/// node drawn over a themed panel or a solid control face — e.g. a topbar label sitting on a
+/// panel, or a button's own caption sitting on its face color — has its ink test run against the
+/// wrong reference and fails even though it rendered correctly.
+fn local_background_at(x: i32, y: i32, all_nodes: &[CompiledNode], fallback: [u8; 4]) -> [u8; 4] {
+    for other in all_nodes {
+        if matches!(other.kind, CompiledNodeKind::Panel(_)) {
+            continue;
+        }
+        if point_in_rect(x, y, other.bounds) {
+            if let Some((_, rgba, _)) = chrome_sampling(other) {
+                return rgba;
+            }
+        }
+    }
+    for other in all_nodes {
+        if let CompiledNodeKind::Panel(spec) = other.kind {
+            if point_in_rect(x, y, other.bounds) {
+                if let Some(rgba) = resolve_color_token(spec.color_token) {
+                    return theme_bytes(rgba);
+                }
+            }
+        }
+    }
+    fallback
+}
+
 /// Resolves the glyph-free chrome sampling regions for one node, per ADR-016 §2: derived from
 /// the compiled node kind, never guessed. Returns `None` for kinds with no solid, glyph-free
 /// samplable region (`Label`, `Clock`, `NumericDisplay`, `Image`, `VulkanViewport`) and for
@@ -212,6 +247,7 @@ fn chrome_sampling(node: &CompiledNode) -> Option<(String, [u8; 4], Vec<Rect>)> 
 
 pub(crate) fn chrome_color_check(
     node: &CompiledNode,
+    all_nodes: &[CompiledNode],
     frame: &FramePixels,
     requirement_id: Option<String>,
 ) -> Option<CheckResult> {
@@ -224,6 +260,16 @@ pub(crate) fn chrome_color_check(
     for band in &bands {
         for y in band.y..(band.y + band.height as i32) {
             for x in band.x..(band.x + band.width as i32) {
+                if all_nodes.iter().any(|other| {
+                    other.id != node.id
+                        && !matches!(other.kind, CompiledNodeKind::Panel(_))
+                        && point_in_rect(x, y, other.bounds)
+                }) {
+                    // Covered by another (non-Panel) node's own content, not this node's chrome
+                    // fill. Panels are full-bleed underlays other nodes sit on top of by design
+                    // (ADR-014), so a Panel behind this node is never itself a covering sibling.
+                    continue;
+                }
                 let Some(pixel) = frame.pixel(x, y) else {
                     continue;
                 };
@@ -266,11 +312,12 @@ pub(crate) fn chrome_color_check(
 
 pub(crate) fn golden_bounds_check(
     entry: &GoldenReferenceEntry,
+    all_nodes: &[CompiledNode],
     frame: &FramePixels,
     expectations: &FrameExpectations,
     requirement_id: Option<String>,
 ) -> CheckResult {
-    let background = expectations.background_rgba();
+    let fallback_background = expectations.background_rgba();
     let search_region = expand_and_clamp(entry.bounds, GOLDEN_SEARCH_MARGIN, frame.width, frame.height);
 
     let mut min_x = None;
@@ -283,6 +330,7 @@ pub(crate) fn golden_bounds_check(
             let Some(pixel) = frame.pixel(x, y) else {
                 continue;
             };
+            let background = local_background_at(x, y, all_nodes, fallback_background);
             if !is_ink(pixel, background) {
                 continue;
             }
@@ -326,18 +374,20 @@ pub(crate) fn golden_bounds_check(
 
 pub(crate) fn text_presence_check(
     node: &CompiledNode,
+    all_nodes: &[CompiledNode],
     glyph_count: u32,
     frame: &FramePixels,
     expectations: &FrameExpectations,
     requirement_id: Option<String>,
 ) -> CheckResult {
-    let background = expectations.background_rgba();
+    let fallback_background = expectations.background_rgba();
     let bounds = node.bounds;
 
     let mut ink_pixels: u64 = 0;
     for y in bounds.y..(bounds.y + bounds.height as i32) {
         for x in bounds.x..(bounds.x + bounds.width as i32) {
             if let Some(pixel) = frame.pixel(x, y) {
+                let background = local_background_at(x, y, all_nodes, fallback_background);
                 if is_ink(pixel, background) {
                     ink_pixels += 1;
                 }

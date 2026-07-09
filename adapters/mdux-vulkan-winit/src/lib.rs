@@ -15,15 +15,18 @@
 
 mod offscreen;
 mod renderer;
+mod verify;
 
 use std::{
     cell::RefCell,
+    path::PathBuf,
     rc::Rc,
     time::{Duration, Instant},
 };
 
 use mdux::input::{FrameEvents, WidgetEvent};
 use mdux::realtime::{ButtonBinding, FrameInputs, ScreenBindings, TextInputBinding};
+use mdux::verify_scenario::ScenarioScript;
 use mdux::{
     screen_text::ScreenTextLayout, CompiledNodeKind, CompiledScreenPackage, Framework,
     GraphicsProfile, Rect, SystemEvent,
@@ -31,6 +34,7 @@ use mdux::{
 use renderer::{civil_from_unix, BoxError, InteractionSnapshot, VulkanRenderer};
 
 pub use offscreen::{CapturedFrame, OffscreenRenderer};
+pub use verify::LocaleSelection;
 use winit::{
     dpi::LogicalSize,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -48,6 +52,15 @@ pub struct RunOptions {
     pub headless_smoke: bool,
     /// Close the window automatically after this duration, for scripted/manual smoke checks.
     pub auto_close_after: Option<Duration>,
+    /// Run the ADR-016 automated verification path instead of opening a window: render the
+    /// screen offscreen per locale, run the `mdux-ui-verify` check suite, and write evidence
+    /// reports under this directory. `None` means the flag was not passed (normal windowed run).
+    pub verify_ui: Option<PathBuf>,
+    /// Which locales to verify when `verify_ui` is set. Ignored otherwise.
+    pub locales: LocaleSelection,
+    /// Narrows verification to one registered scenario by id. `None` runs every scenario
+    /// [`App::with_scenarios`] registered. Ignored when `verify_ui` is not set.
+    pub scenario_filter: Option<String>,
 }
 
 /// Runs a compiled MedUI screen against a built [`Framework`] through a Vulkan-backed winit
@@ -58,6 +71,8 @@ pub struct App {
     locale: String,
     realtime: Option<Box<dyn FnMut(&mut FrameInputs)>>,
     input: Option<Box<dyn FnMut(&mut FrameEvents, &mut FrameInputs)>>,
+    scenarios: &'static [ScenarioScript],
+    scenario_logic: Option<verify::ScenarioLogicFactory>,
 }
 
 impl App {
@@ -68,6 +83,8 @@ impl App {
             locale: "en-US".to_string(),
             realtime: None,
             input: None,
+            scenarios: &[],
+            scenario_logic: None,
         }
     }
 
@@ -100,11 +117,43 @@ impl App {
         self
     }
 
-    /// Parses `--headless-smoke` and `--auto-close-ms=<millis>` from `std::env::args()` and
+    /// Registers the behavior scripts the ADR-016 `--verify-ui` path can replay (ADR-016 §4).
+    /// `logic_factory` must build a *fresh* pair of input/realtime closures every time it is
+    /// called — one call per scenario replay, so state from one scenario (a typed patient id, a
+    /// latched alert) never leaks into the next. This is the same pattern
+    /// `examples/class_c_monitor/tests/scenarios.rs` uses to test scenarios with no GPU:
+    /// `App::with_scenarios(verify_scenarios::SCENARIOS, || AppLogic::new().into_closures())`.
+    /// Applications that register no scenarios still verify the screen's static rendering; only
+    /// scenario captures and behavior traces are skipped.
+    pub fn with_scenarios<I, R>(
+        mut self,
+        scenarios: &'static [ScenarioScript],
+        logic_factory: impl Fn() -> (I, R) + 'static,
+    ) -> Self
+    where
+        I: FnMut(&mut FrameEvents, &mut FrameInputs) + 'static,
+        R: FnMut(&mut FrameInputs) + 'static,
+    {
+        self.scenarios = scenarios;
+        self.scenario_logic = Some(Box::new(move || {
+            let (input, realtime) = logic_factory();
+            (
+                Box::new(input) as Box<dyn FnMut(&mut FrameEvents, &mut FrameInputs)>,
+                Box::new(realtime) as Box<dyn FnMut(&mut FrameInputs)>,
+            )
+        }));
+        self
+    }
+
+    /// Parses `--headless-smoke`, `--auto-close-ms=<millis>`, `--verify-ui=<dir>`,
+    /// `--locales=all|<comma-separated list>` and `--scenario=<id>` from `std::env::args()` and
     /// calls [`run`](Self::run).
     pub fn run_from_env(self) -> Result<(), BoxError> {
         let mut headless_smoke = false;
         let mut auto_close_after = None;
+        let mut verify_ui = None;
+        let mut locales = LocaleSelection::Default;
+        let mut scenario_filter = None;
 
         for argument in std::env::args().skip(1) {
             if argument == "--headless-smoke" {
@@ -114,12 +163,25 @@ impl App {
                     .parse()
                     .map_err(|error| format!("invalid --auto-close-ms value '{value}': {error}"))?;
                 auto_close_after = Some(Duration::from_millis(millis));
+            } else if let Some(value) = argument.strip_prefix("--verify-ui=") {
+                verify_ui = Some(PathBuf::from(value));
+            } else if let Some(value) = argument.strip_prefix("--locales=") {
+                locales = if value == "all" {
+                    LocaleSelection::All
+                } else {
+                    LocaleSelection::List(value.split(',').map(str::to_string).collect())
+                };
+            } else if let Some(value) = argument.strip_prefix("--scenario=") {
+                scenario_filter = Some(value.to_string());
             }
         }
 
         self.run(RunOptions {
             headless_smoke,
             auto_close_after,
+            verify_ui,
+            locales,
+            scenario_filter,
         })
     }
 
@@ -162,6 +224,15 @@ impl App {
         if options.headless_smoke {
             println!("headless_smoke=ok");
             return Ok(());
+        }
+
+        if let Some(dir) = options.verify_ui {
+            return verify::run_verify(
+                self,
+                &dir,
+                &options.locales,
+                options.scenario_filter.as_deref(),
+            );
         }
 
         let standard_package = mdux::default_standard_text_package()?;

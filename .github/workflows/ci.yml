@@ -56,3 +56,17 @@ jobs:
 
       - name: Run headless Class C monitor smoke test
         run: cargo run --locked -q -p class_c_monitor -- --headless-smoke
+
+      - name: Verify hello world UI (ADR-016, all locales, lavapipe)
+        run: cargo run --locked -q -p hello_world -- --verify-ui=generated/verification --locales=all
+
+      - name: Verify Class C monitor UI (ADR-016, all locales, lavapipe)
+        run: cargo run --locked -q -p class_c_monitor -- --verify-ui=generated/verification --locales=all
+
+      - name: Upload UI verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-verification-evidence
+          path: generated/verification/
+          if-no-files-found: error

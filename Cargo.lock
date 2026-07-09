@@ -859,6 +859,7 @@ dependencies = [
  "ash",
  "ash-window",
  "mdux",
+ "mdux-ui-verify",
  "raw-window-handle",
  "winit",
 ]

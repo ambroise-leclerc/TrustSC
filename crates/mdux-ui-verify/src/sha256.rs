@@ -83,8 +83,10 @@ const ROUND_CONSTANTS: [u32; 64] = [
 
 const HEX_DIGITS: [u8; 16] = *b"0123456789abcdef";
 
-/// Digests `data` and renders the result as 64 lowercase hex characters.
-pub(crate) fn sha256_hex(data: &[u8]) -> String {
+/// Digests `data` and renders the result as 64 lowercase hex characters. Public so callers
+/// assembling evidence (e.g. the adapter's offscreen `--verify-ui` capture, hashing the written
+/// `screenshot.ppm` bytes) reuse this implementation rather than duplicating it.
+pub fn sha256_hex(data: &[u8]) -> String {
     let digest = sha256(data);
     let mut hex = String::with_capacity(64);
     for byte in digest {
