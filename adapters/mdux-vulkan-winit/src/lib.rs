@@ -166,10 +166,19 @@ impl App {
             } else if let Some(value) = argument.strip_prefix("--verify-ui=") {
                 verify_ui = Some(PathBuf::from(value));
             } else if let Some(value) = argument.strip_prefix("--locales=") {
-                locales = if value == "all" {
+                locales = if value.trim() == "all" {
                     LocaleSelection::All
                 } else {
-                    LocaleSelection::List(value.split(',').map(str::to_string).collect())
+                    let list: Vec<String> = value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|entry| !entry.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                    if list.is_empty() {
+                        return Err(format!("--locales={value} resolved to no locales").into());
+                    }
+                    LocaleSelection::List(list)
                 };
             } else if let Some(value) = argument.strip_prefix("--scenario=") {
                 scenario_filter = Some(value.to_string());
@@ -193,6 +202,12 @@ impl App {
     /// `Runtime` audit event is recorded before anything renders, so every preview execution is
     /// self-documenting in the exported audit log. No governed validation is relaxed.
     pub fn run(mut self, options: RunOptions) -> Result<(), BoxError> {
+        if options.headless_smoke && options.verify_ui.is_some() {
+            return Err(
+                "--headless-smoke and --verify-ui are mutually exclusive run modes".into(),
+            );
+        }
+
         let is_sc_preview =
             self.framework.ui_runtime().config().graphics_profile == GraphicsProfile::VulkanSc;
         if is_sc_preview {

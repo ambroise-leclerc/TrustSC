@@ -172,7 +172,10 @@ fn theme_bytes(rgba: [f32; 4]) -> [u8; 4] {
 ///    top of its own solid fill, not on whatever sits behind it.
 /// 2. A [`Panel`](CompiledNodeKind::Panel) whose bounds contain the point: its resolved fill —
 ///    panels are full-bleed decorative underlays that other nodes render on top of (ADR-014,
-///    exempt from the overlap rule).
+///    exempt from the overlap rule). Panels are compiled in draw order, and a `Row`'s
+///    `background` panel can nest inside an enclosing panel (both exempt from the overlap rule,
+///    so their bounds can legitimately overlap); the *last* matching panel in `all_nodes` is the
+///    topmost one actually visible at this pixel, so the search runs back-to-front.
 /// Falls back to `fallback` (the frame's clear color) if neither layer applies. Without this, any
 /// node drawn over a themed panel or a solid control face — e.g. a topbar label sitting on a
 /// panel, or a button's own caption sitting on its face color — has its ink test run against the
@@ -188,7 +191,7 @@ fn local_background_at(x: i32, y: i32, all_nodes: &[CompiledNode], fallback: [u8
             }
         }
     }
-    for other in all_nodes {
+    for other in all_nodes.iter().rev() {
         if let CompiledNodeKind::Panel(spec) = other.kind {
             if point_in_rect(x, y, other.bounds) {
                 if let Some(rgba) = resolve_color_token(spec.color_token) {

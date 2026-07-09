@@ -114,7 +114,11 @@ pub(crate) fn run_verify(
     let config = framework.ui_runtime().config().clone();
     let app_name = framework.identity().name.clone();
 
-    let screen_dir = dir.join(screen.screen_id);
+    // ADR-016 §5 documents evidence under generated/verification/<app>/<locale>/, keyed by the
+    // device's software item, not the screen id (two different applications could compile the
+    // same screen id) and not framework.identity(), which is a fixed "MduX-rust" + crate version
+    // shared by every application, never per-app.
+    let screen_dir = dir.join(&device.software_item);
     let mut any_failure = false;
 
     for locale in &resolved_locales {
@@ -237,7 +241,11 @@ pub(crate) fn run_verify(
                             let step_bytes =
                                 encode_ppm(captured.width, captured.height, &captured.rgba);
                             fs::write(
-                                locale_dir.join(format!("step-{}-{label}.ppm", scenario.id)),
+                                locale_dir.join(format!(
+                                    "step-{}-{}.ppm",
+                                    sanitize_path_component(scenario.id),
+                                    sanitize_path_component(label)
+                                )),
                                 &step_bytes,
                             )?;
                             let step_pixels = FramePixels {
@@ -357,13 +365,40 @@ fn encode_ppm(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     bytes
 }
 
+/// Sanitizes an authored scenario id or step label for safe use as one path component: any
+/// character that is not alphanumeric, `-` or `_` becomes `_` (so a literal `.` or `/` can never
+/// reach the filesystem call, which also rules out a `..` component), and an empty result falls
+/// back to `_`. Scenario ids and labels are compiled from authored TOML (ADR-016 §4), not runtime
+/// input, but this still guards evidence writes against ever escaping `locale_dir`.
+fn sanitize_path_component(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "_".to_string()
+    } else {
+        sanitized
+    }
+}
+
 /// Parses the deterministic `node_id<TAB>hex` baseline format (sorted by node id when
 /// [`bootstrap_baselines`] writes one) — a hand-rolled format instead of adding a JSON dependency
 /// to this crate for one small file. A missing file is not an error: it means "not bootstrapped
 /// yet", handled by the caller.
 fn load_baselines(path: &Path) -> Result<Vec<(String, String)>, BoxError> {
-    let Ok(contents) = fs::read_to_string(path) else {
-        return Ok(Vec::new());
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(format!("{}: {error}", path.display()).into());
+        }
     };
     let mut baselines = Vec::with_capacity(contents.lines().count());
     for (index, line) in contents.lines().enumerate() {
@@ -461,6 +496,19 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_path_component_passes_through_ordinary_ids() {
+        assert_eq!(sanitize_path_component("ack-flow_typed"), "ack-flow_typed");
+    }
+
+    #[test]
+    fn sanitize_path_component_neutralizes_traversal_and_separators() {
+        assert_eq!(sanitize_path_component("../../etc/passwd"), "______etc_passwd");
+        assert_eq!(sanitize_path_component("a/b"), "a_b");
+        assert_eq!(sanitize_path_component(".."), "__");
+        assert_eq!(sanitize_path_component(""), "_");
+    }
+
+    #[test]
     fn normalizes_lavapipe_and_other_device_names() {
         assert_eq!(normalize_backend_id("llvmpipe (LLVM 17.0.0, 256 bits)"), "lavapipe");
         assert_eq!(normalize_backend_id("Apple M2"), "apple-m2");
@@ -475,12 +523,17 @@ mod tests {
         );
     }
 
+    /// A per-process, per-thread unique temp path component: `cargo test` runs tests
+    /// concurrently within one process, so a PID alone is not enough to keep two tests (or two
+    /// runs racing a stale leftover) from colliding on the same path.
+    fn unique_temp_name(label: &str) -> String {
+        format!("{label}-{:?}-{}", std::thread::current().id(), std::process::id())
+    }
+
     #[test]
     fn baseline_round_trip_bootstraps_then_loads() {
-        let dir = std::env::temp_dir().join(format!(
-            "mdux-verify-baseline-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(unique_temp_name("mdux-verify-baseline-test"));
+        let _ = fs::remove_dir_all(&dir);
         let path = dir.join("en-US.txt");
         let checks = vec![CheckResult {
             check_id: "sedation-index::color_hash".to_string(),
@@ -503,7 +556,10 @@ mod tests {
 
     #[test]
     fn missing_baseline_file_loads_as_empty_not_an_error() {
-        let path = std::env::temp_dir().join("mdux-verify-baseline-does-not-exist.txt");
+        let path = std::env::temp_dir()
+            .join(unique_temp_name("mdux-verify-baseline-does-not-exist"))
+            .with_extension("txt");
+        let _ = fs::remove_file(&path);
         assert_eq!(load_baselines(&path).expect("missing file is not an error"), Vec::new());
     }
 }
