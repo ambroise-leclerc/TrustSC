@@ -96,7 +96,7 @@ fn chrome_color_passes_when_face_matches_theme_byte_exactly() {
     builder.fill_rect(BUTTON_BOUNDS, PRIMARY_ACTION_RGBA);
     let node = button_node(BUTTON_BOUNDS);
 
-    let result = chrome_color_check(&node, &builder.frame(), Some("REQ-NS-004".to_string()))
+    let result = chrome_color_check(&node, std::slice::from_ref(&node), &builder.frame(), Some("REQ-NS-004".to_string()))
         .expect("button has a chrome-samplable region");
 
     assert_eq!(result.outcome, CheckOutcome::Pass);
@@ -127,7 +127,7 @@ fn chrome_color_tolerance_edge_off_by_one_still_passes() {
     builder.fill_rect(BUTTON_BOUNDS, off_by_one);
     let node = button_node(BUTTON_BOUNDS);
 
-    let result = chrome_color_check(&node, &builder.frame(), None).expect("chrome region");
+    let result = chrome_color_check(&node, std::slice::from_ref(&node), &builder.frame(), None).expect("chrome region");
     assert_eq!(result.outcome, CheckOutcome::Pass);
     match result.payload {
         CheckPayload::ChromeColor { max_channel_delta, .. } => assert_eq!(max_channel_delta, 1),
@@ -143,7 +143,7 @@ fn chrome_color_fails_when_no_pixel_could_be_sampled() {
     let builder = FrameBuilder::new(1, 1, BACKGROUND);
     let node = button_node(BUTTON_BOUNDS);
 
-    let result = chrome_color_check(&node, &builder.frame(), None).expect("chrome region");
+    let result = chrome_color_check(&node, std::slice::from_ref(&node), &builder.frame(), None).expect("chrome region");
 
     assert_eq!(result.outcome, CheckOutcome::Fail);
     match result.payload {
@@ -167,7 +167,7 @@ fn chrome_color_fails_when_off_by_two_channels() {
     builder.fill_rect(BUTTON_BOUNDS, off_by_two);
     let node = button_node(BUTTON_BOUNDS);
 
-    let result = chrome_color_check(&node, &builder.frame(), None).expect("chrome region");
+    let result = chrome_color_check(&node, std::slice::from_ref(&node), &builder.frame(), None).expect("chrome region");
     assert_eq!(result.outcome, CheckOutcome::Fail);
     match result.payload {
         CheckPayload::ChromeColor { max_channel_delta, .. } => assert_eq!(max_channel_delta, 2),
@@ -182,7 +182,7 @@ fn chrome_color_text_input_expects_neutral_scaled_field_not_its_own_token() {
     builder.fill_rect(bounds, TEXT_INPUT_FIELD_RGBA);
     let node = text_input_node(bounds);
 
-    let result = chrome_color_check(&node, &builder.frame(), None).expect("text input has a field band");
+    let result = chrome_color_check(&node, std::slice::from_ref(&node), &builder.frame(), None).expect("text input has a field band");
     assert_eq!(result.outcome, CheckOutcome::Pass);
     match result.payload {
         CheckPayload::ChromeColor {
@@ -208,7 +208,7 @@ fn chrome_color_none_for_kinds_without_a_glyph_free_region() {
         }),
     };
     let builder = FrameBuilder::new(100, 30, BACKGROUND);
-    assert!(chrome_color_check(&node, &builder.frame(), None).is_none());
+    assert!(chrome_color_check(&node, std::slice::from_ref(&node), &builder.frame(), None).is_none());
 }
 
 // ---- GoldenBounds -----------------------------------------------------------------------------
@@ -228,7 +228,7 @@ fn golden_bounds_passes_when_ink_stays_inside_entry_bounds() {
     };
     let expectations = FrameExpectations::new(BACKGROUND);
 
-    let result = golden_bounds_check(&entry, &builder.frame(), &expectations, None);
+    let result = golden_bounds_check(&entry, &[], &builder.frame(), &expectations, None);
     assert_eq!(result.outcome, CheckOutcome::Pass);
     match result.payload {
         CheckPayload::GoldenBounds { contained, measured_ink_bounds, .. } => {
@@ -255,7 +255,7 @@ fn golden_bounds_fails_when_ink_shifts_outside_entry_bounds() {
     };
     let expectations = FrameExpectations::new(BACKGROUND);
 
-    let result = golden_bounds_check(&entry, &builder.frame(), &expectations, None);
+    let result = golden_bounds_check(&entry, &[], &builder.frame(), &expectations, None);
     assert_eq!(result.outcome, CheckOutcome::Fail);
     match result.payload {
         CheckPayload::GoldenBounds { contained, .. } => assert!(!contained),
@@ -283,7 +283,7 @@ fn text_presence_passes_within_the_expected_coverage_band() {
     let expectations = FrameExpectations::new([255, 255, 255, 255]);
 
     let (min_ppm, max_ppm) = coverage_band_for_glyphs(5, TEXT_BOUNDS);
-    let result = text_presence_check(&node, 5, &builder.frame(), &expectations, None);
+    let result = text_presence_check(&node, std::slice::from_ref(&node), 5, &builder.frame(), &expectations, None);
     assert_eq!(result.outcome, CheckOutcome::Pass);
     match result.payload {
         CheckPayload::TextPresence {
@@ -312,7 +312,7 @@ fn text_presence_fails_on_a_blank_region() {
     };
     let expectations = FrameExpectations::new([255, 255, 255, 255]);
 
-    let result = text_presence_check(&node, 5, &builder.frame(), &expectations, None);
+    let result = text_presence_check(&node, std::slice::from_ref(&node), 5, &builder.frame(), &expectations, None);
     assert_eq!(result.outcome, CheckOutcome::Fail);
     match result.payload {
         CheckPayload::TextPresence { coverage_ppm, .. } => assert_eq!(coverage_ppm, 0),
@@ -334,7 +334,7 @@ fn text_presence_fails_on_over_coverage() {
     };
     let expectations = FrameExpectations::new([255, 255, 255, 255]);
 
-    let result = text_presence_check(&node, 5, &builder.frame(), &expectations, None);
+    let result = text_presence_check(&node, std::slice::from_ref(&node), 5, &builder.frame(), &expectations, None);
     assert_eq!(result.outcome, CheckOutcome::Fail);
     match result.payload {
         CheckPayload::TextPresence { coverage_ppm, .. } => assert_eq!(coverage_ppm, 1_000_000),
@@ -501,6 +501,91 @@ fn color_hash_check_reports_no_baseline_and_it_is_never_a_pass() {
     match result.payload {
         CheckPayload::ColorHash { expected_hex, .. } => assert_eq!(expected_hex, None),
         other => panic!("expected ColorHash payload, got {other:?}"),
+    }
+}
+
+// ---- Panel-local background (a node rendered over a themed Panel underlay) ---------------------
+
+#[test]
+fn golden_bounds_and_text_presence_use_the_panel_fill_as_local_background() {
+    // Theme.Colors.TopbarBackground = [0.82, 0.84, 0.86, 1.0] -> round(255 * component):
+    // 0.82*255=209.1 -> 209, 0.84*255=214.2 -> 214, 0.86*255=219.3 -> 219.
+    const PANEL_FILL: [u8; 4] = [209, 214, 219, 255];
+    let panel = CompiledNode {
+        id: "topbar-background",
+        bounds: Rect { x: 0, y: 0, width: 300, height: 200 },
+        kind: CompiledNodeKind::Panel(PanelSpec { color_token: "Theme.Colors.TopbarBackground" }),
+    };
+    let label_bounds = Rect { x: 10, y: 10, width: 100, height: 20 };
+    let label = CompiledNode {
+        id: "device-title",
+        bounds: label_bounds,
+        kind: CompiledNodeKind::Label(LabelSpec {
+            text_key: "STR-TITLE",
+            color_token: "Theme.Colors.Title",
+        }),
+    };
+    let nodes = [panel, label.clone()];
+
+    // The frame's clear color is far from the panel's fill, so if a check wrongly compares
+    // against the global clear color instead of the panel's local fill, the entire panel area
+    // reads as "ink" and both checks below would fail.
+    let mut builder = FrameBuilder::new(300, 200, [0, 0, 0, 255]);
+    builder.fill_rect(nodes[0].bounds, PANEL_FILL);
+    // A small dark glyph stamped on the panel, inside the label's bounds.
+    builder.fill_rect(Rect { x: 15, y: 15, width: 5, height: 10 }, [0, 0, 0, 255]);
+
+    let expectations = FrameExpectations::new([0, 0, 0, 255]);
+
+    let entry = GoldenReferenceEntry {
+        node_id: "device-title",
+        bounds: label_bounds,
+        text_key: Some("STR-TITLE"),
+        color_token: Some("Theme.Colors.Title"),
+        cv_checks: &[CvCheckKind::Bounds],
+    };
+    let bounds_result = golden_bounds_check(&entry, &nodes, &builder.frame(), &expectations, None);
+    assert_eq!(bounds_result.outcome, CheckOutcome::Pass);
+    match bounds_result.payload {
+        CheckPayload::GoldenBounds { contained, .. } => assert!(contained),
+        other => panic!("expected GoldenBounds payload, got {other:?}"),
+    }
+
+    let presence_result = text_presence_check(&label, &nodes, 1, &builder.frame(), &expectations, None);
+    match presence_result.payload {
+        CheckPayload::TextPresence { coverage_ppm, .. } => assert!(coverage_ppm > 0 && coverage_ppm < 1_000_000),
+        other => panic!("expected TextPresence payload, got {other:?}"),
+    }
+}
+
+#[test]
+fn chrome_color_check_on_a_panel_excludes_pixels_covered_by_content_on_top_of_it() {
+    let panel_bounds = Rect { x: 0, y: 0, width: 100, height: 100 };
+    let panel = CompiledNode {
+        id: "topbar-background",
+        bounds: panel_bounds,
+        kind: CompiledNodeKind::Panel(PanelSpec { color_token: "Theme.Colors.Neutral" }),
+    };
+    // A node drawn on top of the panel, entirely inside the panel's own inset sampling region.
+    let overlay_bounds = Rect { x: 1, y: 1, width: 98, height: 98 };
+    let overlay = CompiledNode {
+        id: "device-title",
+        bounds: overlay_bounds,
+        kind: CompiledNodeKind::Label(LabelSpec {
+            text_key: "STR-TITLE",
+            color_token: "Theme.Colors.Title",
+        }),
+    };
+    let nodes = [panel.clone(), overlay];
+
+    // Fill the whole frame with a color that is NOT the panel's theme color: if the check
+    // samples any of these overlay pixels, sample_count would be > 0 with a huge measured delta.
+    let builder = FrameBuilder::new(100, 100, [1, 2, 3, 255]);
+    let result = chrome_color_check(&panel, &nodes, &builder.frame(), None)
+        .expect("panel has a chrome-samplable region");
+    match result.payload {
+        CheckPayload::ChromeColor { sample_count, .. } => assert_eq!(sample_count, 0),
+        other => panic!("expected ChromeColor payload, got {other:?}"),
     }
 }
 

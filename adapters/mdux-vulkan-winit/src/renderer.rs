@@ -36,6 +36,24 @@ const WATERFALL_HEIGHT_SCALE: f32 = 0.45;
 /// solid fill's expected byte is exactly `round(255 * token_float)`.
 const OFFSCREEN_COLOR_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 const BYTES_PER_PIXEL: u32 = 4;
+/// Name recorded in verification evidence (ADR-016 §5) for [`OFFSCREEN_COLOR_FORMAT`].
+pub(crate) const OFFSCREEN_PIXEL_FORMAT_NAME: &str = "R8G8B8A8_UNORM";
+
+/// The render pass's color attachment clear value: every pixel a node's chrome does not cover
+/// renders exactly this color, so `mdux-ui-verify`'s checks (ADR-016 §2) can tell "no ink here"
+/// apart from "unreadable frame" by comparing against it.
+const CLEAR_COLOR_RGBA_F32: [f32; 4] = [0.12, 0.18, 0.35, 1.0];
+
+/// [`CLEAR_COLOR_RGBA_F32`] rounded to the exact bytes the offscreen target renders — the
+/// verification path's expected background color.
+pub(crate) fn clear_color_bytes() -> [u8; 4] {
+    [
+        (CLEAR_COLOR_RGBA_F32[0] * 255.0).round() as u8,
+        (CLEAR_COLOR_RGBA_F32[1] * 255.0).round() as u8,
+        (CLEAR_COLOR_RGBA_F32[2] * 255.0).round() as u8,
+        (CLEAR_COLOR_RGBA_F32[3] * 255.0).round() as u8,
+    ]
+}
 
 #[derive(Clone, Copy)]
 struct QueueFamilies {
@@ -1237,6 +1255,7 @@ impl VulkanRenderer {
     fn create_panel_and_image_static_resources(&mut self) -> Result<(), BoxError> {
         if !self.bindings.panels.is_empty()
             || !self.bindings.buttons.is_empty()
+            || !self.bindings.critical_button_chrome.is_empty()
             || !self.bindings.text_inputs.is_empty()
         {
             let layout_info = vk::PipelineLayoutCreateInfo::default();
@@ -1312,9 +1331,10 @@ impl VulkanRenderer {
         }
 
         // The flat pipeline serves both the static panel underlays and the per-frame
-        // interactive chrome (ADR-015), so it exists whenever either does.
+        // interactive chrome (ADR-015), so it exists whenever any of those does.
         if !self.bindings.panels.is_empty()
             || !self.bindings.buttons.is_empty()
+            || !self.bindings.critical_button_chrome.is_empty()
             || !self.bindings.text_inputs.is_empty()
         {
             self.flat_pipeline =
@@ -1350,7 +1370,9 @@ impl VulkanRenderer {
     /// each input's chrome colors derived from the governed theme table. Nothing here runs per
     /// frame.
     fn create_interactive_rect_resources(&mut self) -> Result<(), BoxError> {
-        let quad_count = self.bindings.buttons.len() + self.bindings.text_inputs.len();
+        let quad_count = self.bindings.buttons.len()
+            + self.bindings.critical_button_chrome.len()
+            + self.bindings.text_inputs.len();
         if quad_count == 0 {
             return Ok(());
         }
@@ -1434,6 +1456,13 @@ impl VulkanRenderer {
                 binding.rgba
             };
             push_flat_quad(&mut staging, binding.bounds, rgba, surface_width, surface_height);
+        }
+
+        // CriticalButtons have no rendering-visible pressed state here: their press is
+        // dispatched through the adapter's separate framework-governed path (ADR-015 §4), which
+        // does not feed this presentation snapshot. Only the static face renders.
+        for binding in &self.bindings.critical_button_chrome {
+            push_flat_quad(&mut staging, binding.bounds, binding.rgba, surface_width, surface_height);
         }
 
         for (index, binding) in self.bindings.text_inputs.iter().enumerate() {
@@ -1653,7 +1682,7 @@ impl VulkanRenderer {
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.12, 0.18, 0.35, 1.0],
+                    float32: CLEAR_COLOR_RGBA_F32,
                 },
             },
             vk::ClearValue {
@@ -4414,6 +4443,11 @@ mod tests {
     }
 
     #[test]
+    fn clear_color_bytes_rounds_the_float_clear_value() {
+        assert_eq!(clear_color_bytes(), [31, 46, 89, 255]);
+    }
+
+    #[test]
     fn depth_stencil_formats_get_the_stencil_aspect() {
         assert!(depth_aspect_mask(vk::Format::D32_SFLOAT) == vk::ImageAspectFlags::DEPTH);
         assert!(
@@ -4651,7 +4685,7 @@ mod tests {
             "pixel inside the panel should match Theme.Colors.PrimaryAction exactly"
         );
 
-        let clear_rgba = [0.12, 0.18, 0.35, 1.0];
+        let clear_rgba = CLEAR_COLOR_RGBA_F32;
         assert_eq!(
             byte_at(48, 32),
             expected_bytes(clear_rgba),

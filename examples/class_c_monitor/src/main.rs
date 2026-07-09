@@ -74,5 +74,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mdux_vulkan_winit::App::new(framework, screen)
         .with_input(input)
         .with_realtime(realtime)
+        // ADR-016 --verify-ui replays these scenarios; the windowed run above never touches
+        // them. A fresh AppLogic per call keeps one scenario's state from leaking into the next.
+        .with_scenarios(verify_scenarios::SCENARIOS, || AppLogic::new().into_closures())
         .run_from_env()
 }

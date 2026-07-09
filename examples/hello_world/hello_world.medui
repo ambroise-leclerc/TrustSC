@@ -6,7 +6,7 @@ Screen HelloWorld {
         id: hello-world-label;
         requirement: "REQ-HELLO-001";
         width: Fill;
-        height: 80px;
+        height: 48px;
         label: t("STR-HELLO-WORLD");
         color: Theme.Colors.PrimaryAction;
         on_press: SystemEvent.NoOp;

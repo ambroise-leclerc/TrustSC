@@ -139,6 +139,12 @@ pub struct ScreenBindings {
     pub panels: Vec<PanelBinding>,
     pub images: Vec<ImageBinding>,
     pub buttons: Vec<ButtonBinding>,
+    /// `CriticalButton` faces, resolved the same way as `buttons` for rendering only. Kept in a
+    /// separate list rather than folded into `buttons` because that list also drives the
+    /// adapter's click hit-testing (ADR-015 §3): a `CriticalButton`'s press is dispatched through
+    /// its own framework-governed path (`WidgetEvent::CriticalButtonPressed`, resolved directly
+    /// from the compiled screen in the adapter), never as a generic `ButtonPressed`.
+    pub critical_button_chrome: Vec<ButtonBinding>,
     pub text_inputs: Vec<TextInputBinding>,
 }
 
@@ -161,6 +167,7 @@ impl ScreenBindings {
         let mut panels = Vec::new();
         let mut images = Vec::new();
         let mut buttons = Vec::new();
+        let mut critical_button_chrome = Vec::new();
         let mut text_inputs = Vec::new();
 
         for node in screen.nodes {
@@ -348,8 +355,26 @@ impl ScreenBindings {
                         image: package.clone(),
                     });
                 }
-                // Static text kinds have no realtime state.
-                CompiledNodeKind::CriticalButton(_) | CompiledNodeKind::Label(_) => {}
+                // Label has no realtime state at all.
+                CompiledNodeKind::Label(_) => {}
+                // CriticalButton's press dispatch is framework-governed and resolved separately
+                // by the adapter directly from the compiled screen (ADR-015 §4); only its chrome
+                // (face color) is bound here, the same way a Button's is.
+                CompiledNodeKind::CriticalButton(spec) => {
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "critical button {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    critical_button_chrome.push(ButtonBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        source: node.id,
+                        rgba,
+                        pressed_rgba: pressed_tint(rgba),
+                    });
+                }
                 CompiledNodeKind::Button(spec) => {
                     spec.validate()?;
                     let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
@@ -408,6 +433,7 @@ impl ScreenBindings {
             panels,
             images,
             buttons,
+            critical_button_chrome,
             text_inputs,
         })
     }
