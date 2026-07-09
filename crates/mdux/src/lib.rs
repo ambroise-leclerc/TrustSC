@@ -11,7 +11,7 @@ pub use mdux_core::{
 };
 pub use mdux_governance::{
     AuditCategory, AuditEvent, ComplianceProgram, Hazard, ProblemReport, Requirement,
-    RequirementId, VerificationCase, VerificationMethod,
+    RequirementId, TraceRow, VerificationCase, VerificationMethod,
 };
 pub use mdux_text_authoring::{
     DeterministicAtlasBuilder, FontFingerprint, RasterizedGlyph, TextCompilationInput,
@@ -284,6 +284,10 @@ impl Framework {
 
     pub fn trace_matrix_export(&self) -> String {
         self.compliance.trace_matrix_export()
+    }
+
+    pub fn trace_rows(&self) -> Vec<TraceRow> {
+        self.compliance.trace_rows()
     }
 
     pub fn audit_export(&self) -> String {

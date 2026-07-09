@@ -299,6 +299,23 @@ impl TextPackage {
             .find(|glyph| glyph.atlas_index == atlas_index && glyph.glyph_id == glyph_id)
     }
 
+    /// The sorted, deduplicated union of every font asset's declared locales — the list
+    /// ADR-016's `--verify-ui --locales=all` iterates, so a locale added to any font is
+    /// automatically picked up by verification without further wiring.
+    pub fn locales(&self) -> Vec<String> {
+        self.declared_locales()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn declared_locales(&self) -> BTreeSet<&str> {
+        self.fonts
+            .iter()
+            .flat_map(|font| font.locales.iter().map(String::as_str))
+            .collect()
+    }
+
     pub fn measure_run_bounds(&self, run: &CompiledTextRun) -> MduxResult<TextRunBounds> {
         let mut bounds = TextRunBounds {
             min_x: 0,
@@ -372,6 +389,24 @@ impl Validates for TextPackage {
             template.validate()?;
         }
         self.evidence.validate()?;
+
+        let declared_locales = self.declared_locales();
+        for approved_string in &self.approved_strings {
+            if !declared_locales.contains(approved_string.locale.as_str()) {
+                return Err(ValidationError::new(format!(
+                    "approved string {} declares locale {} not present in any font asset",
+                    approved_string.id, approved_string.locale
+                )));
+            }
+        }
+        for run in &self.runs {
+            if !declared_locales.contains(run.locale.as_str()) {
+                return Err(ValidationError::new(format!(
+                    "compiled text run {} declares locale {} not present in any font asset",
+                    run.id, run.locale
+                )));
+            }
+        }
 
         ensure_unique_pairs(
             self.approved_strings
@@ -748,5 +783,112 @@ mod tests {
         assert_eq!(bounds.max_y, 12);
         assert_eq!(bounds.width(), 15);
         assert_eq!(bounds.height(), 12);
+    }
+
+    #[test]
+    fn locales_are_sorted_and_deduplicated_across_fonts() {
+        let mut package = minimal_package();
+        package.fonts.push(FontAsset {
+            family: "Approved Serif".to_string(),
+            source_path: "fonts/approved-serif.ttf".to_string(),
+            sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+            face_index: 0,
+            pixel_height: 32,
+            locales: vec!["fr-FR".to_string(), "en-US".to_string(), "de-DE".to_string()],
+        });
+
+        assert_eq!(
+            package.locales(),
+            vec!["de-DE".to_string(), "en-US".to_string(), "fr-FR".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejects_approved_string_with_undeclared_locale() {
+        let mut package = minimal_package();
+        package.approved_strings[0].locale = "fr-FR".to_string();
+        package.runs[0].locale = "fr-FR".to_string();
+
+        let error = package
+            .validate()
+            .expect_err("approved string locale must be declared by a font");
+        assert_eq!(
+            error.to_string(),
+            "approved string STR-HELLO declares locale fr-FR not present in any font asset"
+        );
+    }
+
+    #[test]
+    fn rejects_compiled_run_with_undeclared_locale() {
+        let mut package = minimal_package();
+        package.runs[0].locale = "fr-FR".to_string();
+
+        let error = package
+            .validate()
+            .expect_err("compiled run locale must be declared by a font");
+        assert_eq!(
+            error.to_string(),
+            "compiled text run RUN-HELLO declares locale fr-FR not present in any font asset"
+        );
+    }
+
+    fn minimal_package() -> TextPackage {
+        TextPackage {
+            fonts: vec![FontAsset {
+                family: "Approved Sans".to_string(),
+                source_path: "fonts/approved.ttf".to_string(),
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+                face_index: 0,
+                pixel_height: 32,
+                locales: vec!["en-US".to_string()],
+            }],
+            approved_strings: vec![ApprovedString {
+                id: "STR-HELLO".to_string(),
+                locale: "en-US".to_string(),
+                value: "Hello".to_string(),
+                direction: TextDirection::LeftToRight,
+            }],
+            atlases: vec![TextureAtlas {
+                width: 2,
+                height: 2,
+                pixels: vec![1, 2, 3, 4],
+            }],
+            atlas_glyphs: vec![AtlasGlyph {
+                atlas_index: 0,
+                glyph_id: 1,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                bearing_x: 0,
+                bearing_y: 0,
+                advance_x: 8,
+            }],
+            runs: vec![CompiledTextRun {
+                id: "RUN-HELLO".to_string(),
+                source_string_id: "STR-HELLO".to_string(),
+                locale: "en-US".to_string(),
+                bidi_level: 0,
+                glyphs: vec![CompiledGlyph {
+                    atlas_index: 0,
+                    glyph_id: 1,
+                    x: 0,
+                    y: 0,
+                    advance_x: 8,
+                }],
+            }],
+            numeric_glyph_sets: vec![],
+            numeric_templates: vec![],
+            evidence: DeterminismEvidence {
+                package_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+                toolchain_id: "rust-1.87.0".to_string(),
+                unicode_version: "15.1.0".to_string(),
+                build_recipe_sha256:
+                    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".to_string(),
+            },
+        }
     }
 }
