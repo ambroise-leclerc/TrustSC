@@ -150,6 +150,20 @@ struct FlatVertex {
     color: [f32; 4],
 }
 
+/// GPU-side state of one `SignalTrace` node (ADR-018): a persistently mapped `FlatVertex` ring
+/// mirror drawn as a `LINE_STRIP` — the scrolling-amplitude counterpart of `WaterfallResources`.
+/// Reuses the flat solid-color shaders (no new GLSL): the vertex format and shading are
+/// identical to a panel quad, only the pipeline's topology differs.
+struct TraceResources {
+    source: &'static str,
+    bounds: mdux::Rect,
+    rgba: [f32; 4],
+    capacity: usize,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
+    vertex_ptr: Option<std::ptr::NonNull<FlatVertex>>,
+}
+
 /// One governed image's GPU resources: its RGBA texture + descriptor set (uploaded once at
 /// construction) and its quad vertex buffer (kept in the swapchain lifecycle for consistent
 /// teardown/rebuild ordering).
@@ -177,6 +191,20 @@ struct DisplayTextResources {
     /// Vertices actually written this frame (reset and rewritten by write_dynamic_vertices,
     /// read by record_command_buffer — no per-frame allocation).
     written_vertices: u32,
+}
+
+/// One `StatusIndicator` node's fixed vertex range in the persistently mapped dynamic buffer
+/// (mirrors `DisplayTextResources`, minus the atlas/descriptor set: statuses render from the
+/// standard package's atlas, same as clocks/text-inputs). `active_rgba` is resolved from
+/// `StatusBinding::color_tokens[state_index]` each frame in `write_dynamic_vertices` — giving
+/// each status its own dedicated range and push-constant color is what makes the per-state
+/// theme color (e.g. green NORMAL / red ARRHYTHMIA) actually render, instead of every dynamic
+/// glyph sharing one fixed overlay color.
+struct StatusTextResources {
+    vertex_offset: usize,
+    capacity_vertices: usize,
+    written_vertices: u32,
+    active_rgba: [f32; 4],
 }
 
 impl DisplayTextResources {
@@ -215,22 +243,33 @@ fn accumulate_display_quads(
     Ok(per_display_quads)
 }
 
-/// Computes the fixed `[standard | d0 | d1 | ...]` split of the dynamic vertex buffer from the
-/// per-range quad counts (6 vertices per glyph quad). Returns the standard range's capacity,
-/// each display package's `(offset, capacity)` in vertices, and the total vertex count.
+/// Computes the fixed `[standard | s0 | s1 | ... | d0 | d1 | ...]` split of the dynamic vertex
+/// buffer from the per-range quad counts (6 vertices per glyph quad): the standard range
+/// (clocks/text-inputs, one shared overlay color), then one dedicated range per
+/// `StatusIndicator` (ADR-018's per-state color fix needs its own push-constant color per
+/// status, hence its own range), then one per display package. Returns the standard range's
+/// capacity, each status's `(offset, capacity)`, each display package's `(offset, capacity)`,
+/// and the total vertex count.
 fn dynamic_buffer_layout(
     standard_quads: usize,
+    per_status_quads: &[usize],
     per_display_quads: &[usize],
-) -> (usize, Vec<(usize, usize)>, usize) {
+) -> (usize, Vec<(usize, usize)>, Vec<(usize, usize)>, usize) {
     let standard_capacity = standard_quads * 6;
     let mut offset = standard_capacity;
-    let mut ranges = Vec::with_capacity(per_display_quads.len());
-    for &quads in per_display_quads {
+    let mut status_ranges = Vec::with_capacity(per_status_quads.len());
+    for &quads in per_status_quads {
         let capacity = quads * 6;
-        ranges.push((offset, capacity));
+        status_ranges.push((offset, capacity));
         offset += capacity;
     }
-    (standard_capacity, ranges, offset)
+    let mut display_ranges = Vec::with_capacity(per_display_quads.len());
+    for &quads in per_display_quads {
+        let capacity = quads * 6;
+        display_ranges.push((offset, capacity));
+        offset += capacity;
+    }
+    (standard_capacity, status_ranges, display_ranges, offset)
 }
 
 pub struct VulkanRenderer {
@@ -280,6 +319,10 @@ pub struct VulkanRenderer {
     dynamic_vertex_buffer_memory: vk::DeviceMemory,
     dynamic_vertex_ptr: Option<std::ptr::NonNull<TextVertex>>,
     dynamic_standard_capacity_vertices: usize,
+    // One entry per `StatusIndicator` node (index-aligned with `bindings.statuses`), each its
+    // own fixed range of the dynamic buffer so its active state's theme color can be pushed
+    // independently (ADR-018 per-state color fix).
+    status_resources: Vec<StatusTextResources>,
     // One entry per approved display package (index-aligned with `bindings.displays`); each
     // carries its own glyph atlas + descriptor set (the pipeline layout is shared — identically
     // defined set layouts are compatible) and its fixed range of the dynamic buffer.
@@ -306,6 +349,12 @@ pub struct VulkanRenderer {
     images: Vec<ImageResources>,
     image_pipeline_layout: vk::PipelineLayout,
     image_pipeline: vk::Pipeline,
+    // Signal traces (ADR-018): one persistently mapped LINE_STRIP vertex buffer per node,
+    // rewritten from the realtime sample ring each frame; the pipeline reuses the flat
+    // solid-color shaders with a different topology (no new GLSL).
+    traces: Vec<TraceResources>,
+    trace_pipeline_layout: vk::PipelineLayout,
+    trace_pipeline: vk::Pipeline,
     authored_surface_extent: vk::Extent2D,
     // Interactive widget chrome (ADR-015): button faces, text-input fields and the caret — a
     // small persistently mapped flat-rect region rewritten each frame through the same flat
@@ -440,6 +489,7 @@ impl VulkanRenderer {
         renderer.create_waterfall_resources()?;
         renderer.create_panel_and_image_static_resources()?;
         renderer.create_interactive_rect_resources()?;
+        renderer.create_trace_resources()?;
         renderer.recreate_swapchain(window)?;
         Ok(renderer)
     }
@@ -503,6 +553,7 @@ impl VulkanRenderer {
         renderer.create_waterfall_resources()?;
         renderer.create_panel_and_image_static_resources()?;
         renderer.create_interactive_rect_resources()?;
+        renderer.create_trace_resources()?;
         renderer.create_offscreen_target()?;
         Ok(renderer)
     }
@@ -547,6 +598,7 @@ impl VulkanRenderer {
             dynamic_vertex_buffer_memory: vk::DeviceMemory::null(),
             dynamic_vertex_ptr: None,
             dynamic_standard_capacity_vertices: 0,
+            status_resources: Vec::new(),
             display_resources: Vec::new(),
             depth_image: vk::Image::null(),
             depth_image_memory: vk::DeviceMemory::null(),
@@ -567,6 +619,9 @@ impl VulkanRenderer {
             images: Vec::new(),
             image_pipeline_layout: vk::PipelineLayout::null(),
             image_pipeline: vk::Pipeline::null(),
+            traces: Vec::new(),
+            trace_pipeline_layout: vk::PipelineLayout::null(),
+            trace_pipeline: vk::Pipeline::null(),
             authored_surface_extent: vk::Extent2D {
                 width: built.authored_surface_width.max(1),
                 height: built.authored_surface_height.max(1),
@@ -647,6 +702,7 @@ impl VulkanRenderer {
         // The in-flight fence has been waited on: the previous submission using this command
         // buffer and the mapped buffers has fully completed, so all are safe to rewrite.
         self.write_waterfall_heights(inputs)?;
+        self.write_traces(inputs)?;
         let dynamic_standard_vertices = self.write_dynamic_vertices(inputs, clock)?;
         self.write_interactive_rects(inputs, interaction)?;
         self.record_command_buffer(image_index as usize, dynamic_standard_vertices)?;
@@ -852,6 +908,7 @@ impl VulkanRenderer {
         }
 
         self.write_waterfall_heights(inputs)?;
+        self.write_traces(inputs)?;
         let dynamic_standard_vertices = self.write_dynamic_vertices(inputs, clock)?;
         self.write_interactive_rects(inputs, interaction)?;
         self.record_command_buffer(0, dynamic_standard_vertices)?;
@@ -966,9 +1023,9 @@ impl VulkanRenderer {
     }
 
     /// Allocates the fixed-capacity dynamic text machinery once: the persistently mapped
-    /// vertex buffer sized from the screen's bindings ([standard quads | display quads]) and,
-    /// when numeric displays exist, the display package's atlas + descriptor set. Nothing here
-    /// runs per frame (ADR-013).
+    /// vertex buffer sized from the screen's bindings
+    /// ([standard quads | per-status quads | display quads]) and, when numeric displays exist,
+    /// the display package's atlas + descriptor set. Nothing here runs per frame (ADR-013).
     fn create_dynamic_text_resources(&mut self) -> Result<(), BoxError> {
         let standard_quads: usize = self
             .bindings
@@ -977,17 +1034,17 @@ impl VulkanRenderer {
             .map(|binding| binding.capacity)
             .chain(
                 self.bindings
-                    .statuses
-                    .iter()
-                    .map(|binding| binding.capacity),
-            )
-            .chain(
-                self.bindings
                     .text_inputs
                     .iter()
                     .map(|binding| binding.capacity),
             )
             .sum();
+        let per_status_quads: Vec<usize> = self
+            .bindings
+            .statuses
+            .iter()
+            .map(|binding| binding.capacity)
+            .collect();
         let per_display_quads =
             accumulate_display_quads(&self.bindings.numbers, self.bindings.displays.len())?;
 
@@ -1024,8 +1081,8 @@ impl VulkanRenderer {
             }
         }
 
-        let (standard_capacity, display_ranges, total_vertices) =
-            dynamic_buffer_layout(standard_quads, &per_display_quads);
+        let (standard_capacity, status_ranges, display_ranges, total_vertices) =
+            dynamic_buffer_layout(standard_quads, &per_status_quads, &per_display_quads);
         self.dynamic_standard_capacity_vertices = standard_capacity;
         if total_vertices == 0 {
             return Ok(());
@@ -1047,6 +1104,15 @@ impl VulkanRenderer {
         self.dynamic_vertex_buffer = buffer;
         self.dynamic_vertex_buffer_memory = memory;
         self.dynamic_vertex_ptr = std::ptr::NonNull::new(mapped.cast::<TextVertex>());
+
+        for &(vertex_offset, capacity_vertices) in &status_ranges {
+            self.status_resources.push(StatusTextResources {
+                vertex_offset,
+                capacity_vertices,
+                written_vertices: 0,
+                active_rgba: [1.0, 1.0, 1.0, 1.0],
+            });
+        }
 
         for (display_index, &(vertex_offset, capacity_vertices)) in
             display_ranges.iter().enumerate()
@@ -1089,6 +1155,11 @@ impl VulkanRenderer {
         };
         let (surface_width, surface_height) = self.authored_surface_size();
         let total_vertices = self.dynamic_standard_capacity_vertices
+            + self
+                .status_resources
+                .iter()
+                .map(|resources| resources.capacity_vertices)
+                .sum::<usize>()
             + self
                 .display_resources
                 .iter()
@@ -1168,7 +1239,11 @@ impl VulkanRenderer {
             }
         }
 
-        for binding in &self.bindings.statuses {
+        // Each status gets its own dedicated vertex range (ADR-018 per-state color fix) so its
+        // active state's theme color can be pushed independently at draw time, instead of every
+        // status sharing the fixed white overlay color the clocks/text-inputs use.
+        for index in 0..self.bindings.statuses.len() {
+            let binding = &self.bindings.statuses[index];
             let state_index = usize::from(inputs.status_index(binding.source).unwrap_or(0));
             let run_id = binding.state_run_ids.get(state_index).ok_or_else(|| {
                 box_error(format!(
@@ -1176,17 +1251,40 @@ impl VulkanRenderer {
                     binding.node_id
                 ))
             })?;
+            let color_token = binding.color_tokens.get(state_index).copied().ok_or_else(|| {
+                box_error(format!(
+                    "status {} has no color for state {state_index}",
+                    binding.node_id
+                ))
+            })?;
+            let rgba = mdux::resolve_color_token(color_token).ok_or_else(|| {
+                box_error(format!(
+                    "status {} references unknown theme color token {color_token}",
+                    binding.node_id
+                ))
+            })?;
             let (origin_x, origin_y) = binding.state_origins[state_index];
             let commands = standard_runtime.render_run(run_id, origin_x, origin_y)?;
+
+            let (range_offset, range_end) = {
+                let resources = &self.status_resources[index];
+                (
+                    resources.vertex_offset,
+                    resources.vertex_offset + resources.capacity_vertices,
+                )
+            };
+            let mut cursor = range_offset;
             write_glyph_quads(
                 vertices,
-                &mut standard_cursor,
-                self.dynamic_standard_capacity_vertices,
+                &mut cursor,
+                range_end,
                 &commands,
                 &self.bindings.standard,
                 surface_width,
                 surface_height,
             )?;
+            self.status_resources[index].written_vertices = (cursor - range_offset) as u32;
+            self.status_resources[index].active_rgba = rgba;
         }
 
         // Text inputs echo application-owned content (ADR-015 controlled component): the
@@ -1360,6 +1458,11 @@ impl VulkanRenderer {
             }
             self.image_pipeline =
                 create_image_pipeline(&self.device, self.render_pass, self.image_pipeline_layout)?;
+        }
+
+        if !self.traces.is_empty() {
+            self.trace_pipeline =
+                create_trace_pipeline(&self.device, self.render_pass, self.trace_pipeline_layout)?;
         }
 
         Ok(())
@@ -1633,6 +1736,111 @@ impl VulkanRenderer {
         Ok(())
     }
 
+    /// Allocates each `SignalTrace` node's persistently mapped `LINE_STRIP` vertex buffer
+    /// (`capacity` `FlatVertex` points, ADR-018) and the shared empty pipeline layout. Nothing
+    /// here runs per frame; [`write_traces`](Self::write_traces) rewrites the mapped buffer from
+    /// the realtime ring each frame.
+    fn create_trace_resources(&mut self) -> Result<(), BoxError> {
+        if self.bindings.traces.is_empty() {
+            return Ok(());
+        }
+
+        let layout_info = vk::PipelineLayoutCreateInfo::default();
+        self.trace_pipeline_layout =
+            unsafe { self.device.create_pipeline_layout(&layout_info, None)? };
+
+        let traces = self.bindings.traces.clone();
+        for trace in &traces {
+            let buffer_size = vk::DeviceSize::try_from(trace.capacity * size_of::<FlatVertex>())?;
+            let (buffer, memory) = create_buffer(
+                &self.instance,
+                &self.device,
+                self.physical_device,
+                buffer_size,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            let mapped = unsafe {
+                self.device
+                    .map_memory(memory, 0, buffer_size, vk::MemoryMapFlags::empty())?
+            };
+            unsafe {
+                std::ptr::write_bytes(
+                    mapped.cast::<u8>(),
+                    0,
+                    trace.capacity * size_of::<FlatVertex>(),
+                );
+            }
+
+            self.traces.push(TraceResources {
+                source: trace.source,
+                bounds: trace.bounds,
+                rgba: trace.rgba,
+                capacity: trace.capacity,
+                vertex_buffer: buffer,
+                vertex_buffer_memory: memory,
+                vertex_ptr: std::ptr::NonNull::new(mapped.cast::<FlatVertex>()),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Rewrites each trace's mapped vertex buffer from its ring buffer's current samples
+    /// (ADR-018): one `FlatVertex` per ring slot, oldest first (leftmost) so the line always
+    /// scrolls left-to-right, `y` derived from the sample clamped to `[-1, 1]` so the polyline
+    /// geometry can never leave the node's bounds — no per-node scissor is needed, unlike the
+    /// waterfall's separate local clip space.
+    fn write_traces(&mut self, inputs: &FrameInputs) -> Result<(), BoxError> {
+        let (surface_width, surface_height) = self.authored_surface_size();
+        for trace in &mut self.traces {
+            let (data, cursor) = inputs.trace(trace.source).ok_or_else(|| {
+                box_error(format!(
+                    "screen declares signal trace {} but FrameInputs does not know it",
+                    trace.source
+                ))
+            })?;
+            if data.len() != trace.capacity {
+                return Err(box_error(format!(
+                    "signal trace {} ring size {} does not match the declared capacity {}",
+                    trace.source,
+                    data.len(),
+                    trace.capacity
+                )));
+            }
+            let Some(pointer) = trace.vertex_ptr else {
+                continue;
+            };
+
+            let left = (2.0 * trace.bounds.x as f32 / surface_width) - 1.0;
+            let right =
+                (2.0 * (trace.bounds.x + trace.bounds.width as i32) as f32 / surface_width) - 1.0;
+            let top = -1.0 + (2.0 * trace.bounds.y as f32 / surface_height);
+            let bottom = -1.0
+                + (2.0 * (trace.bounds.y + trace.bounds.height as i32) as f32 / surface_height);
+            let mid_y = (top + bottom) / 2.0;
+            let half_height = (bottom - top) / 2.0;
+            let last_slot = (trace.capacity - 1).max(1) as f32;
+
+            // Safety: mapped once at creation with exactly `capacity` vertices; the in-flight
+            // fence waited in draw_frame guarantees the GPU finished reading the previous
+            // frame's contents.
+            unsafe {
+                for slot in 0..trace.capacity {
+                    let ring_index = (cursor + slot) % trace.capacity;
+                    let sample = data[ring_index].clamp(-1.0, 1.0);
+                    let x = left + (right - left) * (slot as f32 / last_slot);
+                    let y = mid_y - sample * half_height;
+                    pointer.as_ptr().add(slot).write(FlatVertex {
+                        position: [x, y],
+                        color: trace.rgba,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn create_text_swapchain_resources(&mut self, extent: vk::Extent2D) -> Result<(), BoxError> {
         let (vertex_buffer, vertex_buffer_memory, vertex_count) = create_text_vertex_buffer(
             &self.instance,
@@ -1709,8 +1917,9 @@ impl VulkanRenderer {
                 vk::SubpassContents::INLINE,
             );
 
-            // Draw order (ADR-014): panel underlays -> 3D waterfalls (depth-tested) ->
-            // governed images -> text overlay.
+            // Draw order (ADR-014, extended by ADR-018): panel underlays -> 3D waterfalls
+            // (depth-tested) -> governed images -> signal traces -> interactive chrome -> text
+            // overlay.
             if self.flat_pipeline != vk::Pipeline::null() && self.flat_vertex_count > 0 {
                 let viewport = vk::Viewport {
                     x: 0.0,
@@ -1838,6 +2047,44 @@ impl VulkanRenderer {
                 }
             }
 
+            // Signal traces (ADR-018): scrolling amplitude polylines, above waterfalls/images.
+            // The line-strip geometry is clamped to the node's bounds at write time (no per-node
+            // scissor needed), so the full-extent viewport/scissor here matches the flat pipeline
+            // panels/interactive chrome use.
+            if self.trace_pipeline != vk::Pipeline::null() && !self.traces.is_empty() {
+                let viewport = vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                };
+                let scissor = vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                };
+                self.device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.trace_pipeline,
+                );
+                self.device.cmd_set_viewport(command_buffer, 0, &[viewport]);
+                self.device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                for trace in &self.traces {
+                    let vertex_buffers = [trace.vertex_buffer];
+                    let offsets = [0];
+                    self.device.cmd_bind_vertex_buffers(
+                        command_buffer,
+                        0,
+                        &vertex_buffers,
+                        &offsets,
+                    );
+                    self.device
+                        .cmd_draw(command_buffer, trace.capacity as u32, 1, 0, 0);
+                }
+            }
+
             // Interactive chrome (ADR-015): button faces, text-input fields and the caret —
             // above panels/waterfalls/images, beneath the text overlay so labels and echoed
             // content render on top of their faces.
@@ -1875,6 +2122,10 @@ impl VulkanRenderer {
                 self.text_pipeline != vk::Pipeline::null() && self.text_vertex_count > 0;
             let has_dynamic = self.text_pipeline != vk::Pipeline::null()
                 && (dynamic_standard_vertices > 0
+                    || self
+                        .status_resources
+                        .iter()
+                        .any(|resources| resources.written_vertices > 0)
                     || self
                         .display_resources
                         .iter()
@@ -1977,6 +2228,42 @@ impl VulkanRenderer {
                             0,
                         );
                     }
+
+                    // Each status draws in its own dedicated range with its own push-constant
+                    // color (ADR-018 per-state color fix) — recorded last in this block so no
+                    // later draw call inherits its color instead of the default white overlay.
+                    for resources in &self.status_resources {
+                        if resources.written_vertices == 0 {
+                            continue;
+                        }
+                        let descriptor_sets = [self.text_descriptor_set];
+                        self.device.cmd_bind_descriptor_sets(
+                            command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            self.text_pipeline_layout,
+                            0,
+                            &descriptor_sets,
+                            &[],
+                        );
+                        let status_push_constants = TextPushConstants {
+                            text_color: resources.active_rgba,
+                            ..TextPushConstants::overlay()
+                        };
+                        self.device.cmd_push_constants(
+                            command_buffer,
+                            self.text_pipeline_layout,
+                            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                            0,
+                            bytes_of(&status_push_constants),
+                        );
+                        self.device.cmd_draw(
+                            command_buffer,
+                            resources.written_vertices,
+                            1,
+                            resources.vertex_offset as u32,
+                            0,
+                        );
+                    }
                 }
             }
 
@@ -2044,6 +2331,10 @@ impl VulkanRenderer {
             if self.image_pipeline != vk::Pipeline::null() {
                 self.device.destroy_pipeline(self.image_pipeline, None);
                 self.image_pipeline = vk::Pipeline::null();
+            }
+            if self.trace_pipeline != vk::Pipeline::null() {
+                self.device.destroy_pipeline(self.trace_pipeline, None);
+                self.trace_pipeline = vk::Pipeline::null();
             }
             for image in &mut self.images {
                 if image.vertex_buffer != vk::Buffer::null() {
@@ -2174,6 +2465,24 @@ impl VulkanRenderer {
                 self.device
                     .destroy_pipeline_layout(self.image_pipeline_layout, None);
                 self.image_pipeline_layout = vk::PipelineLayout::null();
+            }
+            for trace in &mut self.traces {
+                if trace.vertex_ptr.take().is_some() {
+                    self.device.unmap_memory(trace.vertex_buffer_memory);
+                }
+                if trace.vertex_buffer != vk::Buffer::null() {
+                    self.device.destroy_buffer(trace.vertex_buffer, None);
+                    trace.vertex_buffer = vk::Buffer::null();
+                }
+                if trace.vertex_buffer_memory != vk::DeviceMemory::null() {
+                    self.device.free_memory(trace.vertex_buffer_memory, None);
+                    trace.vertex_buffer_memory = vk::DeviceMemory::null();
+                }
+            }
+            if self.trace_pipeline_layout != vk::PipelineLayout::null() {
+                self.device
+                    .destroy_pipeline_layout(self.trace_pipeline_layout, None);
+                self.trace_pipeline_layout = vk::PipelineLayout::null();
             }
             for image in self.images.drain(..) {
                 if image.descriptor_pool != vk::DescriptorPool::null() {
@@ -3240,6 +3549,45 @@ fn create_flat_pipeline(
         binding_description,
         &attribute_descriptions,
         false,
+        vk::PrimitiveTopology::TRIANGLE_LIST,
+    )
+}
+
+/// The `SignalTrace` pipeline (ADR-018): reuses the flat solid-color shaders and `FlatVertex`
+/// layout verbatim — the only difference from [`create_flat_pipeline`] is `LINE_STRIP`
+/// topology, since the shaders themselves are topology-agnostic (they just pass through
+/// position and interpolate color).
+fn create_trace_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    pipeline_layout: vk::PipelineLayout,
+) -> Result<vk::Pipeline, BoxError> {
+    let binding_description = vk::VertexInputBindingDescription::default()
+        .binding(0)
+        .stride(size_of::<FlatVertex>() as u32)
+        .input_rate(vk::VertexInputRate::VERTEX);
+    let attribute_descriptions = [
+        vk::VertexInputAttributeDescription::default()
+            .binding(0)
+            .location(0)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(0),
+        vk::VertexInputAttributeDescription::default()
+            .binding(0)
+            .location(1)
+            .format(vk::Format::R32G32B32A32_SFLOAT)
+            .offset(8),
+    ];
+    create_overlay_pipeline(
+        device,
+        render_pass,
+        pipeline_layout,
+        FLAT_VERT_SPV,
+        FLAT_FRAG_SPV,
+        binding_description,
+        &attribute_descriptions,
+        false,
+        vk::PrimitiveTopology::LINE_STRIP,
     )
 }
 
@@ -3274,11 +3622,13 @@ fn create_image_pipeline(
         binding_description,
         &attribute_descriptions,
         true,
+        vk::PrimitiveTopology::TRIANGLE_LIST,
     )
 }
 
-/// Shared 2D-overlay pipeline builder (panels, images): dynamic viewport/scissor, no depth
-/// test/write, optional alpha blending.
+/// Shared 2D-overlay pipeline builder (panels, images, signal traces): dynamic viewport/scissor,
+/// no depth test/write, optional alpha blending, caller-chosen primitive topology (ADR-018 adds
+/// `LINE_STRIP` alongside the original `TRIANGLE_LIST`).
 #[allow(clippy::too_many_arguments)]
 fn create_overlay_pipeline(
     device: &ash::Device,
@@ -3289,6 +3639,7 @@ fn create_overlay_pipeline(
     binding_description: vk::VertexInputBindingDescription,
     attribute_descriptions: &[vk::VertexInputAttributeDescription],
     alpha_blend: bool,
+    topology: vk::PrimitiveTopology,
 ) -> Result<vk::Pipeline, BoxError> {
     let vertex_shader_module = create_shader_module(device, vert_spv)?;
     let fragment_shader_module = create_shader_module(device, frag_spv)?;
@@ -3308,8 +3659,8 @@ fn create_overlay_pipeline(
     let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
         .vertex_binding_descriptions(&binding_descriptions)
         .vertex_attribute_descriptions(attribute_descriptions);
-    let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let input_assembly_state =
+        vk::PipelineInputAssemblyStateCreateInfo::default().topology(topology);
     let viewport_state = vk::PipelineViewportStateCreateInfo::default()
         .viewport_count(1)
         .scissor_count(1);
@@ -4369,21 +4720,26 @@ mod tests {
 
     #[test]
     fn dynamic_buffer_layout_packs_ranges_contiguously() {
-        // [standard | d0 | d1 | d2] with quad counts 5 / 2 / 0 / 3 (6 vertices per quad).
-        let (standard, ranges, total) = dynamic_buffer_layout(5, &[2, 0, 3]);
+        // [standard | s0 | s1 | d0 | d1 | d2] with quad counts 5 / (1, 2) / 2 / 0 / 3.
+        let (standard, status_ranges, display_ranges, total) =
+            dynamic_buffer_layout(5, &[1, 2], &[2, 0, 3]);
         assert_eq!(standard, 30);
-        assert_eq!(ranges, vec![(30, 12), (42, 0), (42, 18)]);
-        assert_eq!(total, 60);
+        assert_eq!(status_ranges, vec![(30, 6), (36, 12)]);
+        assert_eq!(display_ranges, vec![(48, 12), (60, 0), (60, 18)]);
+        assert_eq!(total, 78);
 
         // No dynamic text at all.
-        let (standard, ranges, total) = dynamic_buffer_layout(0, &[]);
+        let (standard, status_ranges, display_ranges, total) = dynamic_buffer_layout(0, &[], &[]);
         assert_eq!((standard, total), (0, 0));
-        assert!(ranges.is_empty());
+        assert!(status_ranges.is_empty());
+        assert!(display_ranges.is_empty());
 
-        // Standard-only screens (hello_world) get no display ranges.
-        let (standard, ranges, total) = dynamic_buffer_layout(4, &[0, 0]);
+        // Standard-only screens (hello_world) get no status or display ranges.
+        let (standard, status_ranges, display_ranges, total) =
+            dynamic_buffer_layout(4, &[], &[0, 0]);
         assert_eq!(standard, 24);
-        assert_eq!(ranges, vec![(24, 0), (24, 0)]);
+        assert!(status_ranges.is_empty());
+        assert_eq!(display_ranges, vec![(24, 0), (24, 0)]);
         assert_eq!(total, 24);
     }
 
@@ -4693,5 +5049,279 @@ mod tests {
         );
 
         assert!(!renderer.device_name().is_empty());
+    }
+
+    /// A 64x64 fixture with one `SignalTrace` covering only the bottom half
+    /// (`y: 32..64`) — enough to prove (ADR-018) that a flat-amplitude trace paints its own
+    /// color exactly at its mid-line and paints nothing (clear color only) both above its
+    /// bounds and away from the line within its bounds, i.e. the polyline stays contained.
+    const OFFSCREEN_TRACE_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "OffscreenTraceTest",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 0,
+            padding: 0,
+        },
+        nodes: &[CompiledNode {
+            id: "ecg-trace",
+            bounds: Rect { x: 0, y: 32, width: 64, height: 32 },
+            kind: CompiledNodeKind::SignalTrace(mdux::SignalTraceSpec {
+                stream_source: "TEST_TRACE",
+                color_token: "Theme.Colors.Nominal",
+            }),
+        }],
+        golden_references: &[],
+    };
+
+    #[test]
+    fn offscreen_render_draws_a_signal_trace_contained_within_its_bounds() {
+        let standard = match mdux::default_standard_text_package() {
+            Ok(package) => package,
+            Err(error) => {
+                eprintln!("skipping signal trace offscreen test: {error}");
+                return;
+            }
+        };
+        let displays = mdux::default_display_text_packages()
+            .expect("display packages should load alongside the standard package");
+        let text_layout =
+            ScreenTextLayout::from_screen(&OFFSCREEN_TRACE_SCREEN, standard.clone(), "en-US")
+                .expect("layout should build");
+        let bindings = ScreenBindings::from_screen(
+            &OFFSCREEN_TRACE_SCREEN,
+            standard,
+            displays,
+            &[],
+            "en-US",
+        )
+        .expect("bindings should resolve");
+
+        let mut renderer =
+            match OffscreenRenderer::new("offscreen-trace-test", text_layout, bindings, 64, 64) {
+                Ok(renderer) => renderer,
+                Err(error) => {
+                    eprintln!(
+                        "skipping signal trace offscreen test: no Vulkan device available: {error}"
+                    );
+                    return;
+                }
+            };
+
+        let mut inputs = FrameInputs::from_bindings(
+            &ScreenBindings::from_screen(
+                &OFFSCREEN_TRACE_SCREEN,
+                mdux::default_standard_text_package().expect("standard package"),
+                mdux::default_display_text_packages().expect("display packages"),
+                &[],
+                "en-US",
+            )
+            .expect("bindings should resolve"),
+        )
+        .expect("frame inputs should build from bindings");
+
+        // Flat-amplitude signal (all zero, the ring's normalized midpoint): the LINE_STRIP
+        // renders as a straight horizontal line at the bounds' vertical center.
+        for _ in 0..mdux::realtime::DEFAULT_TRACE_SAMPLES {
+            inputs
+                .push_sample("TEST_TRACE", 0.0)
+                .expect("known trace source");
+        }
+
+        let clock = WallClock {
+            year: 2026,
+            month: 1,
+            day: 1,
+            hours: 12,
+            minutes: 0,
+            seconds: 0,
+        };
+
+        renderer
+            .draw_frame(&inputs, clock, InteractionSnapshot::default())
+            .expect("offscreen frame should render");
+        let frame = renderer.read_pixels().expect("pixels should read back");
+
+        let byte_at = |x: u32, y: u32| -> [u8; 4] {
+            let offset = ((y * frame.width + x) * 4) as usize;
+            [
+                frame.rgba[offset],
+                frame.rgba[offset + 1],
+                frame.rgba[offset + 2],
+                frame.rgba[offset + 3],
+            ]
+        };
+        let expected_bytes = |rgba: [f32; 4]| -> [u8; 4] {
+            [
+                (rgba[0] * 255.0).round() as u8,
+                (rgba[1] * 255.0).round() as u8,
+                (rgba[2] * 255.0).round() as u8,
+                (rgba[3] * 255.0).round() as u8,
+            ]
+        };
+
+        let trace_rgba = mdux::resolve_color_token("Theme.Colors.Nominal")
+            .expect("Nominal is a governed theme token");
+        let clear_bytes = expected_bytes(CLEAR_COLOR_RGBA_F32);
+
+        // The bounds span y: 32..64, so the flat line at zero amplitude sits at the vertical
+        // center, y=48. Scan a small band for the line rather than asserting one exact row: the
+        // NDC-to-pixel rasterization of a 1px line can land on either neighboring row.
+        let line_row = (44..=52).find(|&y| byte_at(32, y) == expected_bytes(trace_rgba));
+        assert!(
+            line_row.is_some(),
+            "expected to find the trace color near y=48 within the trace bounds; got {:?}",
+            (44..=52).map(|y| byte_at(32, y)).collect::<Vec<_>>()
+        );
+
+        // Above the trace's bounds entirely (y=8 < 32): must be pure background, proving the
+        // trace does not paint outside its reserved region.
+        assert_eq!(
+            byte_at(32, 8),
+            clear_bytes,
+            "pixel above the signal trace's bounds must be untouched background"
+        );
+
+        // Inside the bounds but far from the flat line (near the top of the bottom half,
+        // y=34): still background, since the line is only 1px tall.
+        assert_eq!(
+            byte_at(32, 34),
+            clear_bytes,
+            "pixel inside the trace bounds but away from the flat line must be background"
+        );
+    }
+
+    /// A `StatusIndicator` with two states tinted from different theme tokens
+    /// (`Theme.Colors.Nominal` green / `Theme.Colors.Fault` red) — proves the ADR-018 per-state
+    /// color fix: selecting each state must actually paint its own resolved color, not a shared
+    /// fixed overlay color both states used to render in regardless of which was active.
+    const OFFSCREEN_STATUS_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "OffscreenStatusTest",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 0,
+            padding: 0,
+        },
+        nodes: &[CompiledNode {
+            id: "system-status",
+            bounds: Rect { x: 16, y: 8, width: 200, height: 48 },
+            kind: CompiledNodeKind::StatusIndicator(mdux::StatusIndicatorSpec {
+                requirement_id: "REQ-TEST-STATUS",
+                source: "TEST_STATUS",
+                state_text_keys: &["STR-NS-NOMINAL", "STR-NS-FAULT"],
+                color_tokens: &["Theme.Colors.Nominal", "Theme.Colors.Fault"],
+            }),
+        }],
+        golden_references: &[],
+    };
+
+    #[test]
+    fn offscreen_render_paints_each_status_state_in_its_own_theme_color() {
+        let standard = match mdux::default_standard_text_package() {
+            Ok(package) => package,
+            Err(error) => {
+                eprintln!("skipping status color offscreen test: {error}");
+                return;
+            }
+        };
+        let displays = mdux::default_display_text_packages()
+            .expect("display packages should load alongside the standard package");
+        let text_layout =
+            ScreenTextLayout::from_screen(&OFFSCREEN_STATUS_SCREEN, standard.clone(), "en-US")
+                .expect("layout should build");
+        let bindings = ScreenBindings::from_screen(
+            &OFFSCREEN_STATUS_SCREEN,
+            standard,
+            displays,
+            &[],
+            "en-US",
+        )
+        .expect("bindings should resolve");
+
+        let mut renderer =
+            match OffscreenRenderer::new("offscreen-status-test", text_layout, bindings, 256, 64) {
+                Ok(renderer) => renderer,
+                Err(error) => {
+                    eprintln!(
+                        "skipping status color offscreen test: no Vulkan device available: {error}"
+                    );
+                    return;
+                }
+            };
+
+        let clock = WallClock {
+            year: 2026,
+            month: 1,
+            day: 1,
+            hours: 12,
+            minutes: 0,
+            seconds: 0,
+        };
+        let byte_at = |rgba: &[u8], width: u32, x: u32, y: u32| -> [u8; 4] {
+            let offset = ((y * width + x) * 4) as usize;
+            [rgba[offset], rgba[offset + 1], rgba[offset + 2], rgba[offset + 3]]
+        };
+        let expected_bytes = |rgba: [f32; 4]| -> [u8; 4] {
+            [
+                (rgba[0] * 255.0).round() as u8,
+                (rgba[1] * 255.0).round() as u8,
+                (rgba[2] * 255.0).round() as u8,
+                (rgba[3] * 255.0).round() as u8,
+            ]
+        };
+        let contains_color = |rgba: &[u8], width: u32, color: [u8; 4]| -> bool {
+            (16..216).any(|x| (8..56).any(|y| byte_at(rgba, width, x, y) == color))
+        };
+
+        let nominal_bytes = expected_bytes(
+            mdux::resolve_color_token("Theme.Colors.Nominal").expect("Nominal is a theme token"),
+        );
+        let fault_bytes = expected_bytes(
+            mdux::resolve_color_token("Theme.Colors.Fault").expect("Fault is a theme token"),
+        );
+
+        let bindings_for_inputs = ScreenBindings::from_screen(
+            &OFFSCREEN_STATUS_SCREEN,
+            mdux::default_standard_text_package().expect("standard package"),
+            mdux::default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("bindings should resolve");
+
+        let mut nominal_inputs = FrameInputs::from_bindings(&bindings_for_inputs)
+            .expect("frame inputs should build from bindings");
+        nominal_inputs
+            .set_status("TEST_STATUS", 0)
+            .expect("state 0 exists");
+        renderer
+            .draw_frame(&nominal_inputs, clock, InteractionSnapshot::default())
+            .expect("offscreen frame should render");
+        let nominal_frame = renderer.read_pixels().expect("pixels should read back");
+        assert!(
+            contains_color(&nominal_frame.rgba, nominal_frame.width, nominal_bytes),
+            "state 0 (NOMINAL) should paint Theme.Colors.Nominal somewhere in its bounds"
+        );
+        assert!(
+            !contains_color(&nominal_frame.rgba, nominal_frame.width, fault_bytes),
+            "state 0 (NOMINAL) must not paint Theme.Colors.Fault anywhere"
+        );
+
+        let mut fault_inputs = FrameInputs::from_bindings(&bindings_for_inputs)
+            .expect("frame inputs should build from bindings");
+        fault_inputs
+            .set_status("TEST_STATUS", 1)
+            .expect("state 1 exists");
+        renderer
+            .draw_frame(&fault_inputs, clock, InteractionSnapshot::default())
+            .expect("offscreen frame should render");
+        let fault_frame = renderer.read_pixels().expect("pixels should read back");
+        assert!(
+            contains_color(&fault_frame.rgba, fault_frame.width, fault_bytes),
+            "state 1 (FAULT) should paint Theme.Colors.Fault somewhere in its bounds"
+        );
+        assert!(
+            !contains_color(&fault_frame.rgba, fault_frame.width, nominal_bytes),
+            "state 1 (FAULT) must not paint Theme.Colors.Nominal anywhere"
+        );
     }
 }
