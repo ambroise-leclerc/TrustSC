@@ -73,11 +73,13 @@ pub fn import_safetensors(
             "safetensors file is too short to contain an 8-byte header length",
         ));
     }
-    let header_len = u64::from_le_bytes(
+    let header_len_u64 = u64::from_le_bytes(
         bytes[0..8]
             .try_into()
             .expect("slice of length 8 converts to [u8; 8]"),
-    ) as usize;
+    );
+    let header_len = usize::try_from(header_len_u64)
+        .map_err(|_| ValidationError::new("safetensors header length overflows usize"))?;
     let data_start = 8usize
         .checked_add(header_len)
         .ok_or_else(|| ValidationError::new("safetensors header length overflows"))?;
@@ -159,6 +161,16 @@ fn parse_safetensors_entry(
                 })
         })
         .collect::<MduxResult<_>>()?;
+    if shape.is_empty() {
+        return Err(ValidationError::new(format!(
+            "safetensors entry {safetensors_name} shape must not be empty"
+        )));
+    }
+    if shape.iter().any(|&dim| dim == 0) {
+        return Err(ValidationError::new(format!(
+            "safetensors entry {safetensors_name} shape dimensions must be positive"
+        )));
+    }
 
     let offsets = object
         .get("data_offsets")
@@ -173,16 +185,26 @@ fn parse_safetensors_entry(
             "safetensors entry {safetensors_name} data_offsets must have exactly two elements"
         )));
     }
-    let start = offsets[0].as_u64().ok_or_else(|| {
+    let start_u64 = offsets[0].as_u64().ok_or_else(|| {
         ValidationError::new(format!(
             "safetensors entry {safetensors_name} has a non-numeric data_offsets start"
         ))
-    })? as usize;
-    let end = offsets[1].as_u64().ok_or_else(|| {
+    })?;
+    let end_u64 = offsets[1].as_u64().ok_or_else(|| {
         ValidationError::new(format!(
             "safetensors entry {safetensors_name} has a non-numeric data_offsets end"
         ))
-    })? as usize;
+    })?;
+    let start = usize::try_from(start_u64).map_err(|_| {
+        ValidationError::new(format!(
+            "safetensors entry {safetensors_name} data_offsets start overflows usize"
+        ))
+    })?;
+    let end = usize::try_from(end_u64).map_err(|_| {
+        ValidationError::new(format!(
+            "safetensors entry {safetensors_name} data_offsets end overflows usize"
+        ))
+    })?;
     if end < start {
         return Err(ValidationError::new(format!(
             "safetensors entry {safetensors_name} has data_offsets end before start"
@@ -222,8 +244,15 @@ fn parse_safetensors_entry(
         })
         .collect();
 
-    let expected_len: u64 = shape.iter().map(|&dim| u64::from(dim)).product();
-    if expected_len != data.len() as u64 {
+    let expected_len: usize = shape
+        .iter()
+        .try_fold(1usize, |acc, &dim| acc.checked_mul(dim as usize))
+        .ok_or_else(|| {
+            ValidationError::new(format!(
+                "safetensors entry {safetensors_name} shape overflows usize"
+            ))
+        })?;
+    if expected_len != data.len() {
         return Err(ValidationError::new(format!(
             "safetensors entry {safetensors_name} data length does not match its shape"
         )));
@@ -433,9 +462,8 @@ fn canonical_package_hash(
         input_spec.length, input_spec.channels
     ));
     canonical.push_str(&format!(
-        "output|{}|{}\n",
-        output_spec.classes,
-        output_spec.labels.join(",")
+        "output|{}|{:?}\n",
+        output_spec.classes, output_spec.labels
     ));
     for layer in layers {
         canonical.push_str(&format!("layer|{layer:?}\n"));
@@ -573,6 +601,23 @@ mod tests {
     }
 
     #[test]
+    fn labels_containing_commas_do_not_collide_with_a_differently_split_label_set() {
+        // Both label sets join(",") to the identical string "A,B,C" despite being semantically
+        // different splits ("A,B" + "C" vs. "A" + "B,C") -- the canonical encoding must
+        // distinguish them, not just concatenate with a separator that can itself appear inside
+        // a label. Both keep classes == 2, matching mlp_input's Dense(4->2) unchanged.
+        let mut split_first = mlp_input();
+        split_first.output_spec.labels = vec!["A,B".to_string(), "C".to_string()];
+
+        let mut split_second = mlp_input();
+        split_second.output_spec.labels = vec!["A".to_string(), "B,C".to_string()];
+
+        let a = compile_model_package(split_first).unwrap();
+        let b = compile_model_package(split_second).unwrap();
+        assert_ne!(a.evidence.package_sha256, b.evidence.package_sha256);
+    }
+
+    #[test]
     fn round_trips_a_hand_built_safetensors_fixture() {
         // Build a minimal safetensors blob in memory: one F32 tensor "w" of shape [2].
         let data: Vec<f32> = vec![1.5, -2.5];
@@ -625,5 +670,41 @@ mod tests {
         };
         let error = import_safetensors(&[1, 2, 3], &manifest).expect_err("too short");
         assert!(error.to_string().contains("too short"));
+    }
+
+    #[test]
+    fn rejects_empty_safetensors_shape() {
+        let header = serde_json::json!({
+            "w": { "dtype": "F32", "shape": [], "data_offsets": [0, 4] }
+        });
+        let header_bytes = serde_json::to_vec(&header).unwrap();
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&(header_bytes.len() as u64).to_le_bytes());
+        blob.extend_from_slice(&header_bytes);
+        blob.extend_from_slice(&[0u8; 4]);
+
+        let manifest = ArchitectureManifest {
+            tensor_map: vec![("w".to_string(), "our.w".to_string())],
+        };
+        let error = import_safetensors(&blob, &manifest).expect_err("empty shape must be rejected");
+        assert!(error.to_string().contains("must not be empty"));
+    }
+
+    #[test]
+    fn rejects_zero_dimension_safetensors_shape() {
+        let header = serde_json::json!({
+            "w": { "dtype": "F32", "shape": [2, 0], "data_offsets": [0, 0] }
+        });
+        let header_bytes = serde_json::to_vec(&header).unwrap();
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&(header_bytes.len() as u64).to_le_bytes());
+        blob.extend_from_slice(&header_bytes);
+
+        let manifest = ArchitectureManifest {
+            tensor_map: vec![("w".to_string(), "our.w".to_string())],
+        };
+        let error =
+            import_safetensors(&blob, &manifest).expect_err("zero dimension must be rejected");
+        assert!(error.to_string().contains("must be positive"));
     }
 }
