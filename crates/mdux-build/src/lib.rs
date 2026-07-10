@@ -22,7 +22,9 @@ use std::{
 
 use mdux_ui_dsl_authoring::{CompileOptions, ImagePackages, TextPackages};
 
+mod model;
 mod scenario;
+pub use model::ModelPackage;
 pub use scenario::ScenarioSet;
 
 type DynError = Box<dyn std::error::Error>;

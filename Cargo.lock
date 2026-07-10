@@ -728,6 +728,9 @@ dependencies = [
  "mdux-core",
  "mdux-governance",
  "mdux-image-schema",
+ "mdux-ml-authoring",
+ "mdux-ml-runtime",
+ "mdux-ml-schema",
  "mdux-text-authoring",
  "mdux-text-runtime",
  "mdux-text-schema",
@@ -743,6 +746,7 @@ dependencies = [
  "mdux",
  "mdux-ui-dsl-authoring",
  "serde",
+ "serde_json",
  "toml",
 ]
 
