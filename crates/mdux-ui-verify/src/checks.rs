@@ -205,7 +205,9 @@ fn local_background_at(x: i32, y: i32, all_nodes: &[CompiledNode], fallback: [u8
 
 /// Resolves the glyph-free chrome sampling regions for one node, per ADR-016 §2: derived from
 /// the compiled node kind, never guessed. Returns `None` for kinds with no solid, glyph-free
-/// samplable region (`Label`, `Clock`, `NumericDisplay`, `Image`, `VulkanViewport`) and for
+/// samplable region (`Label`, `Clock`, `NumericDisplay`, `Image`, `VulkanViewport`, `SignalTrace`
+/// — the latter two render live streamed content, not an approved static color, so ADR-016/018
+/// only ever check their ink stays within bounds, never a specific expected color) and for
 /// `StatusIndicator`, whose active-state color token depends on runtime source state that this
 /// pure, compiled-data-only engine does not carry — a future wave can extend
 /// [`FrameExpectations`] with a resolved active-state token to bring it into scope.
@@ -244,7 +246,8 @@ fn chrome_sampling(node: &CompiledNode) -> Option<(String, [u8; 4], Vec<Rect>)> 
         | CompiledNodeKind::Clock(_)
         | CompiledNodeKind::NumericDisplay(_)
         | CompiledNodeKind::Image(_)
-        | CompiledNodeKind::VulkanViewport(_) => None,
+        | CompiledNodeKind::VulkanViewport(_)
+        | CompiledNodeKind::SignalTrace(_) => None,
     }
 }
 

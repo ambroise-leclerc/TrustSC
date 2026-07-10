@@ -37,6 +37,32 @@ mdux::include_medui_screen!();
    `primary_text_node_id()` alongside the lower-level `GENERATED_MEDUI_PACKAGE` /
    `GENERATED_PRIMARY_TEXT_NODE_ID` items
 
+## ML model build step (ADR-017)
+
+`mdux-build` also exposes a `ModelPackage` builder alongside `MeduiScreen`, for applications with
+a `SignalTrace` node driven by a committed ML model:
+
+```rust
+// build.rs
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mdux_build::MeduiScreen::new("neurosense.medui").surface(1920, 1080).compile()?;
+    mdux_build::ModelPackage::new("../../generated/models/eeg-demo/package.json").compile()
+}
+```
+
+```rust
+// src/lib.rs
+mdux::include_model!();
+// exposes medui_model::model() -> mdux::ModelPackage
+```
+
+The same JSON-to-Rust codegen doctrine applies: `ModelPackage::compile` reads the committed,
+already-baked-and-verified `generated/models/<id>/package.json` (produced by `tools/mdux-ml-baker`
+from a recipe — never from a raw Hugging Face download at build time) and transcribes it into a
+generated `$OUT_DIR/mdux_ml_model.rs`. Swapping which `package.json` this points at — a Hugging
+Face demonstrator vs. a manufacturer's own clinically-qualified weights, both baked by the
+identical pipeline — is the entire "weights are data" story: zero application source changes.
+
 ## Manual / advanced flow
 
 `mdux_ui_dsl_authoring::compile_medui_file_to_rust_module` remains available directly for callers

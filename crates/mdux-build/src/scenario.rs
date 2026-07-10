@@ -107,6 +107,7 @@ struct ScenarioFile {
 #[serde(deny_unknown_fields)]
 struct StepTable {
     event: Option<EventTable>,
+    advance: Option<u32>,
     expect_text: Option<ExpectTextTable>,
     expect_status: Option<ExpectStatusTable>,
     expect_number: Option<ExpectNumberTable>,
@@ -167,6 +168,7 @@ struct CompiledClock {
 #[derive(Debug)]
 enum CompiledStep {
     Event(CompiledEvent),
+    Advance { frames: u32 },
     ExpectText { source: String, value: String },
     ExpectStatus { source: String, value: u8 },
     ExpectNumber { source: String, value: i64 },
@@ -260,6 +262,7 @@ fn compile_clock(path: &Path, value: &str) -> Result<CompiledClock, DynError> {
 fn compile_step(path: &Path, index: usize, step: &StepTable) -> Result<CompiledStep, DynError> {
     let present = [
         step.event.is_some(),
+        step.advance.is_some(),
         step.expect_text.is_some(),
         step.expect_status.is_some(),
         step.expect_number.is_some(),
@@ -268,7 +271,7 @@ fn compile_step(path: &Path, index: usize, step: &StepTable) -> Result<CompiledS
     let present_count = present.iter().filter(|set| **set).count();
     if present_count != 1 {
         return Err(format!(
-            "{}: step {index} must set exactly one of event/expect_text/expect_status/expect_number/capture, found {present_count}",
+            "{}: step {index} must set exactly one of event/advance/expect_text/expect_status/expect_number/capture, found {present_count}",
             path.display()
         )
         .into());
@@ -276,6 +279,16 @@ fn compile_step(path: &Path, index: usize, step: &StepTable) -> Result<CompiledS
 
     if let Some(event) = &step.event {
         return Ok(CompiledStep::Event(compile_event(path, index, event)?));
+    }
+    if let Some(&frames) = step.advance.as_ref() {
+        if frames == 0 {
+            return Err(format!(
+                "{}: step {index} advance must be positive (use a later step instead of advance=0)",
+                path.display()
+            )
+            .into());
+        }
+        return Ok(CompiledStep::Advance { frames });
     }
     if let Some(expect_text) = &step.expect_text {
         return Ok(CompiledStep::ExpectText {
@@ -464,6 +477,9 @@ fn emit_step(step: &CompiledStep) -> String {
         CompiledStep::Event(event) => {
             format!("::mdux::verify_scenario::ScenarioStep::Event({})", emit_event(event))
         }
+        CompiledStep::Advance { frames } => {
+            format!("::mdux::verify_scenario::ScenarioStep::Advance {{ frames: {frames} }}")
+        }
         CompiledStep::ExpectText { source, value } => format!(
             "::mdux::verify_scenario::ScenarioStep::ExpectText {{ source: {source:?}, value: {value:?} }}"
         ),
@@ -531,6 +547,7 @@ mod tests {
     fn rejects_whitespace_only_source_on_an_expect_step() {
         let step = StepTable {
             event: None,
+            advance: None,
             expect_text: Some(ExpectTextTable {
                 source: "   ".to_string(),
                 value: "A".to_string(),

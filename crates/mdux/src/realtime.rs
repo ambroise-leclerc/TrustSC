@@ -16,6 +16,10 @@ use mdux_ui::{ClockFormat, CompiledNodeKind, CompiledScreenPackage, Rect, resolv
 pub const DEFAULT_STREAM_ROWS: usize = 64;
 pub const DEFAULT_STREAM_BINS: usize = 64;
 
+/// Default sample-ring capacity for a `SignalTrace` node (ADR-018) — a single scrolling
+/// amplitude series, distinct from `StreamBinding`'s `rows × bins` spectral ring.
+pub const DEFAULT_TRACE_SAMPLES: usize = 512;
+
 /// Where and how a `Clock` node renders. The adapter feeds it from the platform clock; the
 /// application writes no code for it.
 #[derive(Clone, Debug, PartialEq)]
@@ -73,6 +77,17 @@ pub struct StreamBinding {
     pub bounds: Rect,
     pub rows: usize,
     pub bins: usize,
+}
+
+/// A `SignalTrace` node's declared sample ring (ADR-018): a single scrolling amplitude series of
+/// `capacity` normalized samples, tinted with `rgba` resolved once at binding time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TraceBinding {
+    pub node_id: &'static str,
+    pub source: &'static str,
+    pub bounds: Rect,
+    pub rgba: [f32; 4],
+    pub capacity: usize,
 }
 
 /// A Panel underlay's resolved render state: bounds + theme color resolved to RGBA at binding
@@ -136,6 +151,7 @@ pub struct ScreenBindings {
     pub numbers: Vec<NumberBinding>,
     pub statuses: Vec<StatusBinding>,
     pub streams: Vec<StreamBinding>,
+    pub traces: Vec<TraceBinding>,
     pub panels: Vec<PanelBinding>,
     pub images: Vec<ImageBinding>,
     pub buttons: Vec<ButtonBinding>,
@@ -164,6 +180,7 @@ impl ScreenBindings {
         let mut numbers = Vec::new();
         let mut statuses = Vec::new();
         let mut streams = Vec::new();
+        let mut traces = Vec::new();
         let mut panels = Vec::new();
         let mut images = Vec::new();
         let mut buttons = Vec::new();
@@ -312,6 +329,21 @@ impl ScreenBindings {
                         bins: DEFAULT_STREAM_BINS,
                     });
                 }
+                CompiledNodeKind::SignalTrace(spec) => {
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "signal trace {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    traces.push(TraceBinding {
+                        node_id: node.id,
+                        source: spec.stream_source,
+                        bounds: node.bounds,
+                        rgba,
+                        capacity: DEFAULT_TRACE_SAMPLES,
+                    });
+                }
                 CompiledNodeKind::Panel(spec) => {
                     let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
                         ValidationError::new(format!(
@@ -430,6 +462,7 @@ impl ScreenBindings {
             numbers,
             statuses,
             streams,
+            traces,
             panels,
             images,
             buttons,
@@ -480,6 +513,7 @@ pub struct FrameInputs {
     numbers: Vec<(&'static str, i64)>,
     statuses: Vec<(&'static str, u8, usize)>, // (source, state_index, state_count)
     streams: Vec<StreamState>,
+    traces: Vec<TraceState>,
     texts: Vec<TextSlot>,
 }
 
@@ -502,6 +536,18 @@ struct StreamState {
     /// Ring storage, `rows × bins`, normalized samples.
     data: Vec<f32>,
     /// Physical row the *next* push writes to.
+    cursor: usize,
+}
+
+/// One `SignalTrace` source's sample ring (ADR-018): a single scrolling series, distinct from
+/// `StreamState`'s `rows × bins` spectral ring.
+#[derive(Clone, Debug)]
+struct TraceState {
+    source: &'static str,
+    capacity: usize,
+    /// Ring storage, `capacity` normalized samples.
+    data: Vec<f32>,
+    /// Physical slot the *next* push writes to.
     cursor: usize,
 }
 
@@ -551,6 +597,16 @@ impl FrameInputs {
                     rows: binding.rows,
                     bins: binding.bins,
                     data: vec![0.0; binding.rows * binding.bins],
+                    cursor: 0,
+                })
+                .collect(),
+            traces: bindings
+                .traces
+                .iter()
+                .map(|binding| TraceState {
+                    source: binding.source,
+                    capacity: binding.capacity,
+                    data: vec![0.0; binding.capacity],
                     cursor: 0,
                 })
                 .collect(),
@@ -611,6 +667,20 @@ impl FrameInputs {
         let start = stream.cursor * stream.bins;
         stream.data[start..start + stream.bins].copy_from_slice(row);
         stream.cursor = (stream.cursor + 1) % stream.rows;
+        Ok(())
+    }
+
+    /// Pushes one sample into a `SignalTrace` source's ring buffer (ADR-018), overwriting the
+    /// oldest sample once the ring is full — the scrolling-amplitude counterpart of
+    /// [`push_row`](Self::push_row)'s spectral ring.
+    pub fn push_sample(&mut self, source: &str, sample: f32) -> MduxResult<()> {
+        let trace = self
+            .traces
+            .iter_mut()
+            .find(|trace| trace.source == source)
+            .ok_or_else(|| ValidationError::new(format!("unknown trace source {source}")))?;
+        trace.data[trace.cursor] = sample;
+        trace.cursor = (trace.cursor + 1) % trace.capacity;
         Ok(())
     }
 
@@ -677,6 +747,16 @@ impl FrameInputs {
             .find(|stream| stream.source == source)
             .map(|stream| (stream.data.as_slice(), stream.cursor))
     }
+
+    /// The ring storage and write cursor of a `SignalTrace` source (renderer-side read): `data`
+    /// is `capacity` samples, `cursor` is the physical slot the next push will overwrite — i.e.
+    /// the *oldest* sample currently on screen.
+    pub fn trace(&self, source: &str) -> Option<(&[f32], usize)> {
+        self.traces
+            .iter()
+            .find(|trace| trace.source == source)
+            .map(|trace| (trace.data.as_slice(), trace.cursor))
+    }
 }
 
 #[cfg(test)]
@@ -684,7 +764,7 @@ mod tests {
     use super::*;
     use crate::{
         CompiledNode, CompiledScreenPackage, LayoutKind, LayoutSpec, NumericDisplaySpec,
-        StatusIndicatorSpec, ViewportReservation, default_display_text_packages,
+        SignalTraceSpec, StatusIndicatorSpec, ViewportReservation, default_display_text_packages,
         default_standard_text_package,
     };
     use mdux_ui::ClockSpec;
@@ -731,6 +811,14 @@ mod tests {
                     stream_source: "EEG_DSA",
                 }),
             },
+            CompiledNode {
+                id: "ecg-trace",
+                bounds: Rect { x: 16, y: 720, width: 1248, height: 240 },
+                kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                    stream_source: "ECG_WAVEFORM",
+                    color_token: "Theme.Colors.Nominal",
+                }),
+            },
         ],
         golden_references: &[],
     };
@@ -759,6 +847,13 @@ mod tests {
         assert_eq!(bindings.streams.len(), 1);
         assert_eq!(bindings.streams[0].rows, DEFAULT_STREAM_ROWS);
         assert_eq!(bindings.streams[0].bins, DEFAULT_STREAM_BINS);
+        assert_eq!(bindings.traces.len(), 1);
+        assert_eq!(bindings.traces[0].source, "ECG_WAVEFORM");
+        assert_eq!(bindings.traces[0].capacity, DEFAULT_TRACE_SAMPLES);
+        assert_eq!(
+            bindings.traces[0].rgba,
+            crate::resolve_color_token("Theme.Colors.Nominal").expect("nominal rgba")
+        );
 
         // NOMINAL = 7 glyphs is the widest en-US state label.
         assert_eq!(bindings.statuses[0].capacity, 7);
@@ -810,6 +905,70 @@ mod tests {
         assert_eq!(cursor, 2); // wrapped past the end twice
         assert_eq!(data[0], DEFAULT_STREAM_ROWS as f32); // physical row 0 overwritten
         assert_eq!(data[DEFAULT_STREAM_BINS], (DEFAULT_STREAM_ROWS + 1) as f32);
+    }
+
+    #[test]
+    fn push_sample_writes_into_the_trace_ring_and_reports_the_cursor() {
+        let bindings = bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        inputs.push_sample("ECG_WAVEFORM", 0.75).expect("known trace source");
+        let (data, cursor) = inputs.trace("ECG_WAVEFORM").expect("trace exists");
+        assert_eq!(cursor, 1);
+        assert_eq!(data[0], 0.75);
+
+        let error = inputs
+            .push_sample("UNKNOWN", 0.0)
+            .expect_err("unknown trace source rejected");
+        assert!(error.to_string().contains("unknown trace source"));
+    }
+
+    #[test]
+    fn trace_ring_wraps_and_overwrites_the_oldest_sample() {
+        let bindings = bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        for index in 0..(DEFAULT_TRACE_SAMPLES + 3) {
+            inputs
+                .push_sample("ECG_WAVEFORM", index as f32)
+                .expect("push");
+        }
+
+        let (data, cursor) = inputs.trace("ECG_WAVEFORM").expect("trace exists");
+        assert_eq!(cursor, 3); // wrapped past the end once
+        assert_eq!(data[0], DEFAULT_TRACE_SAMPLES as f32); // physical slot 0 overwritten
+        assert_eq!(data[1], (DEFAULT_TRACE_SAMPLES + 1) as f32);
+    }
+
+    #[test]
+    fn from_screen_rejects_a_signal_trace_with_an_unknown_theme_color_token() {
+        const BROKEN_TRACE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenTrace",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "ecg-trace",
+                bounds: Rect { x: 0, y: 0, width: 1248, height: 240 },
+                kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                    stream_source: "ECG_WAVEFORM",
+                    color_token: "Theme.Colors.Nope",
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_TRACE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("unknown theme color token should be rejected");
+        assert!(error.to_string().contains("unknown theme color token"), "{error}");
     }
 
     #[test]

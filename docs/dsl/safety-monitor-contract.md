@@ -23,7 +23,7 @@ Per-kind semantics of the optional fields:
 | `CriticalButton` | its label key | its color token |
 | `Label` | its text key | its color token |
 | `NumericDisplay` | `None` (digits vary at runtime by design) | its color token |
-| `StatusIndicator`, `Clock`, `VulkanViewport` | `None` | `None` |
+| `StatusIndicator`, `Clock`, `VulkanViewport`, `SignalTrace` | `None` | `None` |
 | `Image` | `None` (pixel content is baked evidence, not text) | `None` |
 
 Dynamic kinds pin their *bounds* (and color where meaningful): the reference tells the safety

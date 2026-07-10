@@ -44,8 +44,9 @@ pub use mdux_ui::{
     ButtonSpec, ClockFormat, ClockSpec, CompiledNode, CompiledNodeKind, CompiledScreenPackage,
     CriticalButtonSpec, CvCheckKind, FrameStatistics, GoldenReferenceEntry, GraphicsProfile,
     ImageSpec, LabelSpec, LayoutKind, LayoutSpec, MedicalUiRuntime, NumericDisplaySpec,
-    PanelSpec, PipelineMode, Rect, StatusIndicatorSpec, SystemEvent, THEME_COLORS, TextInputSpec,
-    UiComponent, UiSdkConfig, ViewportReservation, resolve_color_token,
+    PanelSpec, PipelineMode, Rect, SignalTraceSpec, StatusIndicatorSpec, SystemEvent,
+    THEME_COLORS, TextInputSpec, UiComponent, UiSdkConfig, ViewportReservation,
+    resolve_color_token,
 };
 pub use standard_text::{
     DEFAULT_DISPLAY_DIGITS_GLYPH_SET_ID, DEFAULT_DISPLAY_FONT,

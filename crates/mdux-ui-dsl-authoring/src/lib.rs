@@ -182,6 +182,12 @@ enum NodeKind {
     VulkanViewport {
         stream_source: String,
     },
+    /// A scrolling 2D amplitude trace (ADR-018), e.g. an EEG/ECG waveform — distinct from
+    /// `VulkanViewport`'s 3D spectral heightfield.
+    SignalTrace {
+        stream_source: String,
+        color_token: String,
+    },
     Label {
         text_key: String,
         color_token: String,
@@ -627,6 +633,7 @@ fn parse_safety_critical(line_number: usize, line: &str) -> MduxResult<SafetyCri
 enum ComponentKind {
     CriticalButton,
     VulkanViewport,
+    SignalTrace,
     Label,
     Clock,
     NumericDisplay,
@@ -644,6 +651,7 @@ fn parse_component_start(line_number: usize, line: &str) -> MduxResult<Component
     match kind {
         "CriticalButton" => Ok(ComponentKind::CriticalButton),
         "VulkanViewport" => Ok(ComponentKind::VulkanViewport),
+        "SignalTrace" => Ok(ComponentKind::SignalTrace),
         "Label" => Ok(ComponentKind::Label),
         "Clock" => Ok(ComponentKind::Clock),
         "NumericDisplay" => Ok(ComponentKind::NumericDisplay),
@@ -770,6 +778,14 @@ fn parse_component_properties(
                 ValidationError::new(format!(
                     "VulkanViewport {id} must declare `stream_source`"
                 ))
+            })?,
+        },
+        ComponentKind::SignalTrace => NodeKind::SignalTrace {
+            stream_source: stream_source.ok_or_else(|| {
+                ValidationError::new(format!("SignalTrace {id} must declare `stream_source`"))
+            })?,
+            color_token: color_token.ok_or_else(|| {
+                ValidationError::new(format!("SignalTrace {id} must declare `color`"))
             })?,
         },
         ComponentKind::Label => NodeKind::Label {
@@ -1511,6 +1527,7 @@ impl CompileContext<'_, '_> {
                 NodeKind::StatusIndicator { .. }
                 | NodeKind::Clock { .. }
                 | NodeKind::VulkanViewport { .. }
+                | NodeKind::SignalTrace { .. }
                 | NodeKind::Panel { .. }
                 | NodeKind::Image { .. } => (None, None),
             };
@@ -1576,6 +1593,7 @@ fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> MduxResult<()> {
         | NodeKind::NumericDisplay { color_token, .. }
         | NodeKind::Panel { color_token }
         | NodeKind::Button { color_token, .. }
+        | NodeKind::SignalTrace { color_token, .. }
         | NodeKind::TextInput { color_token, .. } => check(color_token),
         NodeKind::StatusIndicator { color_tokens, .. } => {
             for token in color_tokens {
@@ -1658,7 +1676,7 @@ fn validate_node_text_budget(
                 resolve_display_template(&node.id, template_id, text_packages.displays)?;
             validate_numeric_display_budget(node, template_id, bounds, display)
         }
-        NodeKind::VulkanViewport { .. } => Ok(()),
+        NodeKind::VulkanViewport { .. } | NodeKind::SignalTrace { .. } => Ok(()),
     }
 }
 
@@ -2063,6 +2081,12 @@ fn emit_node_kind(kind: &NodeKind, crate_path: &str) -> String {
         NodeKind::VulkanViewport { stream_source } => format!(
             "{crate_path}::CompiledNodeKind::VulkanViewport({crate_path}::ViewportReservation {{ stream_source: {stream_source:?} }})"
         ),
+        NodeKind::SignalTrace {
+            stream_source,
+            color_token,
+        } => format!(
+            "{crate_path}::CompiledNodeKind::SignalTrace({crate_path}::SignalTraceSpec {{ stream_source: {stream_source:?}, color_token: {color_token:?} }})"
+        ),
         NodeKind::Label {
             text_key,
             color_token,
@@ -2219,6 +2243,44 @@ Screen HelloWorld {
         ));
         assert!(generated.contains("pub fn screen() -> &'static ::mdux::CompiledScreenPackage"));
         assert!(generated.contains("pub fn primary_text_node_id() -> &'static str"));
+    }
+
+    #[test]
+    fn compiles_a_signal_trace_node_with_stream_source_and_color() {
+        let source = SAMPLE_MEDUI.replace(
+            "    VulkanViewport {\n        id: hello-world-viewport;\n        width: Fill;\n        height: 280px;\n        stream_source: \"HELLO_WORLD_SIM\";\n    }\n",
+            "    SignalTrace {\n        id: hello-world-trace;\n        width: Fill;\n        height: 280px;\n        stream_source: \"HELLO_WORLD_ECG\";\n        color: Theme.Colors.Nominal;\n    }\n",
+        );
+
+        let generated = compile_medui_source_to_rust(
+            &source,
+            CompileOptions::new(800, 480),
+            TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
+        )
+        .expect("signal trace screen should compile");
+
+        assert!(generated.contains(
+            "::mdux::CompiledNodeKind::SignalTrace(::mdux::SignalTraceSpec { stream_source: \"HELLO_WORLD_ECG\", color_token: \"Theme.Colors.Nominal\" })"
+        ));
+    }
+
+    #[test]
+    fn rejects_a_signal_trace_with_an_unknown_color_token() {
+        let source = SAMPLE_MEDUI.replace(
+            "    VulkanViewport {\n        id: hello-world-viewport;\n        width: Fill;\n        height: 280px;\n        stream_source: \"HELLO_WORLD_SIM\";\n    }\n",
+            "    SignalTrace {\n        id: hello-world-trace;\n        width: Fill;\n        height: 280px;\n        stream_source: \"HELLO_WORLD_ECG\";\n        color: Theme.Colors.DoesNotExist;\n    }\n",
+        );
+
+        let error = compile_medui_source_to_rust(
+            &source,
+            CompileOptions::new(800, 480),
+            TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
+        )
+        .expect_err("unknown theme color token should be rejected");
+
+        assert!(error.to_string().contains("unknown theme color token"));
     }
 
     #[test]
