@@ -1,0 +1,17 @@
+{
+  "report_kind": "mdux-ml-baker-report",
+  "model_id": "EEG-DOA-LINEAR",
+  "labels": [
+    "AWAKE",
+    "ADEQUATE",
+    "BURST_SUPPRESSION"
+  ],
+  "package_sha256": "4666c363966ac84483a063415d39a659e29ad5f57889d13fb0057686277b7e2d",
+  "recipe_sha256": "be54f77fe749384c68c7f0a7b54d6c89d8d3e0979e09fa44cd1833087e0de327",
+  "weights_source_sha256": "cbe14864248af9d6067547803273f759789919e9caae859ea368516aaed4dce2",
+  "layer_count": 3,
+  "tensor_count": 2,
+  "param_count": 195,
+  "golden_vector_count": 8,
+  "pipeline": "weights-intake -> arch-validate -> deterministic-compile -> golden-embed -> package-verify"
+}
