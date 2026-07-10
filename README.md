@@ -518,6 +518,8 @@ cargo run --locked -q -p class_c_monitor -- --headless-smoke
   - `ADR-014`: precise positioning, image asset governance, and theme colors
   - `ADR-015`: widget organization principles — compiled-retained structure, immediate-mode data plane, bounded input events
   - `ADR-016`: automated UI verification and manual generation — offscreen rendering, rendered-truth checks, and evidence reports
+  - `ADR-017`: zero-SOUP machine-learning inference pipeline — weights as baked, byte-verified data; from-scratch deterministic inference engine
+  - `ADR-018`: SignalTrace node — a bounded scrolling-waveform primitive for raw physiological signals
 - Host-only third-party tooling used for the default Roboto bake path is tracked in `docs/governance/soup-register.toml`.
 
 ## Default Roboto asset governance
