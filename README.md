@@ -245,8 +245,11 @@ let realtime = move |frame: &mut FrameInputs| {
     let scores = prediction.scores();
 
     // Sedation index blends the class probabilities into a single 0-99 score: near 100 fully
-    // awake, mid-range adequately anesthetized, near 0 burst-suppressed.
-    let index = (scores[0] * 99.0 + scores[1] * 50.0).round() as i64;
+    // awake, mid-range adequately anesthetized, near 0 burst-suppressed. get() rather than
+    // indexing so a differently-shaped committed model can't panic here.
+    let awake = scores.get(usize::from(CLASS_AWAKE)).copied().unwrap_or(0.0);
+    let adequate = scores.get(CLASS_ADEQUATE).copied().unwrap_or(0.0);
+    let index = (awake * 99.0 + adequate * 50.0).round() as i64;
 
     // A detected burst-suppression state latches the alert until the operator acknowledges it
     // (REQ-NS-004, HAZ-NS-002) -- the classifier decides it is alarming, not a fake timer.
@@ -269,7 +272,8 @@ you're after the compliance plumbing rather than the classifier.
 
 Run it with `cargo run -p class_c_monitor` (windowed; type into the patient-ID field — click or
 Tab to focus, arrows/Home/End move the caret — and acknowledge the alert that fires roughly every
-20 s as a scheduled burst-suppression episode drives the real classifier's output; note the
+40 s (first episode ~20 s after startup) as a scheduled burst-suppression episode drives the real
+classifier's output; note the
 `HOST PREVIEW` banner, the scrolling green `RAW EEG` trace flattening during the episode exactly
 like real isoelectric EEG, and the `runtime` audit event in the diagnostics), or
 `-- --headless-smoke` for the CI path — the smoke output shows `golden_refs=11`: every positioned

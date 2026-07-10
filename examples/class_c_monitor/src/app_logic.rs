@@ -24,6 +24,7 @@ const CLASSIFIER_MAX_OUT: usize = 4;
 /// `AWAKE`/`ADEQUATE`/`BURST_SUPPRESSION` class indices, matching
 /// `tools/mdux-ml-baker/fixtures/eeg-demo.toml`'s `output.labels` order exactly.
 const CLASS_AWAKE: u8 = 0;
+const CLASS_ADEQUATE: usize = 1;
 const CLASS_BURST_SUPPRESSION: u8 = 2;
 
 /// Brings the simulator's spectral row (baseline total energy ≈17, see `EegSimulator::tick`)
@@ -53,8 +54,9 @@ impl EegSimulator {
         Self { tick: 0, noise: 0x9E37_79B9 }
     }
 
-    /// The scheduled burst-suppression episode recurs every ~20s at the nominal 60Hz tick rate,
-    /// sustained for ~2.5s so a windowed run and scenario replay both see it clearly.
+    /// The scheduled burst-suppression episode recurs every ~40s at the nominal 60Hz tick rate
+    /// (first episode starting ~20s after startup), sustained for ~2.5s so a windowed run and
+    /// scenario replay both see it clearly.
     fn in_suppression_episode(tick: u32) -> bool {
         (1200..1350).contains(&(tick % 2400))
     }
@@ -152,9 +154,12 @@ impl AppLogic {
 
             // Sedation index blends the class probabilities into a single 0-99 score, the same
             // way a real depth-of-anesthesia index would: near 100 fully awake, mid-range
-            // adequately anesthetized, near 0 burst-suppressed.
-            let index =
-                (scores[usize::from(CLASS_AWAKE)] * 99.0 + scores[1] * 50.0).round() as i64;
+            // adequately anesthetized, near 0 burst-suppressed. Uses get().unwrap_or(0.0) rather
+            // than indexing: a differently-shaped committed model (fewer than 2 classes) must
+            // fall back to 0 contribution instead of panicking.
+            let awake_score = scores.get(usize::from(CLASS_AWAKE)).copied().unwrap_or(0.0);
+            let adequate_score = scores.get(CLASS_ADEQUATE).copied().unwrap_or(0.0);
+            let index = (awake_score * 99.0 + adequate_score * 50.0).round() as i64;
 
             // A detected burst-suppression state latches the alert until the operator
             // acknowledges it (REQ-NS-004, HAZ-NS-002); a detected AWAKE state is shown live but
