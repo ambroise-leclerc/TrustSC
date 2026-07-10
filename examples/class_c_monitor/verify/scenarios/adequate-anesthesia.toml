@@ -1,0 +1,15 @@
+# Behavior evidence for REQ-NS-001/REQ-NS-002/REQ-NS-006: during normal simulated operation, the
+# real Classifier1D over the EEG spectral row reads ADEQUATE, driving MONITOR_STATUS to NOMINAL
+# through genuine on-device inference — not a placeholder value (ADR-016 §4, ADR-017).
+id = "adequate-anesthesia"
+requirement_ids = ["REQ-NS-001", "REQ-NS-002", "REQ-NS-006"]
+clock = "2026-01-01T12:00:00Z"
+
+[[step]]
+advance = 5
+
+[[step]]
+expect_status = { source = "MONITOR_STATUS", value = 0 }
+
+[[step]]
+capture = "adequate"

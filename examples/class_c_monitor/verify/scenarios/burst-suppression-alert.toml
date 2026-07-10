@@ -1,0 +1,37 @@
+# Behavior evidence for REQ-NS-004/REQ-NS-006 and HAZ-NS-002: a scheduled burst-suppression
+# episode drives the real Classifier1D to BURST_SUPPRESSION, latching MONITOR_STATUS to FAULT
+# even after the episode itself ends -- proving a genuine latch, not a live echo of the current
+# class -- until the operator presses ACK (ADR-016 §4, ADR-017).
+id = "burst-suppression-alert"
+requirement_ids = ["REQ-NS-004", "REQ-NS-006"]
+clock = "2026-01-01T12:00:00Z"
+
+[[step]]
+advance = 1250
+
+[[step]]
+expect_status = { source = "MONITOR_STATUS", value = 2 }
+
+[[step]]
+capture = "burst-suppression-detected"
+
+[[step]]
+advance = 150
+
+[[step]]
+expect_status = { source = "MONITOR_STATUS", value = 2 }
+
+[[step]]
+capture = "latched-after-episode"
+
+[[step]]
+event = { kind = "ButtonPressed", source = "ACK_BUTTON" }
+
+[[step]]
+advance = 1
+
+[[step]]
+expect_status = { source = "MONITOR_STATUS", value = 0 }
+
+[[step]]
+capture = "acknowledged"

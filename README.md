@@ -99,29 +99,33 @@ Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit 
 glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
 application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
 
-## A complete Class C monitor in 225 lines
+## A complete Class C monitor: 3D UI + zero-SOUP ML in ~400 lines
 
 `examples/class_c_monitor` is the **Acme NeuroSense 500**, a fictional depth-of-anesthesia
-monitor modeling a genuine IEC 62304 **Class C** configuration — with, since ADR-014, a
+monitor modeling a genuine IEC 62304 **Class C** configuration. It combines, in one screen: a
+**3D spectral waterfall** (`VulkanViewport`) rendering the live EEG spectrogram; ADR-014's
 **pixel-exact positioned layout** (a 1920×1080 surface pinned in the `.medui` file itself, a
-full-width light-gray top bar, the governed Acme logo at **exactly (1768, 8)**, a 512×512
-sedation-index box with 160 px = 120 pt digits) and, since ADR-015, **operator interaction**: a
-bounded patient-identifier `TextInput` (printable ASCII, 16 characters, full caret editing) and
-an ACKNOWLEDGE `Button` that clears the monitor's periodic alert. Every `position:` is verified
-by the compiler (containment, no-overlap, i18n text budgets inside the pinned box) and pinned as
-an automatic golden reference — the layout specification *is* the evidence:
+512×512 sedation-index box with 160 px = 120 pt digits); ADR-015's **operator interaction** (a
+bounded patient-identifier `TextInput` and an ACKNOWLEDGE `Button`); and, since ADR-017/018, a
+**real, on-device machine-learning classifier** — no ONNX Runtime, no PyTorch, just
+`Classifier1D` running the same zero-allocation, `#![forbid(unsafe_code)]` inference engine a
+Phase 2 clinical build would ship unchanged. Every `position:` is verified by the compiler
+(containment, no-overlap, i18n text budgets inside the pinned box) and pinned as an automatic
+golden reference — the layout specification *is* the evidence:
 
 ```text
 +---------------------------------------------------------------------------+
 | NeuroSense 500 - Depth of...  2026-07-04 14:25:09    NOMINAL   [A= logo]  |  topbar 1920x64
 +---------------------------------------------------+-----------------------+
 |                                                   |       512x512        |
-|                                                   |      [  4 7  ]       |
+|                                                   |      [  5 0  ]       |
 |          EEG DSA waterfall 1360x984               |    160px digits      |
 |                                                   +-----------------------+
 |                                                   | PATIENT ID           |
 |                                                   | [PID-2026 47_     ]  |  TextInput (1392,640) 512x48
 |                                                   | [ ACKNOWLEDGE ]      |  Button    (1392,720) 240x64
+|                                                   | RAW EEG              |
+|                                                   | [~/\/\/\/\/\/\~]     |  SignalTrace (1392,824) 512x224
 +---------------------------------------------------+-----------------------+
 ```
 
@@ -130,9 +134,10 @@ the 16-character identifier budget no longer fits its box, **the build fails** �
 happens at compile time, never on a bench. Interaction flows one way out through the bounded
 `FrameEvents` queue and one way back in through `set_text` (the application owns the buffer; the
 renderer stores nothing), the clock still costs zero application code, and the app still has no
-`ash`/`winit`/`shaderc` dependency. The whole application:
+`ash`/`winit`/`shaderc` dependency.
 
-**`neurosense.medui`** (87 lines):
+**`neurosense.medui`** (103 lines) — the `SignalTrace` node at the bottom reserves the raw-EEG
+strip; everything else is exactly the positioned layout ADR-014 already established:
 
 ```text
 Screen NeuroSense500 {
@@ -142,21 +147,8 @@ Screen NeuroSense500 {
         id: topbar;
         height: 64px;
         background: Theme.Colors.TopbarBackground;
-        Label {
-            id: device-title;
-            width: 340px;
-            height: 48px;
-            position: 16px, 8px;
-            text: t("STR-NS-TITLE");
-            color: Theme.Colors.Title;
-        }
-        Clock {
-            id: wall-clock;
-            width: 448px;
-            height: 48px;
-            position: 372px, 8px;
-            format: DateTimeSeconds;
-        }
+        Label { id: device-title; width: 340px; height: 48px; position: 16px, 8px; text: t("STR-NS-TITLE"); color: Theme.Colors.Title; }
+        Clock { id: wall-clock; width: 448px; height: 48px; position: 372px, 8px; format: DateTimeSeconds; }
         StatusIndicator {
             id: system-status;
             width: 200px;
@@ -166,13 +158,7 @@ Screen NeuroSense500 {
             source: "MONITOR_STATUS";
             states: [t("STR-NS-NOMINAL"), t("STR-NS-ALERT"), t("STR-NS-FAULT")];
         }
-        Image {
-            id: acme-logo;
-            width: 144px;
-            height: 48px;
-            position: 1768px, 8px;
-            source: img("LOGO-ACME");
-        }
+        Image { id: acme-logo; width: 144px; height: 48px; position: 1768px, 8px; source: img("LOGO-ACME"); }
     }
     @safety_critical(cv_check: [Bounds, ColorHash])
     NumericDisplay {
@@ -185,14 +171,7 @@ Screen NeuroSense500 {
         source: "SEDATION_INDEX";
         color: Theme.Colors.ScoreDigits;
     }
-    Label {
-        id: patient-id-caption;
-        width: 200px;
-        height: 24px;
-        position: 1392px, 608px;
-        text: t("STR-NS-PATIENT-ID");
-        color: Theme.Colors.Title;
-    }
+    Label { id: patient-id-caption; width: 200px; height: 24px; position: 1392px, 608px; text: t("STR-NS-PATIENT-ID"); color: Theme.Colors.Title; }
     TextInput {
         id: patient-id-input;
         width: 512px;
@@ -214,168 +193,86 @@ Screen NeuroSense500 {
         color: Theme.Colors.PrimaryAction;
         source: "ACK_BUTTON";
     }
-    VulkanViewport {
-        id: eeg-dsa;
-        width: 1360px;
-        height: 984px;
-        position: 16px, 80px;
-        stream_source: "EEG_DSA";
+    Label { id: eeg-trace-caption; width: 300px; height: 20px; position: 1392px, 800px; text: t("STR-NS-EEG-TRACE-CAPTION"); color: Theme.Colors.Title; }
+    SignalTrace {
+        id: eeg-trace;
+        width: 512px;
+        height: 224px;
+        position: 1392px, 824px;
+        stream_source: "EEG_TRACE";
+        color: Theme.Colors.Nominal;
     }
+    VulkanViewport { id: eeg-dsa; width: 1360px; height: 984px; position: 16px, 80px; stream_source: "EEG_DSA"; }
 }
 ```
 
-**`build.rs`** (5 lines):
+**`build.rs`** (10 lines) — one extra line over the pre-ML version, `ModelPackage::new(..)`, is
+the entire cost of embedding the classifier:
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     mdux_build::MeduiScreen::new("neurosense.medui")
         .surface(1920, 1080)
-        .compile()
+        .compile()?;
+    // Phase 1 (Hugging Face-style demonstrator) points this at generated/models/eeg-demo/package.json;
+    // Phase 2 (production) repoints it at a manufacturer's own clinically-qualified weights baked
+    // by the same tools/mdux-ml-baker pipeline — zero change below this line (ADR-017 §2).
+    mdux_build::ModelPackage::new("../../generated/models/eeg-demo/package.json").compile()?;
+    mdux_build::ScenarioSet::new("verify/scenarios").compile()
 }
 ```
 
-**`src/main.rs`** (133 lines, EEG simulator included):
+**`src/app_logic.rs`** (188 lines total; the realtime closure below is the flagship
+demonstration of the "weights are data" story) — `MODEL` is whatever
+`generated/models/eeg-demo/package.json` the build compiled in. Swap that one committed file for
+a manufacturer's own clinically-qualified weights, baked by the exact same `tools/mdux-ml-baker`
+pipeline, and every line of application code stays unchanged:
 
 ```rust
-mdux::include_medui_screen!();
+static MODEL: LazyLock<mdux::ModelPackage> = LazyLock::new(crate::medui_model::model);
 
-use std::{cell::Cell, rc::Rc};
+// ... inside AppLogic::into_closures(), built once (not per frame):
+let classifier = Classifier1D::<CLASSIFIER_MAX_UNITS, CLASSIFIER_MAX_OUT>::new(&MODEL)
+    .expect("baked eeg-demo model should pass its golden self-test (ADR-017 §4)");
 
-use mdux::{
-    ComplianceProgram, DeviceContext, FrameworkBuilder, Hazard, Requirement, RequirementId,
-    SafetyClass, TextInputModel, UiSdkConfig, VerificationCase, VerificationMethod, WidgetEvent,
+let realtime = move |frame: &mut FrameInputs| {
+    let (row, raw) = simulator.tick();
+
+    // Zero-allocation inference over the current spectral row (ADR-017): pure arithmetic, no
+    // SOUP, the same engine a Phase 2 production build would ship unchanged.
+    let scaled: [f32; 64] = std::array::from_fn(|i| row[i] * ENERGY_SCALE);
+    let prediction = classifier.predict(&scaled).expect("row always matches input_spec");
+    let scores = prediction.scores();
+
+    // Sedation index blends the class probabilities into a single 0-99 score: near 100 fully
+    // awake, mid-range adequately anesthetized, near 0 burst-suppressed.
+    let index = (scores[0] * 99.0 + scores[1] * 50.0).round() as i64;
+
+    // A detected burst-suppression state latches the alert until the operator acknowledges it
+    // (REQ-NS-004, HAZ-NS-002) -- the classifier decides it is alarming, not a fake timer.
+    if prediction.class == CLASS_BURST_SUPPRESSION {
+        alert_active.set(true);
+    }
+    let status = if alert_active.get() { 2 } else if prediction.class == CLASS_AWAKE { 1 } else { 0 };
+
+    frame.set_number("SEDATION_INDEX", index.clamp(0, 99)).expect("SEDATION_INDEX wiring");
+    frame.set_status("MONITOR_STATUS", status).expect("MONITOR_STATUS wiring");
+    frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
+    frame.push_sample("EEG_TRACE", raw).expect("EEG_TRACE wiring");
 };
-
-/// Synthetic EEG: two drifting spectral peaks over pseudo-noise; the sedation index follows the
-/// dominant peak. Stands in for the acquisition front-end a real device would have.
-struct EegSimulator {
-    tick: u32,
-    noise: u32,
-}
-
-impl EegSimulator {
-    fn tick(&mut self) -> (i64, [f32; 64]) {
-        self.tick += 1;
-        let time = self.tick as f32 / 60.0;
-        let peak_a = 12.0 + 6.0 * (time / 5.0).sin();
-        let peak_b = 38.0 + 10.0 * (time / 9.0).cos();
-        let mut row = [0.0f32; 64];
-        for (bin, sample) in row.iter_mut().enumerate() {
-            self.noise = self.noise.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let noise = (self.noise >> 24) as f32 / 255.0 * 0.12;
-            let lobe = |peak: f32, width: f32| (-((bin as f32 - peak) / width).powi(2)).exp();
-            *sample = (0.85 * lobe(peak_a, 4.0) + 0.55 * lobe(peak_b, 7.0) + noise).min(1.0);
-        }
-        let index = (46.0 + 18.0 * (time / 7.0).sin()).clamp(0.0, 99.0) as i64;
-        (index, row)
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let device = DeviceContext::new(
-        "Acme Medical",
-        "NeuroSense 500",
-        "neurosense-ui",
-        "0.1.0",
-        SafetyClass::C,
-    )?;
-
-    let mut compliance = ComplianceProgram::new(device.clone());
-    let req_index = RequirementId::new("REQ-NS-001")?;
-    let req_stream = RequirementId::new("REQ-NS-002")?;
-    let req_status = RequirementId::new("REQ-NS-003")?;
-    let req_ack = RequirementId::new("REQ-NS-004")?;
-    let req_patient_id = RequirementId::new("REQ-NS-005")?;
-    for (id, verification_id, title) in [
-        (&req_index, "VER-NS-001", "Display the sedation index, refreshed every frame"),
-        (&req_stream, "VER-NS-002", "Display the spectral stream with visible freshness"),
-        (&req_status, "VER-NS-003", "Keep the system status permanently visible"),
-        (&req_ack, "VER-NS-004", "Capture operator acknowledgment of the active alert"),
-        (
-            &req_patient_id,
-            "VER-NS-005",
-            "Bound patient identifier entry to the approved character set and length",
-        ),
-    ] {
-        compliance.add_requirement(Requirement::new(
-            id.clone(),
-            title,
-            "IEC62304-5.2",
-            "Verified by windowed demonstration and headless smoke",
-        )?);
-        compliance.add_verification(VerificationCase::new(
-            verification_id,
-            id.clone(),
-            VerificationMethod::Demonstration,
-            "Windowed run on the development host",
-        )?);
-    }
-    compliance.add_hazard(Hazard::new(
-        "HAZ-NS-001",
-        "A stale or frozen sedation index misleads the anesthesiologist",
-        vec![req_index, req_stream],
-    )?);
-
-    let screen = medui_screen::screen();
-    let framework = FrameworkBuilder::new()
-        .with_device(device)
-        .with_compliance(compliance)
-        .with_ui(UiSdkConfig::vulkansc_class_c(
-            medui_screen::GENERATED_MEDUI_SURFACE.0,
-            medui_screen::GENERATED_MEDUI_SURFACE.1,
-            12,
-            32 * 1024 * 1024,
-            256,
-        ))
-        .with_screen(screen)
-        .build()?;
-
-    let mut simulator = EegSimulator { tick: 0, noise: 0x9E37_79B9 };
-    // The simulator raises an alert periodically; the operator acknowledges it with the ACK
-    // button (REQ-NS-004). Shared between the input and realtime closures.
-    let alert_active = Rc::new(Cell::new(false));
-    let alert_for_input = Rc::clone(&alert_active);
-    // The application owns the patient-identifier buffer (ADR-015 controlled component) and
-    // echoes it into the frame; charset and length stay bounded by the compiled screen
-    // (REQ-NS-005).
-    let mut patient_id = TextInputModel::new("PATIENT_ID", 16);
-
-    mdux_vulkan_winit::App::new(framework, screen)
-        .with_input(move |events, frame| {
-            for event in events.drain() {
-                match event {
-                    WidgetEvent::ButtonPressed { source: "ACK_BUTTON" } => {
-                        alert_for_input.set(false);
-                    }
-                    other => {
-                        patient_id.apply(&other);
-                    }
-                }
-            }
-            frame
-                .set_text("PATIENT_ID", patient_id.as_str())
-                .expect("PATIENT_ID wiring");
-        })
-        .with_realtime(move |frame| {
-            let (index, row) = simulator.tick();
-            // A synthetic alert fires every ~20 s at the nominal 60 Hz and latches until the
-            // operator acknowledges it.
-            if simulator.tick % 1200 == 0 {
-                alert_active.set(true);
-            }
-            let status = if alert_active.get() { 1 } else { 0 };
-            frame.set_number("SEDATION_INDEX", index).expect("SEDATION_INDEX wiring");
-            frame.set_status("MONITOR_STATUS", status).expect("MONITOR_STATUS wiring");
-            frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
-        })
-        .run_from_env()
-}
 ```
 
+`src/main.rs` (92 lines) wires the `DeviceContext`/`ComplianceProgram`/`UiSdkConfig` and
+registers the closures above with `mdux_vulkan_winit::App` — the same boilerplate every
+`FrameworkBuilder`-based example needs, unrelated to the ML story; see the file directly if
+you're after the compliance plumbing rather than the classifier.
+
 Run it with `cargo run -p class_c_monitor` (windowed; type into the patient-ID field — click or
-Tab to focus, arrows/Home/End move the caret — and acknowledge the alert that fires every ~20 s;
-note the `HOST PREVIEW` banner and the `runtime` audit event in the diagnostics), or
-`-- --headless-smoke` for the CI path — the smoke output shows `golden_refs=9`: every positioned
+Tab to focus, arrows/Home/End move the caret — and acknowledge the alert that fires roughly every
+20 s as a scheduled burst-suppression episode drives the real classifier's output; note the
+`HOST PREVIEW` banner, the scrolling green `RAW EEG` trace flattening during the episode exactly
+like real isoelectric EEG, and the `runtime` audit event in the diagnostics), or
+`-- --headless-smoke` for the CI path — the smoke output shows `golden_refs=11`: every positioned
 node is pinned evidence.
 
 ## Vulkan prerequisites
@@ -423,13 +320,21 @@ If you only need non-graphical validation, `cargo run -p hello_world -- --headle
 - `crates/mdux-text-schema`: shared manifests and immutable compiled text-package schema
 - `crates/mdux-text-authoring`: host-side font intake, deterministic atlas compilation, and asset tooling
 - `crates/mdux-text-runtime`: no-allocation runtime text command generation from approved packages
-- `crates/mdux`: thin facade for building complete framework instances, plus `screen_text` and
-  `include_medui_screen!`
-- `crates/mdux-build`: build-script helper (`MeduiScreen`) wrapping the `.medui` compiler
+- `crates/mdux-ml-schema`: shared contract for the ML inference pipeline (ADR-017) — the
+  immutable `ModelPackage`, layer/tensor types, golden self-test vectors
+- `crates/mdux-ml-authoring`: host-side safetensors import, deterministic `ModelPackage`
+  compilation, golden-vector generation
+- `crates/mdux-ml-runtime`: zero-allocation, `#![forbid(unsafe_code)]` `Classifier1D` inference
+  engine — Dense/Conv1D/pooling/activations as strictly-ordered scalar loops
+- `crates/mdux`: thin facade for building complete framework instances, plus `screen_text`,
+  `include_medui_screen!`, and `include_model!`
+- `crates/mdux-build`: build-script helper wrapping the `.medui` compiler (`MeduiScreen`) and the
+  ML model compiler (`ModelPackage`)
 - `adapters/mdux-vulkan-winit`: the reusable Vulkan 1.0 + winit presentation adapter — the only
   crate depending on `ash`/`winit`
-- `tools/mdux-font-baker`, `tools/mdux-image-baker`, `tools/mdux-shader-baker`: host-only
-  bake/verify tools for the committed font, image, and SPIR-V shader evidence
+- `tools/mdux-font-baker`, `tools/mdux-image-baker`, `tools/mdux-shader-baker`,
+  `tools/mdux-ml-baker`: host-only bake/verify tools for the committed font, image, SPIR-V
+  shader, and ML model evidence
 - `examples/hello_world`: smallest out-of-the-box smoke demo (see above)
 - `examples/class_b_device`: Class B Vulkan example
 - `examples/class_c_monitor`: the NeuroSense 500 Class C realtime monitor (see above)
@@ -459,7 +364,7 @@ cargo run -p hello_world -- --auto-close-ms=1000
 # run the same smoke path without a window
 cargo run -p hello_world -- --headless-smoke
 
-# run the Class C realtime monitor (windowed, ADR-013 host preview)
+# run the Class C realtime monitor: 3D waterfall + UI + zero-SOUP ML (windowed, ADR-013 host preview)
 cargo run -p class_c_monitor
 cargo run -p class_c_monitor -- --headless-smoke
 
@@ -478,7 +383,7 @@ The same example also includes a minimal `.medui` source file compiled at build 
 ## Continuous integration
 
 - `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
-- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto (16/48/160 px), Acme-logo image, and SPIR-V artifacts, and exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
+- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto (16/48/160 px), Acme-logo image, SPIR-V, and `eeg-demo` ML model artifacts, and exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
 - Replay the same checks locally with:
 
 ```bash
@@ -490,6 +395,7 @@ cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixture
 cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
 cargo run --locked -q -p mdux-image-baker -- verify tools/mdux-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
 cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
+cargo run --locked -q -p mdux-ml-baker -- verify tools/mdux-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
 cargo run --locked -q -p hello_world -- --headless-smoke
 cargo run --locked -q -p class_c_monitor -- --headless-smoke
 ```

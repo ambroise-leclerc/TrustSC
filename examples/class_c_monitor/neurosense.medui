@@ -77,6 +77,22 @@ Screen NeuroSense500 {
         color: Theme.Colors.PrimaryAction;
         source: "ACK_BUTTON";
     }
+    Label {
+        id: eeg-trace-caption;
+        width: 300px;
+        height: 20px;
+        position: 1392px, 800px;
+        text: t("STR-NS-EEG-TRACE-CAPTION");
+        color: Theme.Colors.Title;
+    }
+    SignalTrace {
+        id: eeg-trace;
+        width: 512px;
+        height: 224px;
+        position: 1392px, 824px;
+        stream_source: "EEG_TRACE";
+        color: Theme.Colors.Nominal;
+    }
     VulkanViewport {
         id: eeg-dsa;
         width: 1360px;

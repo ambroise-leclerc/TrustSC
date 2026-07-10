@@ -113,6 +113,20 @@ locale = "fr-FR"
 value = "ID PATIENT"
 direction = "ltr"
 
+[[approved_strings]]
+id = "STR-NS-EEG-TRACE-CAPTION"
+run_id = "RUN-NS-EEG-TRACE-CAPTION-EN"
+locale = "en-US"
+value = "RAW EEG"
+direction = "ltr"
+
+[[approved_strings]]
+id = "STR-NS-EEG-TRACE-CAPTION"
+run_id = "RUN-NS-EEG-TRACE-CAPTION-FR"
+locale = "fr-FR"
+value = "EEG BRUT"
+direction = "ltr"
+
 [[numeric_glyph_sets]]
 id = "SET-ASCII-DIGITS"
 locale = "en-US"
