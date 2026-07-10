@@ -791,6 +791,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-ml-runtime"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+ "mdux-ml-schema",
+]
+
+[[package]]
 name = "mdux-ml-schema"
 version = "0.1.0"
 dependencies = [
