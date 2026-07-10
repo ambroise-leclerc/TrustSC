@@ -259,9 +259,17 @@ fn resolve_weights(weights: &WeightsRecipe, recipe_dir: &Path) -> MduxResult<(Ve
     }
 }
 
+/// Hashes inline tensors sorted by id, not recipe declaration order: `compile_model_package`
+/// itself sorts tensors by id before computing `package_sha256`, so reordering
+/// `[[weights.tensors]]` entries in a recipe must not change `weights_source_sha256` either --
+/// otherwise the "reordering input tensors never changes the baked digest" guarantee would only
+/// hold for the package hash, not the weights-source hash folded into it.
 fn hash_inline_tensors(tensors: &[Tensor]) -> String {
+    let mut sorted: Vec<&Tensor> = tensors.iter().collect();
+    sorted.sort_by(|left, right| left.id.cmp(&right.id));
+
     let mut canonical = String::new();
-    for tensor in tensors {
+    for tensor in sorted {
         canonical.push_str(&format!("tensor|{}|{:?}\n", tensor.id, tensor.shape));
         for value in &tensor.data {
             canonical.push_str(&format!("{}\n", value.to_bits()));
@@ -681,6 +689,26 @@ mod tests {
         let second = compile_recipe(fixture_recipe_path()).expect("second compile");
         assert_eq!(first.package_bytes, second.package_bytes);
         assert_eq!(first.report_bytes, second.report_bytes);
+    }
+
+    #[test]
+    fn hash_inline_tensors_is_independent_of_declaration_order() {
+        let forward = vec![
+            Tensor {
+                id: "a".to_string(),
+                shape: vec![1],
+                data: vec![1.0],
+            },
+            Tensor {
+                id: "b".to_string(),
+                shape: vec![1],
+                data: vec![2.0],
+            },
+        ];
+        let mut reversed = forward.clone();
+        reversed.reverse();
+
+        assert_eq!(hash_inline_tensors(&forward), hash_inline_tensors(&reversed));
     }
 
     /// The whole point of ADR-017's demonstrator story is that the baked model must actually

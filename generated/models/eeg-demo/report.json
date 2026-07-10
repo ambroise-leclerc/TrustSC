@@ -6,9 +6,9 @@
     "ADEQUATE",
     "BURST_SUPPRESSION"
   ],
-  "package_sha256": "4666c363966ac84483a063415d39a659e29ad5f57889d13fb0057686277b7e2d",
+  "package_sha256": "dd7181b34cb803f55d3656c9be42db2e39039023b5604b6f82977feb0bcf8c76",
   "recipe_sha256": "be54f77fe749384c68c7f0a7b54d6c89d8d3e0979e09fa44cd1833087e0de327",
-  "weights_source_sha256": "cbe14864248af9d6067547803273f759789919e9caae859ea368516aaed4dce2",
+  "weights_source_sha256": "b358c8ef364f267272265d7f53f40331978003eb4bb88744a5b9dd6897563381",
   "layer_count": 3,
   "tensor_count": 2,
   "param_count": 195,
