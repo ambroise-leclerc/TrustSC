@@ -110,6 +110,21 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
                 input.len()
             )));
         }
+        // `new()` checks this against MAX_UNITS before ever calling predict, but
+        // `from_validated_package()` (ADR-013's per-frame path) skips that check, so a caller
+        // reusing a package validated for a different, larger Classifier1D instantiation must
+        // still fail closed here rather than panic on the buffer copy below.
+        if expected_len > MAX_UNITS {
+            return Err(ValidationError::new(format!(
+                "predict input length {expected_len} exceeds MAX_UNITS {MAX_UNITS}"
+            )));
+        }
+        let classes = usize::from(self.package.output_spec.classes);
+        if classes > MAX_OUT {
+            return Err(ValidationError::new(format!(
+                "model has {classes} output classes but MAX_OUT is {MAX_OUT}"
+            )));
+        }
 
         let mut buf_a = [0f32; MAX_UNITS];
         let mut buf_b = [0f32; MAX_UNITS];
@@ -135,7 +150,9 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
         }
 
         let final_buf = if use_a { &buf_a } else { &buf_b };
-        let classes = usize::from(self.package.output_spec.classes);
+        if classes == 0 {
+            return Err(ValidationError::new("model has zero output classes"));
+        }
         let mut scores = [0f32; MAX_OUT];
         scores[..classes].copy_from_slice(&final_buf[..classes]);
 
@@ -147,9 +164,14 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
                 best_index = index;
             }
         }
+        let class = u8::try_from(best_index).map_err(|_| {
+            ValidationError::new(format!(
+                "predicted class index {best_index} does not fit in u8 (models must declare at most 256 output classes)"
+            ))
+        })?;
 
         Ok(Prediction {
-            class: best_index as u8,
+            class,
             scores,
             score_len: classes,
         })
@@ -482,6 +504,30 @@ mod tests {
         let prediction = runtime.predict(&[0.0, 0.0, 0.0, 0.0]).unwrap();
         assert_eq!(prediction.scores()[0], 0.5);
         assert_eq!(prediction.scores()[1], 0.5);
+    }
+
+    #[test]
+    fn from_validated_package_fails_closed_instead_of_panicking_when_input_exceeds_max_units() {
+        // mlp_package's sample_count is 4; from_validated_package skips new()'s MAX_UNITS check,
+        // so predict() itself must reject this rather than panic on the buffer copy.
+        let package = mlp_package();
+        let runtime = Classifier1D::<2, 4>::from_validated_package(&package);
+        let error = runtime
+            .predict(&[0.0, 0.0, 0.0, 0.0])
+            .expect_err("input exceeding MAX_UNITS must fail closed, not panic");
+        assert!(error.to_string().contains("MAX_UNITS"));
+    }
+
+    #[test]
+    fn from_validated_package_fails_closed_instead_of_panicking_when_classes_exceed_max_out() {
+        // mlp_package declares 2 output classes; from_validated_package skips new()'s MAX_OUT
+        // check, so predict() itself must reject this rather than panic on the scores copy.
+        let package = mlp_package();
+        let runtime = Classifier1D::<8, 1>::from_validated_package(&package);
+        let error = runtime
+            .predict(&[0.0, 0.0, 0.0, 0.0])
+            .expect_err("classes exceeding MAX_OUT must fail closed, not panic");
+        assert!(error.to_string().contains("MAX_OUT"));
     }
 
     #[test]
