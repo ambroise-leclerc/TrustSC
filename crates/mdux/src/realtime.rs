@@ -670,17 +670,22 @@ impl FrameInputs {
         Ok(())
     }
 
-    /// Pushes one sample into a `SignalTrace` source's ring buffer (ADR-018), overwriting the
-    /// oldest sample once the ring is full — the scrolling-amplitude counterpart of
-    /// [`push_row`](Self::push_row)'s spectral ring.
+    /// Pushes one sample into every `SignalTrace` binding for `source`'s ring buffer (ADR-018),
+    /// overwriting the oldest sample once each ring is full — the scrolling-amplitude counterpart
+    /// of [`push_row`](Self::push_row)'s spectral ring. Updates *all* matching rings, not just the
+    /// first: two `SignalTrace` nodes could legitimately share one `stream_source` (e.g. the same
+    /// signal rendered twice at different sizes), and only advancing one would leave the other
+    /// silently stale.
     pub fn push_sample(&mut self, source: &str, sample: f32) -> MduxResult<()> {
-        let trace = self
-            .traces
-            .iter_mut()
-            .find(|trace| trace.source == source)
-            .ok_or_else(|| ValidationError::new(format!("unknown trace source {source}")))?;
-        trace.data[trace.cursor] = sample;
-        trace.cursor = (trace.cursor + 1) % trace.capacity;
+        let mut matched = false;
+        for trace in self.traces.iter_mut().filter(|trace| trace.source == source) {
+            matched = true;
+            trace.data[trace.cursor] = sample;
+            trace.cursor = (trace.cursor + 1) % trace.capacity;
+        }
+        if !matched {
+            return Err(ValidationError::new(format!("unknown trace source {source}")));
+        }
         Ok(())
     }
 
@@ -921,6 +926,57 @@ mod tests {
             .push_sample("UNKNOWN", 0.0)
             .expect_err("unknown trace source rejected");
         assert!(error.to_string().contains("unknown trace source"));
+    }
+
+    #[test]
+    fn push_sample_updates_every_trace_bound_to_the_same_source() {
+        const TWO_TRACES_SAME_SOURCE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "TwoTracesSameSource",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[
+                CompiledNode {
+                    id: "trace-a",
+                    bounds: Rect { x: 0, y: 0, width: 640, height: 120 },
+                    kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                        stream_source: "SHARED_SOURCE",
+                        color_token: "Theme.Colors.Nominal",
+                    }),
+                },
+                CompiledNode {
+                    id: "trace-b",
+                    bounds: Rect { x: 0, y: 120, width: 640, height: 120 },
+                    kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                        stream_source: "SHARED_SOURCE",
+                        color_token: "Theme.Colors.Nominal",
+                    }),
+                },
+            ],
+            golden_references: &[],
+        };
+
+        let bindings = ScreenBindings::from_screen(
+            &TWO_TRACES_SAME_SOURCE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("bindings should resolve");
+        assert_eq!(bindings.traces.len(), 2, "one binding per SignalTrace node");
+
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+        inputs.push_sample("SHARED_SOURCE", 0.75).expect("known trace source");
+
+        // Both nodes' rings must advance -- push_sample must not silently update only the first
+        // match and leave the second one stale.
+        let (data_a, cursor_a) = inputs.trace("SHARED_SOURCE").expect("trace exists");
+        assert_eq!(cursor_a, 1);
+        assert_eq!(data_a[0], 0.75);
+        assert_eq!(inputs.traces.iter().filter(|t| t.cursor == 1).count(), 2);
     }
 
     #[test]

@@ -143,10 +143,13 @@ pub fn run_scenario(
                 passed &= queued;
             }
             ScenarioStep::Advance { frames } => {
+                // Reuses settle_frame (rather than duplicating its input-then-realtime call
+                // order) by forcing needs_frame = true before every iteration, so Advance can't
+                // silently drift from the normal Expect*/Capture settling semantics if that order
+                // ever changes.
                 for _ in 0..frames {
-                    input_closure(events, frame_inputs);
-                    realtime_closure(frame_inputs);
-                    needs_frame = false;
+                    needs_frame = true;
+                    settle_frame(&mut needs_frame, events, frame_inputs, input_closure, realtime_closure);
                 }
                 steps.push(StepTrace {
                     index,

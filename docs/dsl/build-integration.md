@@ -39,8 +39,10 @@ mdux::include_medui_screen!();
 
 ## ML model build step (ADR-017)
 
-`mdux-build` also exposes a `ModelPackage` builder alongside `MeduiScreen`, for applications with
-a `SignalTrace` node driven by a committed ML model:
+`mdux-build` also exposes a `ModelPackage` builder alongside `MeduiScreen`, for any application
+embedding an on-device ML model (ADR-017) — independent of whether its screen has a `SignalTrace`
+node: a model can drive a `NumericDisplay`/`StatusIndicator` with no trace in sight, and a screen
+can have a `SignalTrace` with no model behind it at all.
 
 ```rust
 // build.rs
