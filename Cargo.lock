@@ -791,6 +791,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-ml-schema"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+]
+
+[[package]]
 name = "mdux-shader-baker"
 version = "0.1.0"
 dependencies = [
