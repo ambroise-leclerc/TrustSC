@@ -280,10 +280,15 @@ fn render_u32_vec(values: &[u32]) -> String {
         .join(", ")
 }
 
+/// Renders each value as `f32::from_bits(<u32>)` rather than a literal float token: `{:?}`
+/// formatting produces `inf`/`NaN`, which aren't valid Rust float literals, and even for finite
+/// values a decimal round-trip isn't guaranteed to reproduce the exact bit pattern (a NaN's
+/// payload bits in particular). Bit-exact encoding is what the "byte-exact evidence -> generated
+/// Rust" goal (ADR-017) actually requires.
 fn render_f32_vec(values: &[f32]) -> String {
     values
         .iter()
-        .map(|value| format!("{value:?}f32"))
+        .map(|value| format!("f32::from_bits({}u32)", value.to_bits()))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -354,5 +359,19 @@ mod tests {
         let error =
             parse_and_render("not json", "malformed.json").expect_err("malformed JSON must be rejected");
         assert!(error.to_string().contains("failed to parse"));
+    }
+
+    #[test]
+    fn render_f32_vec_is_bit_exact_for_non_finite_values() {
+        let values = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 1.5f32];
+        let rendered = render_f32_vec(&values);
+
+        // `{:?}` would emit "NaN"/"inf"/"-inf", none of which are valid Rust float literals.
+        assert!(!rendered.contains("NaN"));
+        assert!(!rendered.contains("inf"));
+
+        for value in values {
+            assert!(rendered.contains(&format!("f32::from_bits({}u32)", value.to_bits())));
+        }
     }
 }
