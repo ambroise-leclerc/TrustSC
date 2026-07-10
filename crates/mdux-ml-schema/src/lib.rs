@@ -91,8 +91,14 @@ impl Validates for Tensor {
             )));
         }
 
-        let expected: u64 = self.shape.iter().map(|&dim| u64::from(dim)).product();
-        if expected != self.data.len() as u64 {
+        let expected: usize = self
+            .shape
+            .iter()
+            .try_fold(1usize, |acc, &dim| acc.checked_mul(dim as usize))
+            .ok_or_else(|| {
+                ValidationError::new(format!("tensor {} shape overflows usize", self.id))
+            })?;
+        if expected != self.data.len() {
             return Err(ValidationError::new(format!(
                 "tensor {} data length does not match the product of its shape",
                 self.id
@@ -222,7 +228,8 @@ impl ModelPackage {
             .map(ActivationShape::element_count)
             .max()
             .unwrap_or(0);
-        Ok(widest as usize)
+        usize::try_from(widest)
+            .map_err(|_| ValidationError::new("widest activation shape overflows usize"))
     }
 
     fn trace_activation_shapes(&self) -> MduxResult<Vec<ActivationShape>> {
@@ -544,6 +551,17 @@ mod tests {
         package.tensors[0].data.pop();
         let error = package.validate().expect_err("shape/data mismatch");
         assert!(error.to_string().contains("does not match the product"));
+    }
+
+    #[test]
+    fn rejects_tensor_shape_product_overflow_instead_of_wrapping() {
+        let tensor = Tensor {
+            id: "huge".to_string(),
+            shape: vec![u32::MAX, u32::MAX, u32::MAX],
+            data: vec![],
+        };
+        let error = tensor.validate().expect_err("shape product overflows usize");
+        assert!(error.to_string().contains("overflows usize"));
     }
 
     #[test]
