@@ -4,6 +4,7 @@ members = [
     "crates/mdux-core",
     "crates/mdux-governance",
     "crates/mdux-image-schema",
+    "crates/mdux-ml-authoring",
     "crates/mdux-ml-runtime",
     "crates/mdux-ml-schema",
     "crates/mdux-ui",
