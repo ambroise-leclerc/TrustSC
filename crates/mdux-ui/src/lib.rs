@@ -61,6 +61,16 @@ pub struct ViewportReservation {
     pub stream_source: &'static str,
 }
 
+/// Reserved region for a scrolling 2D amplitude trace (ADR-018) — a single-channel signal such
+/// as an EEG/ECG waveform, distinct from `ViewportReservation`'s 3D spectral heightfield. Compiles
+/// into a region descriptor only; the live samples arrive each frame through the realtime path
+/// (`mdux::realtime::FrameInputs::push_sample`), never through the UI package itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SignalTraceSpec {
+    pub stream_source: &'static str,
+    pub color_token: &'static str,
+}
+
 /// Static approved text with no interaction and no requirement of its own (titles, units).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LabelSpec {
@@ -232,6 +242,7 @@ impl TextInputSpec {
 pub enum CompiledNodeKind {
     CriticalButton(CriticalButtonSpec),
     VulkanViewport(ViewportReservation),
+    SignalTrace(SignalTraceSpec),
     Label(LabelSpec),
     Clock(ClockSpec),
     NumericDisplay(NumericDisplaySpec),
@@ -278,6 +289,7 @@ impl CompiledNodeKind {
             Self::Button(specification) => specification.requirement_id,
             Self::TextInput(specification) => specification.requirement_id,
             Self::VulkanViewport(_)
+            | Self::SignalTrace(_)
             | Self::Label(_)
             | Self::Clock(_)
             | Self::Panel(_)
@@ -296,6 +308,7 @@ impl CompiledNodeKind {
             Self::Label(specification) => Some(specification.text_key),
             Self::Button(specification) => Some(specification.text_key),
             Self::VulkanViewport(_)
+            | Self::SignalTrace(_)
             | Self::Clock(_)
             | Self::NumericDisplay(_)
             | Self::StatusIndicator(_)

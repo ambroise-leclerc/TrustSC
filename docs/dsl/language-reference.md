@@ -79,6 +79,18 @@ Screen NeuroSense500 {
 }
 ```
 
+## `SignalTrace` (ADR-018)
+
+```text
+    SignalTrace {
+        id: eeg-trace;
+        width: Fill;
+        height: 240px;
+        stream_source: "EEG_TRACE";
+        color: Theme.Colors.Nominal;
+    }
+```
+
 ## Interactive widgets (ADR-015)
 
 ```text
@@ -114,6 +126,7 @@ Screen NeuroSense500 {
 - safety annotations apply to the next component block only
 - `CriticalButton` requires `requirement`, `label`, `color`, and `on_press`
 - `VulkanViewport` requires `stream_source`
+- `SignalTrace` requires `stream_source` and `color` (ADR-018)
 - `Row` requires `id` and `height`, contains leaf components only (one nesting level, `Vertical`
   screens only), and is resolved away at compile time — the emitted package stays flat
 - `Label` requires `text` and `color`; `Clock` requires `format`

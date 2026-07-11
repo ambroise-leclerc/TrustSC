@@ -32,6 +32,29 @@ Notes:
 - the generated package reserves a region for direct imaging output
 - it does not embed arbitrary render logic in the UI layer
 
+## `SignalTrace`
+
+A scrolling 2D amplitude trace (ADR-018) — a single-channel signal such as an EEG/ECG waveform.
+Distinct from `VulkanViewport`'s 3D spectral heightfield: this renders one scrolling line, not a
+waterfall mesh.
+
+Required properties:
+
+- `id`
+- `width`
+- `height`
+- `stream_source`
+- `color` (theme token)
+
+Notes:
+
+- the generated package reserves a region only; live samples arrive each frame through
+  `FrameInputs::push_sample` (a single scrolling ring, distinct from `VulkanViewport`'s
+  `push_row` `rows × bins` ring)
+- renders via the flat solid-color pipeline with `LINE_STRIP` topology — no dedicated GLSL, no
+  new committed `.spv`
+- carries no requirement and no approved text key (live data, not approved static content)
+
 ## `Row`
 
 A compile-time-only horizontal container, nested exactly one level inside a `Vertical` screen

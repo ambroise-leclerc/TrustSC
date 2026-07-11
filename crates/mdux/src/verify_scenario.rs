@@ -28,11 +28,15 @@ pub struct ScenarioClock {
 }
 
 /// One scripted step. `Event` queues an ADR-015 `WidgetEvent` for the next settled frame;
+/// `Advance` forces `frames` additional input+realtime settles right away (e.g. to fill a
+/// sliding-window classifier's buffer one sample per tick — ADR-017/018's ML-driven examples need
+/// this to reach a real depth-of-anesthesia state deterministically);
 /// `ExpectText`/`ExpectStatus`/`ExpectNumber` assert against `FrameInputs`; `Capture` names a
 /// checkpoint for the offscreen renderer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScenarioStep {
     Event(WidgetEvent),
+    Advance { frames: u32 },
     ExpectText { source: &'static str, value: &'static str },
     ExpectStatus { source: &'static str, value: u8 },
     ExpectNumber { source: &'static str, value: i64 },
@@ -93,6 +97,12 @@ pub struct ScenarioTrace {
 /// runs before the very first expectation/capture even if no `Event` preceded it, so a scenario
 /// can assert the screen's initial state.
 ///
+/// **`Advance` is the one exception to laziness.** Unlike every other step, `Advance { frames }`
+/// runs `frames` input+realtime settles immediately, unconditionally — it exists specifically to
+/// drive time-dependent realtime state (a deterministic simulator's tick counter, a sliding
+/// window filling up one sample per frame) forward by an exact count, which a scenario cannot
+/// express through `Event`/`Expect*` alone since those only ever settle *one* frame.
+///
 /// `capture` steps carry no pass/fail of their own; `on_capture` is invoked with the step's label
 /// and the settled `FrameInputs` so a caller (a test, or wave W6's offscreen renderer) can inspect
 /// or render at that point.
@@ -131,6 +141,23 @@ pub fn run_scenario(
                     passed: queued,
                 });
                 passed &= queued;
+            }
+            ScenarioStep::Advance { frames } => {
+                // Reuses settle_frame (rather than duplicating its input-then-realtime call
+                // order) by forcing needs_frame = true before every iteration, so Advance can't
+                // silently drift from the normal Expect*/Capture settling semantics if that order
+                // ever changes.
+                for _ in 0..frames {
+                    needs_frame = true;
+                    settle_frame(&mut needs_frame, events, frame_inputs, input_closure, realtime_closure);
+                }
+                steps.push(StepTrace {
+                    index,
+                    description: format!("advance frames={frames}"),
+                    expected: None,
+                    observed: None,
+                    passed: true,
+                });
             }
             ScenarioStep::ExpectText { source, value } => {
                 settle_frame(&mut needs_frame, events, frame_inputs, input_closure, realtime_closure);
@@ -376,6 +403,52 @@ mod tests {
         assert_eq!(trace.steps[1].expected.as_deref(), Some("WRONG"));
         // Replay continues past the failed expectation, and the still-true one still passes.
         assert!(trace.steps[2].passed);
+    }
+
+    #[test]
+    fn advance_runs_exactly_n_settles_immediately() {
+        let bindings = bindings();
+        let mut frame_inputs = FrameInputs::from_bindings(&bindings).expect("frame inputs");
+        let mut events = FrameEvents::new();
+
+        let realtime_calls = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let realtime_calls_for_closure = std::rc::Rc::clone(&realtime_calls);
+
+        let mut input = |_events: &mut FrameEvents, _frame: &mut FrameInputs| {};
+        let mut realtime = move |frame: &mut FrameInputs| {
+            let tick = realtime_calls_for_closure.get() + 1;
+            realtime_calls_for_closure.set(tick);
+            // Only the 5th (final) settle should flip status to ALERT — proves each Advance
+            // iteration genuinely re-invokes the realtime closure rather than settling once.
+            frame
+                .set_status("MONITOR_STATUS", if tick >= 5 { 1 } else { 0 })
+                .expect("MONITOR_STATUS wiring");
+        };
+
+        let script = ScenarioScript {
+            id: "advance-test",
+            requirement_ids: &[],
+            clock: ScenarioClock { year: 2026, month: 1, day: 1, hours: 0, minutes: 0, seconds: 0 },
+            steps: &[
+                ScenarioStep::Advance { frames: 5 },
+                ScenarioStep::ExpectStatus { source: "MONITOR_STATUS", value: 1 },
+            ],
+        };
+
+        let trace = run_scenario(
+            &script,
+            &mut events,
+            &mut frame_inputs,
+            &mut input,
+            &mut realtime,
+            |_label, _frame_inputs| {},
+        );
+
+        // Five explicit settles from Advance, then the ExpectStatus step must not trigger a
+        // sixth (state is already settled).
+        assert_eq!(realtime_calls.get(), 5, "{trace:#?}");
+        assert_eq!(trace.steps[0].description, "advance frames=5");
+        assert!(trace.steps[0].passed);
     }
 
     #[test]
