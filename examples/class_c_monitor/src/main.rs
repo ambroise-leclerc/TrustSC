@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let req_status = RequirementId::new("REQ-NS-003")?;
     let req_ack = RequirementId::new("REQ-NS-004")?;
     let req_patient_id = RequirementId::new("REQ-NS-005")?;
+    let req_classify = RequirementId::new("REQ-NS-006")?;
     for (id, verification_id, title) in [
         (&req_index, "VER-NS-001", "Display the sedation index, refreshed every frame"),
         (&req_stream, "VER-NS-002", "Display the spectral stream with visible freshness"),
@@ -31,6 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &req_patient_id,
             "VER-NS-005",
             "Bound patient identifier entry to the approved character set and length",
+        ),
+        (
+            &req_classify,
+            "VER-NS-006",
+            "Classify the EEG state on-device with the validated inference engine",
         ),
     ] {
         compliance.add_requirement(Requirement::new(
@@ -50,6 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "HAZ-NS-001",
         "A stale or frozen sedation index misleads the anesthesiologist",
         vec![req_index, req_stream],
+    )?);
+    compliance.add_hazard(Hazard::new(
+        "HAZ-NS-002",
+        "An undetected burst-suppression state delays a clinically actionable intervention",
+        vec![req_classify],
     )?);
 
     let screen = medui_screen::screen();
