@@ -51,6 +51,9 @@ jobs:
       - name: Verify committed SPIR-V shader artifacts
         run: cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
 
+      - name: Verify generated eeg-demo ML model artifacts
+        run: cargo run --locked -q -p mdux-ml-baker -- verify tools/mdux-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
+
       - name: Run headless hello world smoke test
         run: cargo run --locked -q -p hello_world -- --headless-smoke
 

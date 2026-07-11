@@ -1,0 +1,61 @@
+# EEG-DOA-LINEAR (ADR-017 demonstrator)
+#
+# A hand-authored, fully auditable total-spectral-energy classifier for depth-of-anesthesia
+# banding over a 64-bin EEG spectral row (the same shape NeuroSense 500's EEG_DSA stream
+# produces, see examples/class_c_monitor). A single Dense(64->3)+Softmax layer computes three
+# logits from the same total-energy sum E = sum(bins):
+#   - BURST_SUPPRESSION row is all -1.0            -> logit = -E + 30  (wins when E is low)
+#   - ADEQUATE row is all 0.0                      -> logit =      0  (wins in the middle band)
+#   - AWAKE row is all 1.0                         -> logit =  E - 50  (wins when E is high)
+# This gives two thresholds from one linear layer: E < 30 reads BURST_SUPPRESSION (near-isoelectric
+# EEG), 30 <= E <= 50 reads ADEQUATE, E > 50 reads AWAKE (broadband high-energy activity) — the
+# same "compare a computed feature against a fixed, reviewable threshold" idea as classic
+# energy-threshold detectors, small enough to review by hand. Swap this `[weights]` table alone
+# (e.g. for `source = "safetensors"` clinically-qualified weights) to move from demonstrator to
+# production; nothing else in the pipeline changes (ADR-017 §2).
+model_id = "EEG-DOA-LINEAR"
+toolchain_id = "rust-1.87.0+locked"
+golden_seed = 20260710
+golden_vector_count = 8
+
+[input]
+length = 64
+channels = 1
+
+[output]
+classes = 3
+labels = ["AWAKE", "ADEQUATE", "BURST_SUPPRESSION"]
+
+[[layers]]
+kind = "flatten"
+
+[[layers]]
+kind = "dense"
+weights_id = "dense1.weight"
+bias_id = "dense1.bias"
+in_features = 64
+out_features = 3
+
+[[layers]]
+kind = "softmax"
+
+[weights]
+source = "inline"
+
+[[weights.tensors]]
+id = "dense1.weight"
+shape = [3, 64]
+# row 0 (AWAKE): sums every bin -> total spectral energy E
+# row 1 (ADEQUATE): ignores every bin -> constant logit
+# row 2 (BURST_SUPPRESSION): sums every bin negated -> -E
+data = [
+    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
+]
+
+[[weights.tensors]]
+id = "dense1.bias"
+shape = [3]
+# AWAKE threshold at E=50 (E - 50), ADEQUATE flat at 0, BURST_SUPPRESSION threshold at E=30 (-E + 30)
+data = [-50.0, 0.0, 30.0]

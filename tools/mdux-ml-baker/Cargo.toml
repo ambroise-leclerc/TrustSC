@@ -1,0 +1,16 @@
+[package]
+name = "mdux-ml-baker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mdux-core = { version = "0.1.0", path = "../../crates/mdux-core" }
+mdux-ml-schema = { version = "0.1.0", path = "../../crates/mdux-ml-schema" }
+mdux-ml-authoring = { version = "0.1.0", path = "../../crates/mdux-ml-authoring" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.10"
+toml = "1.1.2"
+
+[dev-dependencies]
+mdux-ml-runtime = { version = "0.1.0", path = "../../crates/mdux-ml-runtime" }

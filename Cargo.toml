@@ -21,6 +21,7 @@ members = [
     "examples/class_c_vulkansc_device",
     "tools/mdux-font-baker",
     "tools/mdux-image-baker",
+    "tools/mdux-ml-baker",
     "tools/mdux-shader-baker",
 ]
 resolver = "2"

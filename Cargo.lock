@@ -802,6 +802,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdux-ml-baker"
+version = "0.1.0"
+dependencies = [
+ "mdux-core",
+ "mdux-ml-authoring",
+ "mdux-ml-runtime",
+ "mdux-ml-schema",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
 name = "mdux-ml-runtime"
 version = "0.1.0"
 dependencies = [
