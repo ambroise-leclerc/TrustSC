@@ -1,446 +1,118 @@
 # MduX-rust
 
-Medical-device manufacturer framework with Class B/Class C compliance modeling and a Vulkan / Vulkan SC-oriented UI SDK.
+🇬🇧 [English version](README.en.md)
 
-## A complete medical UI app in ~60 lines
+**Un framework 100 % Rust, orienté IEC 62304, pour construire un logiciel de dispositif médical
+industrialisable** — une UI Vulkan / Vulkan SC, une inférence IA embarquée sans SOUP, et une
+génération de preuves conçue pour alimenter le SMQ du fabricant et le dossier technique remis à
+l'organisme notifié. Ce n'est pas un dispositif médical certifié : c'est un template et un
+ensemble de briques gouvernées sur lesquelles le fabricant construit.
 
-This is the entire `examples/hello_world` application — a demo that models a Class B device per
-IEC 62304 (a requirement, a verification case, an audit trail, and a Vulkan-rendered screen) using
-this framework's compliance APIs, not a certified medical device. No `ash`, `winit`, or `shaderc`
-dependency of its own.
+## La difficulté du logiciel Classe B/C
 
-`hello_world.medui`:
+Les équipes qui développent un logiciel Classe B ou Classe C selon l'IEC 62304 rencontrent
+toujours les mêmes frictions : une traçabilité exigence → vérification maintenue à la main, qui
+finit par diverger du code ; une surface de dépendances tierces (SOUP) qui croît le plus vite
+justement dans les couches UI et IA/ML les plus visibles pour l'opérateur ; des preuves qu'un
+auditeur ne peut pas reproduire facilement ; et des éléments d'IHM critiques dont le comportement
+est difficile à garantir dès que la pile de rendu alloue de la mémoire ou met en forme du texte à
+l'exécution.
 
-```
-Screen HelloWorld {
-    layout: Vertical { spacing: 16px; padding: 24px; }
+## Notre réponse
 
-    @safety_critical(cv_check: [Bounds, ColorHash])
-    CriticalButton {
-        id: hello-world-label;
-        requirement: "REQ-HELLO-001";
-        width: Fill;
-        height: 80px;
-        label: t("STR-HELLO-WORLD");
-        color: Theme.Colors.PrimaryAction;
-        on_press: SystemEvent.NoOp;
-    }
+MduX-rust découpe le workspace en trois zones de confiance — un cœur gouverné et sans `unsafe`
+(`crates/`), des adaptateurs qui isolent les liaisons Vulkan/fenêtrage natives (`adapters/`), et
+un outillage host-only qui ne part jamais dans un artefact runtime (`tools/`) — pour que l'effort
+de revue se concentre là où il compte. Chaque pipeline d'asset (polices, images, shaders, et
+désormais poids ML) compile une source en preuve committée et vérifiée par empreinte
+(`package.json` + `report.json`), re-contrôlée automatiquement en CI plutôt qu'affirmée à la main.
+En complément, `mdux-governance` fournit de vrais types `Requirement`/`Hazard`/
+`VerificationCase`/`AuditEvent`, avec export structuré de la matrice de traçabilité et de la
+piste d'audit.
 
-    VulkanViewport {
-        id: hello-world-viewport;
-        width: Fill;
-        height: 280px;
-        stream_source: "HELLO_WORLD_SIM";
-    }
-}
-```
+L'exemple phare de cette approche est le pipeline ML : un classifieur embarqué (`Classifier1D`)
+écrit entièrement en Rust `#![forbid(unsafe_code)]` — pas d'ONNX Runtime, pas de PyTorch — dont
+les poids sont des données versionnées et compilées à part. Remplacer un modèle de démonstration
+issu de Hugging Face par les propres poids cliniquement qualifiés d'un fabricant ne change aucune
+ligne de code d'inférence ou d'application, et le moteur échoue de façon contrôlée au démarrage si
+son propre auto-test de référence ne se reproduit pas bit à bit. Voir `examples/class_c_monitor`,
+le moniteur de profondeur d'anesthésie Acme NeuroSense 500, pour la démonstration complète et
+fonctionnelle.
 
-`build.rs`:
+Ceci reste un framework et un ensemble d'API de conformité — pas un dispositif médical certifié,
+et pas un substitut au jugement d'ingénierie propre du fabricant.
 
-```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    mdux_build::MeduiScreen::new("hello_world.medui")
-        .surface(800, 480)
-        .compile()
-}
-```
+## Organismes notifiés et audits
 
-`src/main.rs`:
+Pour un auditeur d'organisme notifié, le découpage en zones de confiance signifie que la revue de
+code approfondie peut se concentrer sur un cœur gouverné restreint plutôt que sur l'ensemble du
+graphe de dépendances ; les artefacts de preuve générés portent leur propre empreinte SHA-256 et
+sont vérifiés par octet en CI plutôt que ré-audités à la main à chaque version ; le registre SOUP
+(`docs/governance/soup-register.toml`) a déjà la forme — fournisseur, licence, chemin
+d'intégration, mesures de maîtrise du risque — attendue dans la section SOUP d'un dossier
+technique ; et 18 ADR acceptées documentent la logique de conception derrière chaque frontière.
+Rien de tout cela ne remplace le SMQ propre du fabricant, son dossier de gestion des risques, ou
+sa relation avec son organisme notifié — voir **[Conformité réglementaire](docs/regulatory-compliance.md)**
+(en anglais) pour le traitement complet, avec une liste explicite de ce que ce projet fournit et
+ne fournit pas.
 
-```rust
-mdux::include_medui_screen!();
-
-use mdux::{
-    ComplianceProgram, DeviceContext, FrameworkBuilder, Requirement, RequirementId, SafetyClass,
-    UiSdkConfig, VerificationCase, VerificationMethod,
-};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let device = DeviceContext::new(
-        "Acme Medical",
-        "MduX-rust Hello World",
-        "hello-world-ui",
-        "0.1.0",
-        SafetyClass::B,
-    )?;
-    let requirement_id = RequirementId::new("REQ-HELLO-001")?;
-
-    let mut compliance = ComplianceProgram::new(device.clone());
-    compliance.add_requirement(Requirement::new(
-        requirement_id.clone(),
-        "Render the hello-world greeting",
-        "IEC62304-5.2",
-        "Verify the smoke demo renders a greeting component",
-    )?);
-    compliance.add_verification(VerificationCase::new(
-        "VER-HELLO-001",
-        requirement_id,
-        VerificationMethod::Test,
-        "Preview frame execution in the host smoke demo",
-    )?);
-
-    let framework = FrameworkBuilder::new()
-        .with_device(device)
-        .with_compliance(compliance)
-        .with_ui(UiSdkConfig::vulkan_class_b(800, 480, 16))
-        .with_screen(medui_screen::screen())
-        .build()?;
-
-    mdux_vulkan_winit::App::new(framework, medui_screen::screen()).run_from_env()
-}
-```
-
-`Cargo.toml` needs only `mdux` + `mdux-vulkan-winit` as dependencies and `mdux-build` as a
-build-dependency — see `examples/hello_world/Cargo.toml`. Run it with `cargo run -p hello_world`
-(opens a window), `-- --auto-close-ms=1000` (closes itself, useful for manual smoke checks), or
-`-- --headless-smoke` (no window, no Vulkan at all — for CI).
-
-Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit event loop, the
-glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
-application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
-
-## A complete Class C monitor: 3D UI + zero-SOUP ML in ~400 lines
-
-`examples/class_c_monitor` is the **Acme NeuroSense 500**, a fictional depth-of-anesthesia
-monitor modeling a genuine IEC 62304 **Class C** configuration. It combines, in one screen: a
-**3D spectral waterfall** (`VulkanViewport`) rendering the live EEG spectrogram; ADR-014's
-**pixel-exact positioned layout** (a 1920×1080 surface pinned in the `.medui` file itself, a
-512×512 sedation-index box with 160 px = 120 pt digits); ADR-015's **operator interaction** (a
-bounded patient-identifier `TextInput` and an ACKNOWLEDGE `Button`); and, since ADR-017/018, a
-**real, on-device machine-learning classifier** — no ONNX Runtime, no PyTorch, just
-`Classifier1D` running the same zero-allocation, `#![forbid(unsafe_code)]` inference engine a
-Phase 2 clinical build would ship unchanged. Every `position:` is verified by the compiler
-(containment, no-overlap, i18n text budgets inside the pinned box) and pinned as an automatic
-golden reference — the layout specification *is* the evidence:
-
-```text
-+---------------------------------------------------------------------------+
-| NeuroSense 500 - Depth of...  2026-07-04 14:25:09    NOMINAL   [A= logo]  |  topbar 1920x64
-+---------------------------------------------------+-----------------------+
-|                                                   |       512x512        |
-|                                                   |      [  5 0  ]       |
-|          EEG DSA waterfall 1360x984               |    160px digits      |
-|                                                   +-----------------------+
-|                                                   | PATIENT ID           |
-|                                                   | [PID-2026 47_     ]  |  TextInput (1392,640) 512x48
-|                                                   | [ ACKNOWLEDGE ]      |  Button    (1392,720) 240x64
-|                                                   | RAW EEG              |
-|                                                   | [~/\/\/\/\/\/\~]     |  SignalTrace (1392,824) 512x224
-+---------------------------------------------------+-----------------------+
-```
-
-If a future translation outgrows the pinned title box, or two positioned components collide, or
-the 16-character identifier budget no longer fits its box, **the build fails** — the alert
-happens at compile time, never on a bench. Interaction flows one way out through the bounded
-`FrameEvents` queue and one way back in through `set_text` (the application owns the buffer; the
-renderer stores nothing), the clock still costs zero application code, and the app still has no
-`ash`/`winit`/`shaderc` dependency.
-
-**`neurosense.medui`** (103 lines) — the `SignalTrace` node at the bottom reserves the raw-EEG
-strip; everything else is exactly the positioned layout ADR-014 already established:
-
-```text
-Screen NeuroSense500 {
-    layout: Vertical { spacing: 8px; padding: 0px; }
-    surface: 1920px, 1080px;
-    Row {
-        id: topbar;
-        height: 64px;
-        background: Theme.Colors.TopbarBackground;
-        Label { id: device-title; width: 340px; height: 48px; position: 16px, 8px; text: t("STR-NS-TITLE"); color: Theme.Colors.Title; }
-        Clock { id: wall-clock; width: 448px; height: 48px; position: 372px, 8px; format: DateTimeSeconds; }
-        StatusIndicator {
-            id: system-status;
-            width: 200px;
-            height: 48px;
-            position: 1552px, 8px;
-            requirement: "REQ-NS-003";
-            source: "MONITOR_STATUS";
-            states: [t("STR-NS-NOMINAL"), t("STR-NS-ALERT"), t("STR-NS-FAULT")];
-        }
-        Image { id: acme-logo; width: 144px; height: 48px; position: 1768px, 8px; source: img("LOGO-ACME"); }
-    }
-    @safety_critical(cv_check: [Bounds, ColorHash])
-    NumericDisplay {
-        id: sedation-index;
-        width: 512px;
-        height: 512px;
-        position: 1392px, 80px;
-        requirement: "REQ-NS-001";
-        template: "TPL-SEDATION-INDEX-160";
-        source: "SEDATION_INDEX";
-        color: Theme.Colors.ScoreDigits;
-    }
-    Label { id: patient-id-caption; width: 200px; height: 24px; position: 1392px, 608px; text: t("STR-NS-PATIENT-ID"); color: Theme.Colors.Title; }
-    TextInput {
-        id: patient-id-input;
-        width: 512px;
-        height: 48px;
-        position: 1392px, 640px;
-        requirement: "REQ-NS-005";
-        source: "PATIENT_ID";
-        max_length: 16;
-        charset: AsciiText;
-        color: Theme.Colors.Title;
-    }
-    Button {
-        id: ack-button;
-        width: 240px;
-        height: 64px;
-        position: 1392px, 720px;
-        requirement: "REQ-NS-004";
-        label: t("STR-NS-ACK");
-        color: Theme.Colors.PrimaryAction;
-        source: "ACK_BUTTON";
-    }
-    Label { id: eeg-trace-caption; width: 300px; height: 20px; position: 1392px, 800px; text: t("STR-NS-EEG-TRACE-CAPTION"); color: Theme.Colors.Title; }
-    SignalTrace {
-        id: eeg-trace;
-        width: 512px;
-        height: 224px;
-        position: 1392px, 824px;
-        stream_source: "EEG_TRACE";
-        color: Theme.Colors.Nominal;
-    }
-    VulkanViewport { id: eeg-dsa; width: 1360px; height: 984px; position: 16px, 80px; stream_source: "EEG_DSA"; }
-}
-```
-
-**`build.rs`** (10 lines) — one extra line over the pre-ML version, `ModelPackage::new(..)`, is
-the entire cost of embedding the classifier:
-
-```rust
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    mdux_build::MeduiScreen::new("neurosense.medui")
-        .surface(1920, 1080)
-        .compile()?;
-    // Phase 1 (Hugging Face-style demonstrator) points this at generated/models/eeg-demo/package.json;
-    // Phase 2 (production) repoints it at a manufacturer's own clinically-qualified weights baked
-    // by the same tools/mdux-ml-baker pipeline — zero change below this line (ADR-017 §2).
-    mdux_build::ModelPackage::new("../../generated/models/eeg-demo/package.json").compile()?;
-    mdux_build::ScenarioSet::new("verify/scenarios").compile()
-}
-```
-
-**`src/app_logic.rs`** (188 lines total; the realtime closure below is the flagship
-demonstration of the "weights are data" story) — `MODEL` is whatever
-`generated/models/eeg-demo/package.json` the build compiled in. Swap that one committed file for
-a manufacturer's own clinically-qualified weights, baked by the exact same `tools/mdux-ml-baker`
-pipeline, and every line of application code stays unchanged:
-
-```rust
-static MODEL: LazyLock<mdux::ModelPackage> = LazyLock::new(crate::medui_model::model);
-
-// ... inside AppLogic::into_closures(), built once (not per frame):
-let classifier = Classifier1D::<CLASSIFIER_MAX_UNITS, CLASSIFIER_MAX_OUT>::new(&MODEL)
-    .expect("baked eeg-demo model should pass its golden self-test (ADR-017 §4)");
-
-let realtime = move |frame: &mut FrameInputs| {
-    let (row, raw) = simulator.tick();
-
-    // Zero-allocation inference over the current spectral row (ADR-017): pure arithmetic, no
-    // SOUP, the same engine a Phase 2 production build would ship unchanged.
-    let scaled: [f32; 64] = std::array::from_fn(|i| row[i] * ENERGY_SCALE);
-    let prediction = classifier.predict(&scaled).expect("row always matches input_spec");
-    let scores = prediction.scores();
-
-    // Sedation index blends the class probabilities into a single 0-99 score: near 100 fully
-    // awake, mid-range adequately anesthetized, near 0 burst-suppressed. get() rather than
-    // indexing so a differently-shaped committed model can't panic here.
-    let awake = scores.get(usize::from(CLASS_AWAKE)).copied().unwrap_or(0.0);
-    let adequate = scores.get(CLASS_ADEQUATE).copied().unwrap_or(0.0);
-    let index = (awake * 99.0 + adequate * 50.0).round() as i64;
-
-    // A detected burst-suppression state latches the alert until the operator acknowledges it
-    // (REQ-NS-004, HAZ-NS-002) -- the classifier decides it is alarming, not a fake timer.
-    if prediction.class == CLASS_BURST_SUPPRESSION {
-        alert_active.set(true);
-    }
-    let status = if alert_active.get() { 2 } else if prediction.class == CLASS_AWAKE { 1 } else { 0 };
-
-    frame.set_number("SEDATION_INDEX", index.clamp(0, 99)).expect("SEDATION_INDEX wiring");
-    frame.set_status("MONITOR_STATUS", status).expect("MONITOR_STATUS wiring");
-    frame.push_row("EEG_DSA", &row).expect("EEG_DSA wiring");
-    frame.push_sample("EEG_TRACE", raw).expect("EEG_TRACE wiring");
-};
-```
-
-`src/main.rs` (92 lines) wires the `DeviceContext`/`ComplianceProgram`/`UiSdkConfig` and
-registers the closures above with `mdux_vulkan_winit::App` — the same boilerplate every
-`FrameworkBuilder`-based example needs, unrelated to the ML story; see the file directly if
-you're after the compliance plumbing rather than the classifier.
-
-Run it with `cargo run -p class_c_monitor` (windowed; type into the patient-ID field — click or
-Tab to focus, arrows/Home/End move the caret — and acknowledge the alert that fires roughly every
-40 s (first episode ~20 s after startup) as a scheduled burst-suppression episode drives the real
-classifier's output; note the
-`HOST PREVIEW` banner, the scrolling green `RAW EEG` trace flattening during the episode exactly
-like real isoelectric EEG, and the `runtime` audit event in the diagnostics), or
-`-- --headless-smoke` for the CI path — the smoke output shows `golden_refs=11`: every positioned
-node is pinned evidence.
-
-## Vulkan prerequisites
-
-The primary development path for MduX is Vulkan-based medical UI work. Install a system Vulkan loader before running the windowed examples.
-
-### macOS
+## Démarrage rapide
 
 ```bash
-brew install vulkan-loader molten-vk vulkan-tools
-export VK_ICD_FILENAMES="$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json"
-export DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
-vulkaninfo | head
+source $HOME/.cargo/env
+
+cargo build                                  # tout compiler
+cargo test                                   # exécuter tous les tests
+cargo run -p hello_world                     # exemple le plus simple (ouvre une fenêtre Vulkan)
+cargo run -p hello_world -- --headless-smoke # sans fenêtre, sans Vulkan — pour la CI
+cargo run -p class_c_monitor                 # NeuroSense 500 : UI 3D + ML zero-SOUP
 ```
 
-`vulkan-loader` provides `libvulkan.dylib`, `molten-vk` supplies the Vulkan-on-Metal driver, and `vulkan-tools` provides `vulkaninfo`. The extra `DYLD_FALLBACK_LIBRARY_PATH` export makes Cargo-launched binaries find Homebrew's `libvulkan.dylib` on macOS.
+Référence complète des commandes et installation de Vulkan (en anglais) :
+**[Getting started](docs/getting-started.md)**.
 
-To make those variables permanent in the default macOS shell:
+## Structure du workspace
+
+| Répertoire | Contenu |
+|---|---|
+| `crates/` | Cœur gouverné : modèle device/conformité, politique UI, pipelines texte et ML, la façade `mdux`. |
+| `adapters/mdux-vulkan-winit` | L'adaptateur de présentation Vulkan + winit — le seul crate touchant aux liaisons natives de fenêtrage/graphisme. |
+| `tools/` | Outillage host-only de bake/verify pour les preuves de polices, images, shaders et modèles ML. |
+| `examples/` | `hello_world` (plus petite démo de fumée), `class_b_device`, `class_c_monitor` (NeuroSense 500), `class_c_vulkansc_device`. |
+
+Cartographie complète des crates et logique des zones de confiance (en anglais) :
+**[Architecture](docs/architecture.md)**.
+
+## Prérequis Vulkan
 
 ```bash
-cat <<'EOF' >> ~/.zshrc
-export VK_ICD_FILENAMES="$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json"
-export DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
-EOF
-source ~/.zshrc
-```
-
-### Ubuntu / Debian
-
-```bash
-sudo apt-get update
+# Ubuntu / Debian
 sudo apt-get install libvulkan1 libvulkan-dev vulkan-tools
-vulkaninfo | head
+
+# macOS
+brew install vulkan-loader molten-vk vulkan-tools
 ```
 
-If you only need non-graphical validation, `cargo run -p hello_world -- --headless-smoke` still works without the windowed Vulkan path.
+Nécessaire seulement pour le chemin avec fenêtre — `--headless-smoke` fonctionne sans loader
+Vulkan. Configuration complète par plateforme (en anglais) :
+**[Getting started](docs/getting-started.md#vulkan-prerequisites)**.
 
-## Workspace layout
+## Documentation complète
 
-- `crates/mdux-core`: device metadata, safety classes, deterministic runtime policy
-- `crates/mdux-governance`: requirements, hazards, verifications, audit trail, trace matrix export
-- `crates/mdux-image-schema`: immutable compiled image-package schema (governed logo assets)
-- `crates/mdux-ui`: Vulkan / Vulkan SC UI policy and deterministic frame model
-- `crates/mdux-ui-dsl-authoring`: host-side `.medui` compiler for generated static screen packages
-- `crates/mdux-text-schema`: shared manifests and immutable compiled text-package schema
-- `crates/mdux-text-authoring`: host-side font intake, deterministic atlas compilation, and asset tooling
-- `crates/mdux-text-runtime`: no-allocation runtime text command generation from approved packages
-- `crates/mdux-ml-schema`: shared contract for the ML inference pipeline (ADR-017) — the
-  immutable `ModelPackage`, layer/tensor types, golden self-test vectors
-- `crates/mdux-ml-authoring`: host-side safetensors import, deterministic `ModelPackage`
-  compilation, golden-vector generation
-- `crates/mdux-ml-runtime`: zero-allocation, `#![forbid(unsafe_code)]` `Classifier1D` inference
-  engine — Dense/Conv1D/pooling/activations as strictly-ordered scalar loops
-- `crates/mdux`: thin facade for building complete framework instances, plus `screen_text`,
-  `include_medui_screen!`, and `include_model!`
-- `crates/mdux-build`: build-script helper wrapping the `.medui` compiler (`MeduiScreen`) and the
-  ML model compiler (`ModelPackage`)
-- `adapters/mdux-vulkan-winit`: the reusable Vulkan 1.0 + winit presentation adapter — the only
-  crate depending on `ash`/`winit`
-- `tools/mdux-font-baker`, `tools/mdux-image-baker`, `tools/mdux-shader-baker`,
-  `tools/mdux-ml-baker`: host-only bake/verify tools for the committed font, image, SPIR-V
-  shader, and ML model evidence
-- `examples/hello_world`: smallest out-of-the-box smoke demo (see above)
-- `examples/class_b_device`: Class B Vulkan example
-- `examples/class_c_monitor`: the NeuroSense 500 Class C realtime monitor (see above)
-- `examples/class_c_vulkansc_device`: Class C Vulkan SC example (evidence-only, no window)
+La documentation approfondie est maintenue en anglais pour toucher le plus large public possible,
+y compris les évaluateurs techniques d'organismes notifiés :
 
-## Commands
+- **[Accueil de la documentation](docs/README.md)**
+- **[Conformité réglementaire](docs/regulatory-compliance.md)** — IEC 62304, organismes notifiés,
+  le mécanisme de preuve, et les limites de portée assumées honnêtement.
+- **[Architecture](docs/architecture.md)** — zones de confiance, cartographie des crates, CI,
+  gouvernance des assets.
+- **[Getting started](docs/getting-started.md)** — parcours complets des exemples et référence des
+  commandes.
+- **[Architecture decision records](docs/adr/README.md)** — les 18 ADR acceptées.
+- **[Référence du DSL MedUI](docs/dsl/overview.md)** — le langage `.medui` de description d'UI à la
+  compilation.
 
-```bash
-source $HOME/.cargo/env
-cd MduX-rust
+## Licence
 
-# build everything
-cargo build
-
-# run all tests
-cargo test
-
-# run a single test
-cargo test builds_framework_from_screen_through_public_api
-
-# run the shortest demo (opens a Vulkan window; requires a system Vulkan loader such as libvulkan.dylib / MoltenVK)
-cargo run -p hello_world
-
-# run it and close automatically after one second
-cargo run -p hello_world -- --auto-close-ms=1000
-
-# run the same smoke path without a window
-cargo run -p hello_world -- --headless-smoke
-
-# run the Class C realtime monitor: 3D waterfall + UI + zero-SOUP ML (windowed, ADR-013 host preview)
-cargo run -p class_c_monitor
-cargo run -p class_c_monitor -- --headless-smoke
-
-# run the richer examples
-cargo run -p class_b_device
-cargo run -p class_c_vulkansc_device
-
-# inspect the text-asset pipeline tooling
-cargo run -p mdux-text-authoring --bin mdux-textc -- describe-pipeline
-```
-
-The default `hello_world` example now opens a real Vulkan window and requires a system Vulkan loader. Install the Vulkan prerequisites above, or use `--headless-smoke` when validating the framework in a non-graphical environment.
-
-The same example also includes a minimal `.medui` source file compiled at build time into a static screen package. The generated package now drives the hello-world text key, the text origin used by the Vulkan overlay, the emitted golden-reference entries for the safety-critical button, and compile-time rejection when an approved translation would overflow the allocated UI bounds.
-
-## Continuous integration
-
-- `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch so the checks execute on feature branches before merge.
-- The workflow validates the Linux workspace with locked dependencies, runs the full test suite, verifies the committed Roboto (16/48/160 px), Acme-logo image, SPIR-V, and `eeg-demo` ML model artifacts, and exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
-- Replay the same checks locally with:
-
-```bash
-source $HOME/.cargo/env
-cargo build --locked --workspace
-cargo test --locked --quiet
-cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
-cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
-cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
-cargo run --locked -q -p mdux-image-baker -- verify tools/mdux-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
-cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
-cargo run --locked -q -p mdux-ml-baker -- verify tools/mdux-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
-cargo run --locked -q -p hello_world -- --headless-smoke
-cargo run --locked -q -p class_c_monitor -- --headless-smoke
-```
-
-## Hello World Vulkan text path
-
-- `examples/hello_world/hello_world.medui` is the entire application-specific content; `examples/hello_world/build.rs` compiles it via `mdux-build`'s `MeduiScreen` into generated screen metadata, brought into scope with `mdux::include_medui_screen!()`.
-- `mdux::screen_text::ScreenTextLayout` (in `crates/mdux`) resolves the screen's approved text into glyph draw commands — this is generic, screen-agnostic logic reused by every application.
-- `adapters/mdux-vulkan-winit` owns everything platform-specific: it uploads the glyph atlas and renders textured quads using shaders precompiled to SPIR-V and committed under `adapters/mdux-vulkan-winit/shaders/generated/` (see `tools/mdux-shader-baker`), so applications need no `ash`/`winit`/`shaderc` dependency of their own.
-- Use `cargo run -p hello_world -- --auto-close-ms=1000` to smoke-test the actual Vulkan text overlay path when a system Vulkan loader is available.
-- `cargo run -p hello_world -- --headless-smoke` is still useful for non-graphical environments, but it intentionally skips the windowed Vulkan text-rendering path.
-
-## Architecture decision records
-
-- Text subsystem ADRs live under `docs/adr/ADR-001` through `ADR-004`.
-- Framework architecture ADRs continue with:
-  - `ADR-005`: pure-Rust project boundary and dependency policy
-  - `ADR-006`: Vulkan versus Vulkan SC profile strategy
-  - `ADR-007`: ownership and lifecycle of compliance evidence and generated artifacts
-  - `ADR-008`: deterministic MedUI DSL boundary
-  - `ADR-009`: MedUI compilation and generated artifacts
-  - `ADR-010`: MedUI i18n and text-budget policy
-  - `ADR-011`: MedUI safety-monitor and VulkanViewport contract
-  - `ADR-012`: presentation adapter crates, the `adapters/` directory, and shader artifact evidence
-  - `ADR-013`: host preview of Vulkan SC profiles and the bounded realtime contract
-  - `ADR-014`: precise positioning, image asset governance, and theme colors
-  - `ADR-015`: widget organization principles — compiled-retained structure, immediate-mode data plane, bounded input events
-  - `ADR-016`: automated UI verification and manual generation — offscreen rendering, rendered-truth checks, and evidence reports
-  - `ADR-017`: zero-SOUP machine-learning inference pipeline — weights as baked, byte-verified data; from-scratch deterministic inference engine
-  - `ADR-018`: SignalTrace node — a bounded scrolling-waveform primitive for raw physiological signals
-- Host-only third-party tooling used for the default Roboto bake path is tracked in `docs/governance/soup-register.toml`.
-
-## Default Roboto asset governance
-
-- The default approved source asset lives under `assets/fonts/roboto/` and includes the vendored `Roboto-Regular.ttf`, `font-manifest.toml`, `provenance.toml`, and Apache-2.0 notice material (`LICENSE`, `NOTICE`, upstream readmes).
-- `assets/fonts/roboto/font-manifest.toml` is the source of truth for asset identity, digest pinning, and future Yocto-facing install and license fields (`package_name`, `install_subdir`, `license_expression`, `lic_files`, `source_uri`).
-- `generated/fonts/roboto-regular-16px/` contains deterministic generated artifacts (`package.json`, `report.json`) for the approved Roboto fixture. These files are evidence outputs and must be regenerated with `tools/mdux-font-baker/`, not edited by hand.
-- `tools/mdux-font-baker/` is host-only authoring tooling. Its SOUP dependencies stay outside the regulated runtime and outside future Yocto target images; only the reviewed source asset, notices, and generated package outputs cross into packaging or release evidence.
-
-## Safety-critical text rendering
-
-- Full Unicode, shaping, and bidi are handled offline for approved/localized strings.
-- The runtime path only consumes immutable compiled text packages and bounded numeric templates.
-- Font fallback, shaping, and atlas generation stay in the host-side authoring boundary so the rendering path remains deterministic and allocation-free.
+À finaliser.
