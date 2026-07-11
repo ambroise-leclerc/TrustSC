@@ -1,0 +1,11 @@
+[package]
+name = "mdux-ml-authoring"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mdux-core = { path = "../mdux-core" }
+mdux-ml-schema = { path = "../mdux-ml-schema" }
+mdux-ml-runtime = { path = "../mdux-ml-runtime" }
+sha2 = "0.10"
+serde_json = "1.0.150"
