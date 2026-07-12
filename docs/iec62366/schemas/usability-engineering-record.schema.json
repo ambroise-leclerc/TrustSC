@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdux.dev/schemas/iec62366/usability-engineering-record.schema.json",
+  "title": "IEC 62366-1 Usability Engineering File Record",
+  "description": "One use-scenario/evaluation entry suitable for inclusion in a manufacturer's IEC 62366-1 §4.2 usability engineering file. MduX-rust has no runtime type this mirrors (mdux-governance has no Rust equivalent yet) — this schema is a documentation-level recording shape only, deliberately aligned in style with docs/iec62304/schemas/hazard.schema.json and verification-case.schema.json so a future export could reuse the same conventions. See docs/iec62366/01-scope-and-general-requirements.md §4.2 and docs/governance/citation-convention.md.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["ue_record_id", "use_scenario", "evaluation_type", "evaluation_method", "findings"],
+  "properties": {
+    "ue_record_id": {
+      "type": "string",
+      "pattern": "^UE-[0-9]{3}$",
+      "description": "Sequential, unique across the usability engineering file, e.g. 'UE-001'."
+    },
+    "use_scenario": {
+      "type": "object",
+      "required": ["description", "hazard_related", "frequency_of_use"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "The use scenario under evaluation, stated against the manufacturer's use specification (IEC 62366-1:2015 §5.1 Use specification)."
+        },
+        "hazard_related": {
+          "type": "boolean",
+          "description": "True if this scenario's use error(s) could lead to a hazardous situation (IEC 62366-1:2015 §5.2 Identify frequently used functions and hazard-related use scenarios). Determines whether this scenario is a candidate for summative evaluation."
+        },
+        "frequency_of_use": {
+          "type": "string",
+          "enum": ["Frequent", "Occasional", "Infrequent", "Rare"],
+          "description": "Qualitative frequency-of-use classification supporting the §5.2 identification of frequently used functions."
+        }
+      },
+      "additionalProperties": false
+    },
+    "evaluation_type": {
+      "type": "string",
+      "enum": ["Formative", "Summative"],
+      "description": "IEC 62366-1:2015 §5.6 Formative evaluation or §5.7 Summative evaluation. See docs/iec62366/03-formative-and-summative-evaluation.md for what MduX-rust's --verify-ui tooling does and does not provide toward either."
+    },
+    "evaluation_method": {
+      "type": "string",
+      "description": "How the evaluation was performed, e.g. 'Simulated-use test with representative users', 'Expert/heuristic review', 'mdux --verify-ui inspection-based check (GoldenBounds/ChromeColor/TextPresence/InkContainment)'. Free text: this schema does not constrain method to MduX-rust-generated evidence."
+    },
+    "findings": {
+      "type": "string",
+      "description": "Summary of what the evaluation found, including any use errors, close calls, or confirmations of safe/effective use."
+    },
+    "use_errors_identified": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Use errors (IEC 62366-1:2015 §3 Terms and definitions) observed or identified during this evaluation, if any. An empty array is a valid outcome (no use errors identified)."
+    },
+    "risk_control_measures": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Risk control measures adopted as a result of this record, ideally naming real mdux_governance::RequirementId values (see crates/mdux-governance/src/lib.rs and docs/iec62304/02-development-planning-and-requirements.md §5.2.2 Include risk control measures in requirements) rather than free-standing mitigation notes."
+    },
+    "evaluation_date": {
+      "$ref": "#/definitions/iso_date",
+      "description": "Optional: when this evaluation was conducted."
+    },
+    "evaluators": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/person" },
+      "description": "Optional: who conducted or reviewed this evaluation."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "iso_date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "Date in ISO 8601 format (YYYY-MM-DD)."
+    },
+    "person": {
+      "type": "object",
+      "required": ["name", "role"],
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "qualifications": { "type": "array", "items": { "type": "string" } },
+        "organization": { "type": "string" }
+      }
+    }
+  }
+}
