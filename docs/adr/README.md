@@ -26,6 +26,7 @@ adapter/tools boundary, or alter a compile-time-only contract.
 | [ADR-018](ADR-018-signal-trace-node.md) | SignalTrace node and 2D line-strip pipeline | A bounded scrolling-waveform primitive for raw physiological signals. |
 | [ADR-019](ADR-019-regulatory-standards-reference-corpus.md) | Regulatory standards reference corpus and software development file scaffold | The `docs/<standard>/` LLM-citable corpus (IEC 62304, ISO 13485, ISO 14971, IEC 62366-1, IEC 81001-5-1) and the `software_development_file/templates`/`regulatory` tree. |
 | [ADR-020](ADR-020-ai-interaction-standardization.md) | AI interaction standardization | Committed `AGENTS.md` as the canonical agent instruction file, Agent Skills under `.claude/skills/`, the `mdux-docs-lint` citation linter in CI, and the no-MCP-servers policy. |
+| [ADR-021](ADR-021-repository-migration-to-trustsc.md) | Repository migration to TrustSC | New repository, byte-identical history (no rewrites, no backdating), old repository archived; the `mdux-*` → `trustsc-*` rename follows as separate PRs. |
 
 See also [`docs/governance/soup-register.toml`](../governance/soup-register.toml) for the
 third-party dependency register these ADRs reference, and
