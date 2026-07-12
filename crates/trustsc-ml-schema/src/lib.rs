@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use trustsc_core::{MduxResult, Validates, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, Validates, ValidationError, validate_non_empty};
 
 /// v1 supports `f32` tensors only (ADR-017 §5); the variant exists so a future quantized
 /// dtype can be added without breaking the schema shape.
@@ -29,7 +29,7 @@ impl InputSpec {
 }
 
 impl Validates for InputSpec {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.length == 0 {
             return Err(ValidationError::new("input_spec length must be positive"));
         }
@@ -49,7 +49,7 @@ pub struct OutputSpec {
 }
 
 impl Validates for OutputSpec {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.classes == 0 {
             return Err(ValidationError::new(
                 "output_spec classes must be positive",
@@ -76,7 +76,7 @@ pub struct Tensor {
 }
 
 impl Validates for Tensor {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("tensor id", &self.id)?;
         if self.shape.is_empty() {
             return Err(ValidationError::new(format!(
@@ -161,7 +161,7 @@ pub struct DeterminismEvidence {
 }
 
 impl Validates for DeterminismEvidence {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("package_sha256", &self.package_sha256)?;
         validate_non_empty("toolchain_id", &self.toolchain_id)?;
         validate_non_empty("build_recipe_sha256", &self.build_recipe_sha256)?;
@@ -221,7 +221,7 @@ impl ModelPackage {
     /// the value a `trustsc-ml-runtime` const-generic buffer capacity must be sized to hold.
     /// Returns an error under the same conditions `validate()` does, since the shape trace
     /// requires a structurally valid layer chain.
-    pub fn max_layer_units(&self) -> MduxResult<usize> {
+    pub fn max_layer_units(&self) -> TrustScResult<usize> {
         let shapes = self.trace_activation_shapes()?;
         let widest = shapes
             .iter()
@@ -232,7 +232,7 @@ impl ModelPackage {
             .map_err(|_| ValidationError::new("widest activation shape overflows usize"))
     }
 
-    fn trace_activation_shapes(&self) -> MduxResult<Vec<ActivationShape>> {
+    fn trace_activation_shapes(&self) -> TrustScResult<Vec<ActivationShape>> {
         let mut shape = ActivationShape::Sequence {
             channels: u32::from(self.input_spec.channels),
             length: u32::from(self.input_spec.length),
@@ -247,7 +247,7 @@ impl ModelPackage {
         Ok(shapes)
     }
 
-    fn step_shape(&self, shape: ActivationShape, layer: &Layer) -> MduxResult<ActivationShape> {
+    fn step_shape(&self, shape: ActivationShape, layer: &Layer) -> TrustScResult<ActivationShape> {
         match layer {
             Layer::Conv1D {
                 weights_id,
@@ -381,7 +381,7 @@ impl ModelPackage {
 }
 
 impl Validates for ModelPackage {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("model_id", &self.model_id)?;
         if !matches!(self.dtype, Dtype::F32) {
             return Err(ValidationError::new(
@@ -461,7 +461,7 @@ fn pool_output_length(length: u32, window: u32, stride: u32) -> Option<u32> {
     Some((length - window) / stride + 1)
 }
 
-fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) -> MduxResult<()> {
+fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) -> TrustScResult<()> {
     let mut seen = BTreeSet::new();
     for id in ids {
         if !seen.insert(id.to_string()) {

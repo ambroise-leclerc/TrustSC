@@ -4,7 +4,7 @@
 //! that `examples/hello_world` originally wrote inline.
 
 use crate::{
-    CompiledNodeKind, CompiledScreenPackage, GlyphDrawCommand, MduxResult, TextPackage,
+    CompiledNodeKind, CompiledScreenPackage, GlyphDrawCommand, TrustScResult, TextPackage,
     TextRuntime, ValidationError,
 };
 
@@ -40,7 +40,7 @@ impl ScreenTextLayout {
         screen: &'static CompiledScreenPackage,
         package: TextPackage,
         locale: &str,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let mut runs = Vec::new();
         let runtime = TextRuntime::<MAX_GLYPH_COMMANDS_PER_RUN>::new(&package)?;
 
@@ -106,7 +106,7 @@ impl ScreenTextLayout {
     }
 
     /// The approved string value for `text_key` in `locale`, independent of any screen node.
-    pub fn resolve_label(&self, text_key: &str, locale: &str) -> MduxResult<&str> {
+    pub fn resolve_label(&self, text_key: &str, locale: &str) -> TrustScResult<&str> {
         self.package
             .find_approved_string(text_key, locale)
             .map(|approved_string| approved_string.value.as_str())

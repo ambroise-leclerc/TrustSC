@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use fontdue::{Font, FontSettings, Metrics};
-use trustsc_core::{MduxResult, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, ValidationError, validate_non_empty};
 use trustsc_text_authoring::{
     RasterizedGlyph, TextCompilationInput, compile_text_package, fingerprint_font_file,
     pipeline_description,
@@ -159,14 +159,14 @@ pub struct CliInvocation<'a> {
     pub report_output_path: &'a Path,
 }
 
-pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
+pub fn bake(invocation: CliInvocation<'_>) -> TrustScResult<BakeSummary> {
     let artifacts = compile_recipe(invocation.recipe_path)?;
     write_bytes(invocation.package_output_path, &artifacts.package_bytes)?;
     write_bytes(invocation.report_output_path, &artifacts.report_bytes)?;
     Ok(artifacts.summary)
 }
 
-pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerificationSummary> {
+pub fn verify(invocation: CliInvocation<'_>) -> TrustScResult<VerificationSummary> {
     let artifacts = compile_recipe(invocation.recipe_path)?;
     let existing_package = fs::read(invocation.package_output_path).map_err(|error| {
         ValidationError::new(format!(
@@ -200,7 +200,7 @@ pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerificationSummary> 
     })
 }
 
-pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts> {
+pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifacts> {
     let loaded_recipe = load_recipe(recipe_path.as_ref())?;
     validate_recipe(&loaded_recipe.recipe)?;
     let font_context = load_font_context(&loaded_recipe)?;
@@ -292,7 +292,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts
     })
 }
 
-fn load_recipe(recipe_path: &Path) -> MduxResult<LoadedRecipe> {
+fn load_recipe(recipe_path: &Path) -> TrustScResult<LoadedRecipe> {
     let recipe_path = canonical_existing_path(recipe_path)?;
     let recipe_text = fs::read_to_string(&recipe_path).map_err(|error| {
         ValidationError::new(format!(
@@ -314,7 +314,7 @@ fn load_recipe(recipe_path: &Path) -> MduxResult<LoadedRecipe> {
     })
 }
 
-fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
+fn validate_recipe(recipe: &BakeRecipe) -> TrustScResult<()> {
     validate_non_empty("toolchain_id", &recipe.toolchain_id)?;
     validate_non_empty("unicode_version", &recipe.unicode_version)?;
     if recipe.atlas_width == 0 {
@@ -415,7 +415,7 @@ fn validate_recipe(recipe: &BakeRecipe) -> MduxResult<()> {
     Ok(())
 }
 
-fn load_font_context(loaded_recipe: &LoadedRecipe) -> MduxResult<FontContext> {
+fn load_font_context(loaded_recipe: &LoadedRecipe) -> TrustScResult<FontContext> {
     let manifest_path = canonical_existing_path(&resolve_path(
         loaded_recipe
             .recipe_path
@@ -508,7 +508,7 @@ fn load_font_context(loaded_recipe: &LoadedRecipe) -> MduxResult<FontContext> {
     })
 }
 
-fn validate_locales(recipe: &BakeRecipe, font_context: &FontContext) -> MduxResult<()> {
+fn validate_locales(recipe: &BakeRecipe, font_context: &FontContext) -> TrustScResult<()> {
     let font_locales: BTreeSet<_> = recipe.font.locales.iter().map(String::as_str).collect();
     for approved_string in &recipe.approved_strings {
         if !font_locales.contains(approved_string.locale.as_str()) {
@@ -598,7 +598,7 @@ fn build_rasterized_glyphs(
     recipe: &BakeRecipe,
     font_context: &FontContext,
     glyph_index_by_character: &BTreeMap<char, u16>,
-) -> MduxResult<Vec<RasterizedGlyph>> {
+) -> TrustScResult<Vec<RasterizedGlyph>> {
     let mut glyph_ids = BTreeSet::new();
     for approved_string in &recipe.approved_strings {
         for character in approved_string.value.chars() {
@@ -647,7 +647,7 @@ fn build_runs(
     recipe: &BakeRecipe,
     font: &Font,
     glyph_index_by_character: &BTreeMap<char, u16>,
-) -> MduxResult<Vec<CompiledTextRun>> {
+) -> TrustScResult<Vec<CompiledTextRun>> {
     let mut runs = Vec::with_capacity(recipe.approved_strings.len());
     for approved_string in &recipe.approved_strings {
         let mut shapes = Vec::with_capacity(approved_string.value.chars().count());
@@ -706,7 +706,7 @@ fn build_numeric_glyph_sets(
     recipe: &BakeRecipe,
     font: &Font,
     glyph_index_by_character: &BTreeMap<char, u16>,
-) -> MduxResult<Vec<NumericGlyphSet>> {
+) -> TrustScResult<Vec<NumericGlyphSet>> {
     let mut glyph_sets = Vec::with_capacity(recipe.numeric_glyph_sets.len());
     for glyph_set in &recipe.numeric_glyph_sets {
         let mut entries = Vec::with_capacity(glyph_set.characters.chars().count());
@@ -750,7 +750,7 @@ fn build_numeric_templates(recipe: &BakeRecipe) -> Vec<NumericTemplate> {
 fn glyph_id_for_character(
     glyph_index_by_character: &BTreeMap<char, u16>,
     character: char,
-) -> MduxResult<u16> {
+) -> TrustScResult<u16> {
     glyph_index_by_character
         .get(&character)
         .copied()
@@ -771,7 +771,7 @@ fn resolve_path(base: &Path, value: &str) -> PathBuf {
     }
 }
 
-fn canonical_existing_path(path: &Path) -> MduxResult<PathBuf> {
+fn canonical_existing_path(path: &Path) -> TrustScResult<PathBuf> {
     fs::canonicalize(path).map_err(|error| {
         ValidationError::new(format!(
             "failed to canonicalize path {}: {error}",
@@ -826,7 +826,7 @@ fn run_id_for(approved_string: &ApprovedStringRecipe) -> String {
         .unwrap_or_else(|| format!("RUN-{}", approved_string.id))
 }
 
-fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
+fn write_bytes(path: &Path, bytes: &[u8]) -> TrustScResult<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|error| {
@@ -842,7 +842,7 @@ fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
     })
 }
 
-fn to_pretty_json<T: Serialize>(value: &T) -> MduxResult<Vec<u8>> {
+fn to_pretty_json<T: Serialize>(value: &T) -> TrustScResult<Vec<u8>> {
     let mut bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| ValidationError::new(format!("failed to serialize JSON: {error}")))?;
     bytes.push(b'\n');
@@ -874,15 +874,15 @@ fn default_atlas_padding() -> u16 {
     1
 }
 
-fn to_u16(value: usize, label: &str) -> MduxResult<u16> {
+fn to_u16(value: usize, label: &str) -> TrustScResult<u16> {
     u16::try_from(value).map_err(|_| ValidationError::new(format!("{label} exceeds u16 range")))
 }
 
-fn to_i16(value: i32, label: &str) -> MduxResult<i16> {
+fn to_i16(value: i32, label: &str) -> TrustScResult<i16> {
     i16::try_from(value).map_err(|_| ValidationError::new(format!("{label} exceeds i16 range")))
 }
 
-fn round_to_i32(value: f32, label: &str) -> MduxResult<i32> {
+fn round_to_i32(value: f32, label: &str) -> TrustScResult<i32> {
     let rounded = value.round();
     if !rounded.is_finite() || rounded < i32::MIN as f32 || rounded > i32::MAX as f32 {
         return Err(ValidationError::new(format!("{label} exceeds i32 range")));

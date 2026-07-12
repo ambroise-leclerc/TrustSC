@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use trustsc_core::{MduxResult, ValidationError};
+use trustsc_core::{TrustScResult, ValidationError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -89,7 +89,7 @@ pub struct VerifySummary {
     pub artifact_count: usize,
 }
 
-pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
+pub fn bake(invocation: CliInvocation<'_>) -> TrustScResult<BakeSummary> {
     let (manifest, manifest_dir) = load_manifest(invocation.manifest_path)?;
     let shader_dir = manifest_dir.join(&manifest.shader_dir);
 
@@ -142,7 +142,7 @@ pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
     })
 }
 
-pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerifySummary> {
+pub fn verify(invocation: CliInvocation<'_>) -> TrustScResult<VerifySummary> {
     let (manifest, manifest_dir) = load_manifest(invocation.manifest_path)?;
     let shader_dir = manifest_dir.join(&manifest.shader_dir);
 
@@ -246,7 +246,7 @@ pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerifySummary> {
     })
 }
 
-fn load_manifest(manifest_path: &Path) -> MduxResult<(Manifest, PathBuf)> {
+fn load_manifest(manifest_path: &Path) -> TrustScResult<(Manifest, PathBuf)> {
     let manifest_text = fs::read_to_string(manifest_path).map_err(|error| {
         ValidationError::new(format!(
             "failed to read manifest {}: {error}",
@@ -286,7 +286,7 @@ fn load_manifest(manifest_path: &Path) -> MduxResult<(Manifest, PathBuf)> {
 /// Rejects absolute paths and `..` components so `source`/`output` manifest entries can only
 /// name files inside the directory the caller already scoped them to (`shader_dir` for `source`,
 /// the output directory for `output`), never escape it via a crafted or typo'd manifest entry.
-fn ensure_relative_within_scope(value: &str, field: &str) -> MduxResult<()> {
+fn ensure_relative_within_scope(value: &str, field: &str) -> TrustScResult<()> {
     let path = Path::new(value);
     if path.is_absolute()
         || path
@@ -301,7 +301,7 @@ fn ensure_relative_within_scope(value: &str, field: &str) -> MduxResult<()> {
     Ok(())
 }
 
-fn compile_shader(shader_dir: &Path, shader: &ShaderEntry) -> MduxResult<Vec<u8>> {
+fn compile_shader(shader_dir: &Path, shader: &ShaderEntry) -> TrustScResult<Vec<u8>> {
     let source_path = shader_dir.join(&shader.source);
     let source_text = fs::read_to_string(&source_path).map_err(|error| {
         ValidationError::new(format!(
@@ -370,7 +370,7 @@ fn compile_shader(shader_dir: &Path, shader: &ShaderEntry) -> MduxResult<Vec<u8>
     Ok(artifact.as_binary_u8().to_vec())
 }
 
-fn write_report(report_path: &Path, report: &Report) -> MduxResult<()> {
+fn write_report(report_path: &Path, report: &Report) -> TrustScResult<()> {
     if let Some(parent) = report_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             ValidationError::new(format!(

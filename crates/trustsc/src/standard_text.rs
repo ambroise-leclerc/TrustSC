@@ -1,4 +1,4 @@
-use trustsc_core::{MduxResult, Validates};
+use trustsc_core::{TrustScResult, Validates};
 use trustsc_text_schema::{
     ApprovedString, AtlasGlyph, CompiledGlyph, CompiledTextRun, DeterminismEvidence, FontAsset,
     NumericGlyphEntry, NumericGlyphSet, NumericTemplate, TextDirection, TextPackage, TextureAtlas,
@@ -67,7 +67,7 @@ include!(concat!(
     "/default_display_160_text_package.rs"
 ));
 
-pub fn default_standard_text_package() -> MduxResult<TextPackage> {
+pub fn default_standard_text_package() -> TrustScResult<TextPackage> {
     let package = build_default_standard_text_package();
     package.validate()?;
     Ok(package)
@@ -75,7 +75,7 @@ pub fn default_standard_text_package() -> MduxResult<TextPackage> {
 
 /// The approved display-size package (48 px digits) for big-numeral realtime displays, baked
 /// from `tools/trustsc-font-baker/fixtures/roboto-display-48px.toml` (ADR-013 two-package strategy).
-pub fn default_display_text_package() -> MduxResult<TextPackage> {
+pub fn default_display_text_package() -> TrustScResult<TextPackage> {
     let package = build_default_display_text_package();
     package.validate()?;
     Ok(package)
@@ -83,7 +83,7 @@ pub fn default_display_text_package() -> MduxResult<TextPackage> {
 
 /// The approved 160 px (= 120 pt) display package, baked from
 /// `tools/trustsc-font-baker/fixtures/roboto-display-160px.toml` (ADR-014).
-pub fn default_display_160_text_package() -> MduxResult<TextPackage> {
+pub fn default_display_160_text_package() -> TrustScResult<TextPackage> {
     let package = build_default_display_160_text_package();
     package.validate()?;
     Ok(package)
@@ -91,7 +91,7 @@ pub fn default_display_160_text_package() -> MduxResult<TextPackage> {
 
 /// Every approved display package, in ascending pixel-height order. NumericDisplay templates
 /// are resolved across all of them with unique-match semantics (ADR-014).
-pub fn default_display_text_packages() -> MduxResult<Vec<TextPackage>> {
+pub fn default_display_text_packages() -> TrustScResult<Vec<TextPackage>> {
     Ok(vec![
         default_display_text_package()?,
         default_display_160_text_package()?,

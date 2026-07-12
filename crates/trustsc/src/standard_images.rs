@@ -2,7 +2,7 @@
 //! mirroring `standard_text.rs` for fonts. The build script bakes every committed
 //! `package.json` into `build_default_image_packages()`; this module validates on load.
 
-use trustsc_core::{MduxResult, Validates};
+use trustsc_core::{TrustScResult, Validates};
 use trustsc_image_schema::{ImageEvidence, ImagePackage};
 
 /// Image id of the Acme placeholder logo (referenced from `.medui` via `img("LOGO-ACME")`).
@@ -26,7 +26,7 @@ pub const ACME_LOGO: StandardImageDefinition = StandardImageDefinition {
 include!(concat!(env!("OUT_DIR"), "/default_image_packages.rs"));
 
 /// All approved image packages, validated. Screens without `Image` nodes never need this.
-pub fn default_image_packages() -> MduxResult<Vec<ImagePackage>> {
+pub fn default_image_packages() -> TrustScResult<Vec<ImagePackage>> {
     let packages = build_default_image_packages();
     for package in &packages {
         package.validate()?;
@@ -37,7 +37,7 @@ pub fn default_image_packages() -> MduxResult<Vec<ImagePackage>> {
 
 /// A duplicate id would make `img("...")` resolution ambiguous downstream (the compiler takes
 /// the first match) — reject it here instead of letting an approved set compile silently.
-fn reject_duplicate_ids(packages: &[ImagePackage]) -> MduxResult<()> {
+fn reject_duplicate_ids(packages: &[ImagePackage]) -> TrustScResult<()> {
     let mut seen_ids = std::collections::BTreeSet::new();
     for package in packages {
         if !seen_ids.insert(package.id.as_str()) {

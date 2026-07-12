@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use trustsc_core::{MduxResult, ValidationError};
+use trustsc_core::{TrustScResult, ValidationError};
 use trustsc_image_schema::ImagePackage;
 use trustsc_text_schema::{CompiledTextRun, NumericGlyphSet, TextPackage};
 use trustsc_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent, THEME_COLORS, resolve_color_token};
@@ -52,7 +52,7 @@ fn resolve_display_template<'a>(
     node_id: &str,
     template_id: &str,
     displays: &[&'a TextPackage],
-) -> MduxResult<&'a TextPackage> {
+) -> TrustScResult<&'a TextPackage> {
     let mut matches = displays
         .iter()
         .filter(|package| package.find_template(template_id).is_some());
@@ -270,7 +270,7 @@ pub fn compile_medui_file_to_rust_module(
     options: CompileOptions,
     text_packages: TextPackages<'_>,
     image_packages: ImagePackages<'_>,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     let input_path = input_path.as_ref();
     let output_path = output_path.as_ref();
     let source = fs::read_to_string(input_path).map_err(|error| {
@@ -305,13 +305,13 @@ pub fn compile_medui_source_to_rust(
     options: CompileOptions,
     text_packages: TextPackages<'_>,
     image_packages: ImagePackages<'_>,
-) -> MduxResult<String> {
+) -> TrustScResult<String> {
     let parsed = parse_screen(source)?;
     let compiled = compile_screen(parsed, options, text_packages, image_packages)?;
     Ok(emit_rust_module(&compiled, options.crate_path))
 }
 
-fn parse_screen(source: &str) -> MduxResult<ScreenDefinition> {
+fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
     let lines = source
         .lines()
         .enumerate()
@@ -422,7 +422,7 @@ fn parse_screen(source: &str) -> MduxResult<ScreenDefinition> {
 fn parse_row(
     lines: &[(usize, String)],
     start: usize,
-) -> MduxResult<(RowDefinition, usize)> {
+) -> TrustScResult<(RowDefinition, usize)> {
     let (row_line_number, _) = &lines[start];
     let row_line_number = *row_line_number;
     let mut cursor = start + 1;
@@ -537,7 +537,7 @@ fn parse_row(
     ))
 }
 
-fn parse_screen_header(line_number: usize, line: &str) -> MduxResult<String> {
+fn parse_screen_header(line_number: usize, line: &str) -> TrustScResult<String> {
     let header = line
         .strip_prefix("Screen ")
         .and_then(|rest| rest.strip_suffix('{'))
@@ -550,7 +550,7 @@ fn parse_screen_header(line_number: usize, line: &str) -> MduxResult<String> {
     parse_identifier(line_number, "screen id", header)
 }
 
-fn parse_layout(line_number: usize, line: &str) -> MduxResult<LayoutDefinition> {
+fn parse_layout(line_number: usize, line: &str) -> TrustScResult<LayoutDefinition> {
     let payload = line
         .strip_prefix("layout:")
         .map(str::trim)
@@ -580,7 +580,7 @@ fn parse_layout(line_number: usize, line: &str) -> MduxResult<LayoutDefinition> 
     })
 }
 
-fn parse_inline_px_property(line_number: usize, block: &str, key: &str) -> MduxResult<u16> {
+fn parse_inline_px_property(line_number: usize, block: &str, key: &str) -> TrustScResult<u16> {
     block
         .split(';')
         .map(str::trim)
@@ -598,7 +598,7 @@ fn parse_inline_px_property(line_number: usize, block: &str, key: &str) -> MduxR
         })
 }
 
-fn parse_safety_critical(line_number: usize, line: &str) -> MduxResult<SafetyCriticalDefinition> {
+fn parse_safety_critical(line_number: usize, line: &str) -> TrustScResult<SafetyCriticalDefinition> {
     let checks_block = line
         .split_once('[')
         .and_then(|(_, rest)| rest.split_once(']'))
@@ -618,7 +618,7 @@ fn parse_safety_critical(line_number: usize, line: &str) -> MduxResult<SafetyCri
                 "unsupported CV check `{other}` at line {line_number}"
             ))),
         })
-        .collect::<MduxResult<Vec<_>>>()?;
+        .collect::<TrustScResult<Vec<_>>>()?;
 
     if cv_checks.is_empty() {
         return Err(ValidationError::new(format!(
@@ -643,7 +643,7 @@ enum ComponentKind {
     TextInput,
 }
 
-fn parse_component_start(line_number: usize, line: &str) -> MduxResult<ComponentKind> {
+fn parse_component_start(line_number: usize, line: &str) -> TrustScResult<ComponentKind> {
     let kind = line
         .strip_suffix('{')
         .map(str::trim)
@@ -670,7 +670,7 @@ fn parse_component_properties(
     component_kind: ComponentKind,
     safety_critical: Option<SafetyCriticalDefinition>,
     properties: &[(usize, String)],
-) -> MduxResult<NodeDefinition> {
+) -> TrustScResult<NodeDefinition> {
     let mut id = None;
     let mut width = None;
     let mut height = None;
@@ -920,7 +920,7 @@ fn parse_component_properties(
     })
 }
 
-fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> MduxResult<String> {
+fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if value.is_empty() {
         return Err(ValidationError::new(format!(
@@ -938,7 +938,7 @@ fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> MduxResu
     Ok(value.to_string())
 }
 
-fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> MduxResult<String> {
+fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if value.is_empty() {
         return Err(ValidationError::new(format!(
@@ -948,7 +948,7 @@ fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> MduxResul
     Ok(value.to_string())
 }
 
-fn parse_quoted(line_number: usize, field_name: &str, raw: &str) -> MduxResult<String> {
+fn parse_quoted(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if !(value.starts_with('"') && value.ends_with('"')) {
         return Err(ValidationError::new(format!(
@@ -964,7 +964,7 @@ fn parse_quoted(line_number: usize, field_name: &str, raw: &str) -> MduxResult<S
     Ok(inner.to_string())
 }
 
-fn parse_text_key(line_number: usize, raw: &str) -> MduxResult<String> {
+fn parse_text_key(line_number: usize, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     let inner = value
         .strip_prefix("t(")
@@ -977,7 +977,7 @@ fn parse_text_key(line_number: usize, raw: &str) -> MduxResult<String> {
     parse_quoted(line_number, "translation key", inner)
 }
 
-fn parse_system_event(line_number: usize, raw: &str) -> MduxResult<SystemEvent> {
+fn parse_system_event(line_number: usize, raw: &str) -> TrustScResult<SystemEvent> {
     match raw.trim() {
         "SystemEvent.NoOp" => Ok(SystemEvent::NoOp),
         "SystemEvent.TriggerHalt" => Ok(SystemEvent::TriggerHalt),
@@ -987,7 +987,7 @@ fn parse_system_event(line_number: usize, raw: &str) -> MduxResult<SystemEvent> 
     }
 }
 
-fn parse_clock_format(line_number: usize, raw: &str) -> MduxResult<ClockFormat> {
+fn parse_clock_format(line_number: usize, raw: &str) -> TrustScResult<ClockFormat> {
     match raw.trim() {
         "TimeSeconds" => Ok(ClockFormat::TimeSeconds),
         "DateTimeSeconds" => Ok(ClockFormat::DateTimeSeconds),
@@ -998,7 +998,7 @@ fn parse_clock_format(line_number: usize, raw: &str) -> MduxResult<ClockFormat> 
 }
 
 /// Parses `max_length: <N>;` — a plain positive integer (a character count, not pixels).
-fn parse_max_length(line_number: usize, raw: &str) -> MduxResult<u16> {
+fn parse_max_length(line_number: usize, raw: &str) -> TrustScResult<u16> {
     let value = raw.trim().parse::<u16>().map_err(|_| {
         ValidationError::new(format!(
             "max_length must be a positive integer at line {line_number}"
@@ -1014,7 +1014,7 @@ fn parse_max_length(line_number: usize, raw: &str) -> MduxResult<u16> {
 
 /// Parses `charset: <Name>;` — a named approved charset resolving to a baked glyph set
 /// (ADR-015). The set of names is closed; growing it means baking a new approved glyph set.
-fn parse_charset(line_number: usize, raw: &str) -> MduxResult<String> {
+fn parse_charset(line_number: usize, raw: &str) -> TrustScResult<String> {
     match raw.trim() {
         "AsciiText" => Ok(ASCII_TEXT_GLYPH_SET_ID.to_string()),
         other => Err(ValidationError::new(format!(
@@ -1025,7 +1025,7 @@ fn parse_charset(line_number: usize, raw: &str) -> MduxResult<String> {
 
 /// Parses `[a, b, c]` into raw element strings. Splitting on `,` is safe for both list kinds:
 /// translation keys and color tokens never contain commas.
-fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> MduxResult<Vec<String>> {
+fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<Vec<String>> {
     let inner = raw
         .trim()
         .strip_prefix('[')
@@ -1049,14 +1049,14 @@ fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> MduxRe
     Ok(entries)
 }
 
-fn parse_text_key_list(line_number: usize, raw: &str) -> MduxResult<Vec<String>> {
+fn parse_text_key_list(line_number: usize, raw: &str) -> TrustScResult<Vec<String>> {
     parse_bracket_list(line_number, "states", raw)?
         .iter()
         .map(|entry| parse_text_key(line_number, entry))
         .collect()
 }
 
-fn parse_token_list(line_number: usize, raw: &str) -> MduxResult<Vec<String>> {
+fn parse_token_list(line_number: usize, raw: &str) -> TrustScResult<Vec<String>> {
     parse_bracket_list(line_number, "colors", raw)?
         .iter()
         .map(|entry| parse_non_empty(line_number, "color token", entry))
@@ -1064,7 +1064,7 @@ fn parse_token_list(line_number: usize, raw: &str) -> MduxResult<Vec<String>> {
 }
 
 /// Parses `img("IMAGE-ID")` — a reference to an approved image package (ADR-014).
-fn parse_image_key(line_number: usize, raw: &str) -> MduxResult<String> {
+fn parse_image_key(line_number: usize, raw: &str) -> TrustScResult<String> {
     let inner = raw
         .trim()
         .strip_prefix("img(")
@@ -1077,14 +1077,14 @@ fn parse_image_key(line_number: usize, raw: &str) -> MduxResult<String> {
     parse_quoted(line_number, "img", inner.trim())
 }
 
-fn parse_dimension(line_number: usize, field_name: &str, raw: &str) -> MduxResult<Dimension> {
+fn parse_dimension(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<Dimension> {
     match raw.trim() {
         "Fill" => Ok(Dimension::Fill),
         other => parse_px(line_number, field_name, other).map(|value| Dimension::Px(u32::from(value))),
     }
 }
 
-fn parse_px(line_number: usize, field_name: &str, raw: &str) -> MduxResult<u16> {
+fn parse_px(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<u16> {
     let px_value = parse_px_allowing_zero(line_number, field_name, raw)?;
     if px_value == 0 {
         return Err(ValidationError::new(format!(
@@ -1096,7 +1096,7 @@ fn parse_px(line_number: usize, field_name: &str, raw: &str) -> MduxResult<u16> 
 
 /// Like [`parse_px`] but accepts `0px` — legal for layout spacing/padding and `position`
 /// coordinates (ADR-014), never for component sizes.
-fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> MduxResult<u16> {
+fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<u16> {
     raw.trim()
         .strip_suffix("px")
         .ok_or_else(|| {
@@ -1113,7 +1113,7 @@ fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> Md
 }
 
 /// Parses `<X>px, <Y>px` — the absolute screen coordinates of a positioned component.
-fn parse_position(line_number: usize, raw: &str) -> MduxResult<(u32, u32)> {
+fn parse_position(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
     let (x_raw, y_raw) = raw.split_once(',').ok_or_else(|| {
         ValidationError::new(format!(
             "position must be `<X>px, <Y>px` at line {line_number}"
@@ -1125,7 +1125,7 @@ fn parse_position(line_number: usize, raw: &str) -> MduxResult<(u32, u32)> {
 }
 
 /// Parses `<W>px, <H>px` — the screen's declared surface pin.
-fn parse_surface(line_number: usize, raw: &str) -> MduxResult<(u32, u32)> {
+fn parse_surface(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
     let (w_raw, h_raw) = raw.split_once(',').ok_or_else(|| {
         ValidationError::new(format!(
             "surface must be `<W>px, <H>px` at line {line_number}"
@@ -1141,7 +1141,7 @@ fn compile_screen(
     options: CompileOptions,
     text_packages: TextPackages<'_>,
     image_packages: ImagePackages<'_>,
-) -> MduxResult<CompiledScreenSpec> {
+) -> TrustScResult<CompiledScreenSpec> {
     if options.surface_width == 0 || options.surface_height == 0 {
         return Err(ValidationError::new(
             "compile options surface dimensions must be greater than zero",
@@ -1364,7 +1364,7 @@ fn compile_screen(
 
 /// A positioned component's dimensions are guaranteed `Px` by the parser; this converts them
 /// defensively.
-fn fixed_dimension(node: &NodeDefinition, dimension: Dimension) -> MduxResult<u32> {
+fn fixed_dimension(node: &NodeDefinition, dimension: Dimension) -> TrustScResult<u32> {
     match dimension {
         Dimension::Px(value) => Ok(u32::from(value)),
         Dimension::Fill => Err(ValidationError::new(format!(
@@ -1392,7 +1392,7 @@ fn rects_strictly_overlap(a: RectSpec, b: RectSpec) -> bool {
 
 /// Every compiled node id must be unique — including the synthesized `{row_id}-background`
 /// Panel ids, so a user id colliding with one is a compile error rather than silent.
-fn validate_unique_node_ids(nodes: &[CompiledNodeSpec]) -> MduxResult<()> {
+fn validate_unique_node_ids(nodes: &[CompiledNodeSpec]) -> TrustScResult<()> {
     let mut seen = std::collections::BTreeSet::new();
     for node in nodes {
         if !seen.insert(node.id.as_str()) {
@@ -1410,7 +1410,7 @@ fn validate_unique_node_ids(nodes: &[CompiledNodeSpec]) -> MduxResult<()> {
 fn validate_no_overlap(
     nodes: &[CompiledNodeSpec],
     positioned_indices: &[usize],
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     for &positioned in positioned_indices {
         let a = &nodes[positioned];
         if matches!(a.kind, NodeKind::Panel { .. }) {
@@ -1445,7 +1445,7 @@ struct CompileContext<'a, 'p> {
 }
 
 impl CompileContext<'_, '_> {
-    fn compile_leaf(&mut self, node: NodeDefinition, bounds: RectSpec) -> MduxResult<()> {
+    fn compile_leaf(&mut self, node: NodeDefinition, bounds: RectSpec) -> TrustScResult<()> {
         if bounds.x < self.padding || bounds.y < self.padding {
             return Err(ValidationError::new(format!(
                 "component {} resolved outside the padded surface",
@@ -1559,7 +1559,7 @@ impl CompileContext<'_, '_> {
         row_id: &str,
         color_token: String,
         bounds: RectSpec,
-    ) -> MduxResult<()> {
+    ) -> TrustScResult<()> {
         let id = format!("{row_id}-background");
         validate_color_tokens(&id, &NodeKind::Panel { color_token: color_token.clone() })?;
         self.nodes.push(CompiledNodeSpec {
@@ -1572,8 +1572,8 @@ impl CompileContext<'_, '_> {
 }
 
 /// ADR-014: every color-bearing property must name a token from the governed theme table.
-fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> MduxResult<()> {
-    let check = |token: &str| -> MduxResult<()> {
+fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> TrustScResult<()> {
+    let check = |token: &str| -> TrustScResult<()> {
         if resolve_color_token(token).is_none() {
             let approved = THEME_COLORS
                 .iter()
@@ -1628,7 +1628,7 @@ fn validate_node_text_budget(
     node: &NodeDefinition,
     bounds: RectSpec,
     text_packages: TextPackages<'_>,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     match &node.kind {
         NodeKind::CriticalButton { label_text_key, .. } => {
             validate_static_text_budget(node, label_text_key, bounds, text_packages.standard)
@@ -1685,7 +1685,7 @@ fn validate_static_text_budget(
     text_key: &str,
     bounds: RectSpec,
     text_package: &TextPackage,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     let locales = text_package
         .approved_strings
         .iter()
@@ -1733,7 +1733,7 @@ fn validate_clock_budget(
     format: ClockFormat,
     bounds: RectSpec,
     text_package: &TextPackage,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     let glyph_set = text_package
         .find_numeric_glyph_set(CLOCK_GLYPH_SET_ID)
         .ok_or_else(|| {
@@ -1775,7 +1775,7 @@ fn validate_text_input_budget(
     glyph_set_id: &str,
     bounds: RectSpec,
     text_package: &TextPackage,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     let glyph_set = text_package
         .find_numeric_glyph_set(glyph_set_id)
         .ok_or_else(|| {
@@ -1825,7 +1825,7 @@ fn validate_numeric_display_budget(
     template_id: &str,
     bounds: RectSpec,
     display_package: &TextPackage,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     let template = display_package.find_template(template_id).ok_or_else(|| {
         ValidationError::new(format!(
             "NumericDisplay {} references unknown template {template_id} in the display package",
@@ -1888,7 +1888,7 @@ fn measure_glyph_run(
     glyph_set: &NumericGlyphSet,
     characters: &[char],
     text_package: &TextPackage,
-) -> MduxResult<(u32, u32)> {
+) -> TrustScResult<(u32, u32)> {
     let mut width: u32 = 0;
     let mut height: u32 = 0;
 
@@ -1921,7 +1921,7 @@ fn measure_glyph_run(
 fn measure_text_run_bounds(
     text_package: &TextPackage,
     run: &CompiledTextRun,
-) -> MduxResult<trustsc_text_schema::TextRunBounds> {
+) -> TrustScResult<trustsc_text_schema::TextRunBounds> {
     text_package.measure_run_bounds(run)
 }
 
@@ -1929,7 +1929,7 @@ fn resolve_axis_sizes(
     dimensions: impl Iterator<Item = Dimension>,
     total_fill_space: u32,
     spacing: usize,
-) -> MduxResult<Vec<u32>> {
+) -> TrustScResult<Vec<u32>> {
     let dimensions = dimensions.collect::<Vec<_>>();
     if total_fill_space == 0 {
         return Ok(dimensions
@@ -2645,7 +2645,7 @@ Screen PositionedMonitor {
 }
 "#;
 
-    fn compile_positioned(source: &str) -> MduxResult<String> {
+    fn compile_positioned(source: &str) -> TrustScResult<String> {
         let standard = monitor_text_package();
         let display = display_text_package();
         compile_medui_source_to_rust(
@@ -2862,7 +2862,7 @@ Screen PositionedMonitor {
         )
     }
 
-    fn compile_with_image(source: &str) -> MduxResult<String> {
+    fn compile_with_image(source: &str) -> TrustScResult<String> {
         let standard = monitor_text_package();
         let display = display_text_package();
         let images = [sample_image_package()];
@@ -2954,7 +2954,7 @@ Screen InteractivePanel {
 }
 "#;
 
-    fn compile_interactive(source: &str) -> MduxResult<String> {
+    fn compile_interactive(source: &str) -> TrustScResult<String> {
         compile_medui_source_to_rust(
             source,
             CompileOptions::new(800, 480),
