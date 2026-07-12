@@ -13,13 +13,19 @@ quickstart; the pages below go deeper.
   are designed to align with IEC 62304 Class B/C, how its evidence artifacts and governance types
   are meant to feed a manufacturer's technical file and notified-body audits, and — just as
   importantly — what it explicitly does *not* provide.
-- **[Architecture decision records](adr/README.md)** — all 19 accepted ADRs, indexed with a
+- **[Architecture decision records](adr/README.md)** — all 20 accepted ADRs, indexed with a
   one-line summary each.
 - **[MedUI DSL reference](dsl/overview.md)** — the `.medui` build-time UI description language:
   [language reference](dsl/language-reference.md), [component dictionary](dsl/component-dictionary.md),
   [safety-monitor contract](dsl/safety-monitor-contract.md), [build integration](dsl/build-integration.md).
 - **[SOUP register](governance/soup-register.toml)** — the structured, audit-ready register of
   every third-party dependency reachable from host tooling and presentation adapters.
+- **[AI agent onboarding](../AGENTS.md)** — the canonical, tool-neutral instruction file for AI
+  coding agents (trust zones, commands, the regulatory citation protocol), with task-scoped
+  skills under `.claude/skills/` and the MCP policy in
+  [ADR-020](adr/ADR-020-ai-interaction-standardization.md). Citation keys and `Justification`
+  blocks across `docs/` and `software_development_file/` are machine-checked in CI by
+  `tools/mdux-docs-lint`.
 
 ## Regulatory standards reference
 
