@@ -28,7 +28,7 @@ placeholder — if a row exists here, its module has real content.
 - **§5.2.2 Include risk control measures** — `Hazard.controlled_by` links a control back to a requirement. [→](02-development-planning-and-requirements.md#522-include-risk-control-measures-in-requirements)
 - **§5.2.3 Re-evaluation and update** — `AuditEvent`/`add_requirement` sequencing. [→](02-development-planning-and-requirements.md#523-requirements-re-evaluation-and-update)
 - **§5.2.4 Verify requirements** — every `Requirement` needs ≥1 `VerificationCase` (`ComplianceProgram::validate()`). [→](02-development-planning-and-requirements.md#524-verify-software-requirements)
-- **§5.2.5 Requirements approval** — `@safety_critical` MedUI nodes must bind a resolvable requirement (ADR-011). [→](02-development-planning-and-requirements.md#525-requirements-approval)
+- **§5.2.5 Requirements approval** — ADR-011 intends `@safety_critical` MedUI nodes to bind a requirement, but the compiler doesn't enforce it yet. [→](02-development-planning-and-requirements.md#525-requirements-approval)
 
 ## §5.3-§5.4 — Design ([detail](03-development-design.md))
 

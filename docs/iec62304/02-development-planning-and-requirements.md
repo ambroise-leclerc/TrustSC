@@ -79,10 +79,13 @@ side of this pairing.
 ### §5.2.5 Requirements approval
 
 MduX-rust does not prescribe a specific approval workflow (that's the manufacturer's QMS role per
-§4.1), but its own `.medui` DSL enforces one machine-checkable approval gate at build time: a
-`@safety_critical` UI component must bind an explicit `requirement` identifier that resolves against
-the compliance program (ADR-011), so an unapproved or unlinked safety-critical UI element fails the
-build rather than shipping silently unreviewed.
+§4.1). Its `.medui` DSL has a `@safety_critical` annotation and a per-node `requirement` identifier
+that ADR-011 intends to be bound together, so an approved requirement stays traceable to the UI
+element it governs — but as of this writing the `.medui` compiler
+(`crates/mdux-ui-dsl-authoring`) does not enforce that pairing at build time: the two are independent
+attributes, and a `@safety_critical` node with no `requirement` currently compiles without error.
+This is a gap between ADR-011's stated intent and the current implementation, not a build-time
+guarantee to rely on today.
 
 ---
 
