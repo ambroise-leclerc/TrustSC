@@ -39,7 +39,7 @@ TrustSC cross-references.*
 - **Security risk assessment and acceptance** — impact framing (confidentiality/integrity/
   availability) and a residual-risk acceptance decision, mirrored in the schema below. [→](02-security-risk-management.md#5-approx-security-risk-assessment-and-acceptance)
 - **Architecture as an existing control** — trust-zone boundary, SOUP register, byte-verified
-  evidence as controls a manufacturer's security risk record can cite directly. [→](02-security-risk-management.md#5-approx-where-trustsc-rusts-architecture-already-functions-as-a-control)
+  evidence as controls a manufacturer's security risk record can cite directly. [→](02-security-risk-management.md#5-approx-where-trustscs-architecture-already-functions-as-a-control)
 
 ## §6 (approx.) — Secure design and secure implementation ([detail](03-secure-design-and-implementation.md))
 

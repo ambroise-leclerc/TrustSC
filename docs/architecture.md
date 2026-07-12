@@ -34,7 +34,7 @@ whether the dependency is even permissible without a new ADR.
 
 | Crate | Zone | Role |
 |---|---|---|
-| `trustsc-core` | governed | Device metadata (`DeviceContext`), `SafetyClass` (B/C), `DeterminismPolicy`, `ValidationError`/`MduxResult`. |
+| `trustsc-core` | governed | Device metadata (`DeviceContext`), `SafetyClass` (B/C), `DeterminismPolicy`, `ValidationError`/`TrustScResult`. |
 | `trustsc-governance` | governed | `Requirement`/`Hazard`/`VerificationCase`/`ProblemReport`, `AuditEvent` trail, `ComplianceProgram` tying requirements to verifications and exporting a trace matrix. |
 | `trustsc-ui` | governed | Vulkan/Vulkan SC UI policy: `UiSdkConfig`, `GraphicsProfile`, `MedicalUiRuntime`, deterministic `FrameStatistics`, `CompiledScreenPackage`/`CompiledNode` types. |
 | `trustsc-ui-verify` | governed | Offscreen rendering / rendered-truth verification engine behind `--verify-ui` ([ADR-016](adr/ADR-016-automated-ui-verification-and-manual-generation.md)). |

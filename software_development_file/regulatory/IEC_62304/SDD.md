@@ -21,7 +21,7 @@ architectural interfaces described in [`SAD.md`](SAD.md).
 
 ### Unit: `trustsc-core`
 - **Responsibility:** device metadata (`DeviceContext`), `SafetyClass` (B/C only — no Class A),
-  `DeterminismPolicy`, `ValidationError`/`MduxResult`. Everything else in the workspace builds on it.
+  `DeterminismPolicy`, `ValidationError`/`TrustScResult`. Everything else in the workspace builds on it.
 
 ### Unit: `trustsc-governance`
 - **Responsibility:** `Requirement`/`Hazard`/`VerificationCase`/`ProblemReport`, the `AuditEvent`
