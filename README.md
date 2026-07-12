@@ -444,3 +444,19 @@ cargo run --locked -q -p class_c_monitor -- --headless-smoke
 - Full Unicode, shaping, and bidi are handled offline for approved/localized strings.
 - The runtime path only consumes immutable compiled text packages and bounded numeric templates.
 - Font fallback, shaping, and atlas generation stay in the host-side authoring boundary so the rendering path remains deterministic and allocation-free.
+
+## Workspace layout
+
+| Crate | Description |
+|-------|-------------|
+| mdux | Thin facade for building complete framework instances, plus `screen_text`, `include_medui_screen!`, and `include_model!` |
+| mdux-core | Device metadata, safety classes, deterministic runtime policy |
+| mdux-build | Build-script helper wrapping the `.medui` compiler (`MeduiScreen`) and the ML model compiler (`ModelPackage`) |
+| mdux-governance | Requirements, hazards, verifications, audit trail, trace matrix export |
+| mdux-image-schema | Immutable compiled image-package schema (governed logo assets) |
+| mdux-text-authoring | Host-side font intake, deterministic atlas compilation, and asset tooling |
+| mdux-text-runtime | No-allocation runtime text command generation from approved packages |
+| mdux-text-schema | Shared manifests and immutable compiled text-package schema |
+| mdux-ui | Vulkan / Vulkan SC UI policy and deterministic frame model |
+| mdux-ui-dsl-authoring | Host-side `.medui` compiler for generated static screen packages |
+| mdux-ui-verify | Verification tools for the UI components |
