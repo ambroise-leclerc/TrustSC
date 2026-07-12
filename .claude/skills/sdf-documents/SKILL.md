@@ -22,15 +22,15 @@ Each section that addresses a clause carries a blockquote citation header (the e
 key), prose, and — where a design decision needs a formal link — a fenced `Justification` JSON
 block. Follow the worked examples in `software_development_file/regulatory/IEC_62304/SAD.md`:
 
-```markdown
+````markdown
 > `IEC 62304:2006 §5.3.3 Identify segregation necessary for risk control`
 
 Prose explaining how MduX-rust addresses this clause, citing concrete mechanisms...
 
-​```json
+```json
 { "justification_id": "JUS-00N", "standard": "IEC 62304", "clause_ref": "...", "rationale": "...", "evidence_refs": ["..."] }
-​```
 ```
+````
 
 For the citation-key grammar, `Justification` field rules, and JUS-id allocation, use the
 `regulatory-citations` skill / `docs/governance/citation-convention.md`. The linter
