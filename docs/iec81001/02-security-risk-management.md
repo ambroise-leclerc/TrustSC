@@ -80,7 +80,7 @@ re-justifying the same property from scratch:
 
 - The governed/adapter/tools trust-zone split (ADR-005) confines every third-party dependency and all
   `unsafe` code to a small, named set of crates — reducing the software's attack surface to what is
-  reachable from those crates, and making "which code could an attacker's input actually reach" a
+  reachable from those crates, and making "which code could an attacker's input actually reach" an
   answerable question rather than a whole-dependency-graph audit. See module 03 for this as a secure
   design control in its own right.
 - The SOUP register (`docs/governance/soup-register.toml`) is a dependency-provenance record — for

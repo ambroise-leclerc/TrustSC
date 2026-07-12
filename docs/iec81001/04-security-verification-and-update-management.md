@@ -29,7 +29,7 @@ analysis, and dependency/SOUP vulnerability scanning. IEC 81001-5-1's integratio
 treats these as additional test cases inside the same verification program IEC 62304 §5.5-§5.7
 already requires, not a separate security test suite with its own release gate.
 
-`mdux-governance::VerificationCase` (see
+`mdux_governance::VerificationCase` (see
 [`../iec62304/02-development-planning-and-requirements.md §5.2.4`](../iec62304/02-development-planning-and-requirements.md#524-verify-software-requirements))
 has no dedicated "security" category today, but nothing prevents a manufacturer from recording a
 security-motivated verification case through the same type — a `VerificationCase` whose

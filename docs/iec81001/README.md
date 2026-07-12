@@ -49,7 +49,7 @@ for how the two standards' processes map onto each other.
   `IEC 81001-5-1:2021` already flags this standard's citations as provisional.
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
-- [`../../software_development_file/regulatory/IEC_81001/`](../../software_development_file/regulatory/IEC_81001/) —
+- `software_development_file/regulatory/IEC_81001/` (added in a later PR in this stack) —
   MduX-rust's own filled-in cybersecurity SAD document, which cites into this corpus.
 
 ## For AI agents

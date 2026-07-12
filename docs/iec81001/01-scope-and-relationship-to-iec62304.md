@@ -100,7 +100,7 @@ IEC 62443-4-1 is an industrial/general-purpose secure-product-development-life-c
 IEC 81001-5-1 is best understood as adapting its requirements to the health-software domain and
 integrating them with IEC 62304 as described above, rather than introducing a wholly new set of
 activities from scratch. This corpus does not maintain a separate module for IEC 62443-4-1 itself —
-where a control in modules 02-04 below traces conceptually back to a IEC 62443-4-1-style
+where a control in modules 02-04 below traces conceptually back to an IEC 62443-4-1-style
 secure-development practice (e.g. a documented secure coding standard, or a threat-modeling step
 before design sign-off), that lineage is noted in prose rather than given its own citation key, since
 this corpus's stated scope (see `../governance/citation-convention.md`) is the five standards listed

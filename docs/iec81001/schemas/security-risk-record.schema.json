@@ -3,7 +3,7 @@
   "$id": "https://mdux.dev/schemas/iec81001/security-risk-record.schema.json",
   "title": "IEC 81001-5-1 Security Risk Record",
   "description": "Records a security risk identified for a health software product built on MduX-rust — a threat/vulnerability pair and its assessed impact, controls, and residual-risk acceptance decision. Distinct from docs/iec62304/schemas/hazard.schema.json's safety Hazard: security risk and safety risk are related but not interchangeable concepts, see docs/iec81001/02-security-risk-management.md. Relevant to IEC 81001-5-1:2021's security risk management activity group (approx. §5) — clause numbering is a best-effort placeholder, see docs/iec81001/README.md. Not currently field-aligned with any crates/mdux-governance/src/lib.rs type; mdux-governance has no dedicated security-risk type today.",
-  "version": "1.0.0",
+  "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": [
     "security_risk_id",
@@ -51,9 +51,9 @@
       "type": "boolean",
       "description": "Whether the risk remaining after the listed security_controls are applied is judged acceptable. A blunt boolean by design — see docs/iec81001/02-security-risk-management.md for why a real security risk file would carry a fuller rationale, likelihood/severity scoring, and review/approval trail alongside this field rather than relying on it alone."
     },
-    "assessment_date": { "$ref": "#/definitions/iso_date" }
+    "assessment_date": { "$ref": "#/$defs/iso_date" }
   },
-  "definitions": {
+  "$defs": {
     "iso_date": {
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$",

@@ -33,7 +33,7 @@ restating them abstractly.
 ### Attack surface minimization via the trust-zone boundary
 
 ADR-005's governed/adapter/tools split (see
-[`../../docs/architecture.md`](../architecture.md) and
+[`../architecture.md`](../architecture.md) and
 [`ADR-005`](../adr/ADR-005-pure-rust-project-boundary-and-dependency-policy.md)) is, read as a
 security control, an attack-surface-minimization design: the governed crates (`mdux-core`,
 `mdux-governance`, `mdux-ui`, `mdux`, `mdux-text-schema`, `mdux-text-authoring`, `mdux-text-runtime`,
