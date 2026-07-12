@@ -36,7 +36,7 @@ Nothing in this corpus or in MduX-rust implies Class A support.
   and the `Justification` object shared by all five standards in this corpus.
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
-- [`../../software_development_file/regulatory/IEC_62304/`](../../software_development_file/regulatory/IEC_62304/) —
+- `software_development_file/regulatory/IEC_62304/` (added in a later PR in this stack) —
   MduX-rust's own filled-in SAD/SDD/SOUP documents, which cite into this corpus.
 
 ## For AI agents
