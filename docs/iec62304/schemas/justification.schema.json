@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdux.dev/schemas/governance/justification.schema.json",
+  "title": "MduX-rust Regulatory Justification",
+  "description": "Ties a specific MduX-rust design decision to a specific regulatory-standard clause, with a human-readable rationale and pointers to substantiating evidence. Shared across all five standards documented under docs/ — see docs/governance/citation-convention.md.",
+  "$comment": "Schema version 1.0.0.",
+  "type": "object",
+  "required": ["justification_id", "standard", "clause_ref", "rationale"],
+  "properties": {
+    "justification_id": {
+      "type": "string",
+      "pattern": "^JUS-[0-9]{3,6}$",
+      "description": "Sequential, unique across the whole corpus (not per-standard). 3-6 digits so the corpus can grow past 999 entries without a breaking schema change."
+    },
+    "standard": {
+      "type": "string",
+      "enum": ["IEC 62304", "ISO 13485", "ISO 14971", "IEC 62366-1", "IEC 81001-5-1"]
+    },
+    "clause_ref": {
+      "type": "string",
+      "pattern": "§",
+      "description": "Citation key in the docs/governance/citation-convention.md format, e.g. 'IEC 62304:2006 §5.2 Software development planning'. Must contain a '§' marker; the schema does not otherwise validate the full format."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Why/how MduX-rust's design addresses or informs this clause. Original prose, not a restatement of the clause."
+    },
+    "requirement_id": {
+      "type": "string",
+      "description": "Optional cross-reference to a mdux-governance::RequirementId when this justification backs a specific tracked requirement."
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File paths, ADR filenames, or example directory names substantiating the rationale."
+    }
+  },
+  "additionalProperties": false
+}

@@ -24,6 +24,7 @@ adapter/tools boundary, or alter a compile-time-only contract.
 | [ADR-016](ADR-016-automated-ui-verification-and-manual-generation.md) | Automated UI verification and manual generation | Offscreen rendering, rendered-truth checks, and evidence reports (`--verify-ui`). |
 | [ADR-017](ADR-017-zero-soup-ml-inference-pipeline.md) | Zero-SOUP machine-learning inference pipeline | Weights as baked, byte-verified data; a from-scratch, fail-closed deterministic inference engine. |
 | [ADR-018](ADR-018-signal-trace-node.md) | SignalTrace node and 2D line-strip pipeline | A bounded scrolling-waveform primitive for raw physiological signals. |
+| [ADR-019](ADR-019-regulatory-standards-reference-corpus.md) | Regulatory standards reference corpus and software development file scaffold | The `docs/<standard>/` LLM-citable corpus (IEC 62304, ISO 13485, ISO 14971, IEC 62366-1, IEC 81001-5-1) and the `software_development_file/templates`/`regulatory` tree. |
 
 See also [`docs/governance/soup-register.toml`](../governance/soup-register.toml) for the
 third-party dependency register these ADRs reference, and
