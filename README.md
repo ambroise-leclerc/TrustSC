@@ -64,7 +64,7 @@ Les deux chantiers autrefois listés ici comme feuille de route sont désormais 
 
 - **Des références normatives exploitables par les LLM des équipes de développement** —
   `docs/iec62304/`, `docs/iso13485/`, `docs/iso14971/`, `docs/iec62366/` et `docs/iec81001/`
-  découpent chaque norme en modules par processus du cycle de vie, avec un index compact
+  découpent chaque norme en modules par plage de clauses, avec un index compact
   `AI-Reference.md` et des schémas JSON par norme. Contrairement au projet C++ historique du
   framework (`MduX`), dont les documents « AI Reference » paraphrasaient le texte normatif d'assez
   près pour poser un vrai problème de droit d'auteur, ce corpus ne contient que de la prose

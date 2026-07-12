@@ -122,10 +122,12 @@ manufacturer's own user documentation should reflect — for example, that a dev
 files and compiled text/ML packages are build-time, trusted inputs (see
 [`../adr/ADR-008-deterministic-medui-dsl-boundary.md`](../adr/ADR-008-deterministic-medui-dsl-boundary.md))
 and should be treated as part of the manufacturer's controlled configuration, not as something an
-operator should be able to substitute at runtime. `software_development_file/regulatory/IEC_81001/`
-(see `../regulatory-compliance.md`'s roadmap section) is the intended future home for a manufacturer-
-facing cybersecurity SAD document that would carry this guidance in a form ready for a technical file,
-rather than this corpus's own developer-facing prose.
+operator should be able to substitute at runtime.
+[`software_development_file/regulatory/IEC_81001/Cybersecurity_SAD.md`](../../software_development_file/regulatory/IEC_81001/Cybersecurity_SAD.md)
+is MduX-rust's own filled-in cybersecurity SAD document, carrying this guidance in a form closer to a
+technical file than this corpus's own developer-facing prose; see
+[`software_development_file/templates/IEC_81001/Cybersecurity_SAD.md`](../../software_development_file/templates/IEC_81001/Cybersecurity_SAD.md)
+for the blank template a manufacturer starts from.
 
 ---
 

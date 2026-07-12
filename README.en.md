@@ -114,7 +114,7 @@ platform setup: **[Getting started](docs/getting-started.md#vulkan-prerequisites
 
 - **[Documentation home](docs/README.md)**
 - **[Regulatory compliance](docs/regulatory-compliance.md)** — IEC 62304, notified bodies, the
-  evidence pattern, the regulatory roadmap, and honest scope boundaries.
+  evidence pattern, the regulatory standards corpus and SDF tree, and honest scope boundaries.
 - **[Architecture](docs/architecture.md)** — trust zones, crate map, CI, asset governance.
 - **[Getting started](docs/getting-started.md)** — full example walkthroughs and command reference.
 - **[Architecture decision records](docs/adr/README.md)** — all 19 accepted ADRs.
