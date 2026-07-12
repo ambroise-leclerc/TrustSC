@@ -2,11 +2,12 @@
 
 🇬🇧 [English version](README.en.md)
 
-**Un framework 100 % Rust, orienté IEC 62304, pour construire un logiciel de dispositif médical
-industrialisable** — une UI Vulkan / Vulkan SC, une inférence IA embarquée sans SOUP, et une
-génération de preuves conçue pour alimenter le SMQ du fabricant et le dossier technique remis à
-l'organisme notifié. Ce n'est pas un dispositif médical certifié : c'est un template et un
-ensemble de briques gouvernées sur lesquelles le fabricant construit.
+**Un framework 100 % Rust pour produire des logiciels de dispositifs médicaux alignés sur les
+exigences des normes IEC 62304 (processus du cycle de vie logiciel), ISO 13485 (système de
+management de la qualité) et ISO 14971 (gestion des risques).** Il fournit des briques Classe B/C
+directement réutilisables — une IHM Vulkan (Classe B) et Vulkan SC (Classe C), une inférence IA
+embarquée sans SOUP — et, plus largement, une génération de preuves conçue pour alimenter le SMQ
+du fabricant et le dossier technique remis à l'organisme notifié.
 
 ## La difficulté du logiciel Classe B/C
 
@@ -18,7 +19,7 @@ auditeur ne peut pas reproduire facilement ; et des éléments d'IHM critiques d
 est difficile à garantir dès que la pile de rendu alloue de la mémoire ou met en forme du texte à
 l'exécution.
 
-## Notre réponse
+## Ce que fournit MduX-rust aujourd'hui
 
 MduX-rust découpe le workspace en trois zones de confiance — un cœur gouverné et sans `unsafe`
 (`crates/`), des adaptateurs qui isolent les liaisons Vulkan/fenêtrage natives (`adapters/`), et
@@ -55,6 +56,51 @@ Rien de tout cela ne remplace le SMQ propre du fabricant, son dossier de gestion
 sa relation avec son organisme notifié — voir **[Conformité réglementaire](docs/regulatory-compliance.md)**
 (en anglais) pour le traitement complet, avec une liste explicite de ce que ce projet fournit et
 ne fournit pas.
+
+## Feuille de route
+
+MduX-rust fournit aujourd'hui des briques d'exécution (IHM, IA, gouvernance) et des preuves
+générées automatiquement. Pour couvrir les besoins communs à la majorité des logiciels de
+dispositifs médicaux Classe B et Classe C, deux chantiers sont priorisés ensuite :
+
+- **Des références normatives exploitables par les LLM des équipes de développement.** Le projet
+  C++ historique du framework (`MduX`) a déjà défriché cette approche : une version markdown
+  d'IEC 62304 découpée en modules par processus du cycle de vie, un document « AI Reference » par
+  norme, et des schémas JSON d'automatisation (classification de sécurité, matrice de
+  traçabilité, gestion des risques...) pensés pour être consommés par un agent IA pendant le
+  développement. MduX-rust va porter et adapter ce corpus — IEC 62304, ISO 13485, ISO 14971, puis
+  IEC 62366-1 (aptitude à l'utilisation) et IEC 81001-5-1 (cybersécurité du cycle de vie
+  logiciel) — pour que l'assistant IA d'un développeur puisse citer le texte exact d'une clause et
+  générer du code ou de la documentation alignés sur l'exigence correspondante, sans remplacer le
+  jugement d'un expert réglementaire.
+- **Des templates de dossier de développement logiciel réglementaire.** Une arborescence
+  `software_development_file/regulatory/` fournira, norme par norme, un squelette de document que
+  le fabricant complète et adapte à son propre produit plutôt que de partir d'une page blanche :
+
+  ```text
+  software_development_file/
+  └── regulatory
+      ├── IEC_62304
+      │   ├── SAD.md      # Software Architecture Design
+      │   ├── SDD.md      # Software Design Description
+      │   └── SOUP.md     # Liste et justification des SOUP
+      ├── IEC_62366
+      │   └── Usability_Engineering_File.md
+      ├── IEC_81001
+      │   └── Cybersecurity_SAD.md
+      ├── ISO_13485
+      │   └── README.md
+      └── ISO_14971
+          └── Risk_Management_File.md
+  ```
+
+  À terme, l'export structuré de `ComplianceProgram` (matrice de traçabilité, piste d'audit)
+  devrait pouvoir alimenter directement ces documents plutôt que rester un artefact à recopier à
+  la main.
+
+Ces deux chantiers ne sont pas encore livrés dans MduX-rust — ils figurent ici pour que la feuille
+de route soit visible dès la page d'accueil du projet. Détails et suivi :
+**[Conformité réglementaire](docs/regulatory-compliance.md)** (en anglais).
 
 ## Démarrage rapide
 
@@ -104,7 +150,8 @@ y compris les évaluateurs techniques d'organismes notifiés :
 
 - **[Accueil de la documentation](docs/README.md)**
 - **[Conformité réglementaire](docs/regulatory-compliance.md)** — IEC 62304, organismes notifiés,
-  le mécanisme de preuve, et les limites de portée assumées honnêtement.
+  le mécanisme de preuve, la feuille de route réglementaire, et les limites de portée assumées
+  honnêtement.
 - **[Architecture](docs/architecture.md)** — zones de confiance, cartographie des crates, CI,
   gouvernance des assets.
 - **[Getting started](docs/getting-started.md)** — parcours complets des exemples et référence des

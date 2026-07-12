@@ -2,10 +2,12 @@
 
 🇫🇷 [Version française](README.md)
 
-**A pure-Rust, IEC 62304-oriented framework for building industrializable medical-device
-software** — a Vulkan / Vulkan SC UI, zero-SOUP on-device AI inference, and evidence generation
-designed to feed a manufacturer's own QMS and notified-body technical file. Not a certified
-medical device: a template and a set of governed building blocks a manufacturer builds on.
+**A pure-Rust framework for building medical-device software aligned with the requirements of
+IEC 62304 (software life-cycle processes), ISO 13485 (quality management system), and ISO 14971
+(risk management).** It provides directly reusable Class B/C building blocks — a Vulkan (Class B)
+and Vulkan SC (Class C) UI, zero-SOUP on-device AI inference — and, more broadly, evidence
+generation designed to feed a manufacturer's own QMS and the technical file submitted to a
+notified body.
 
 ## The Class B/C challenge
 
@@ -16,7 +18,7 @@ visible to an operator; evidence an auditor can't easily reproduce; and safety-c
 elements whose behavior is hard to guarantee once the rendering stack allocates or shapes text at
 runtime.
 
-## Our answer
+## What MduX-rust provides today
 
 MduX-rust splits the workspace into three trust zones — a small, `unsafe`-free governed core
 (`crates/`), edge adapters that isolate native Vulkan/windowing bindings (`adapters/`), and
@@ -49,6 +51,49 @@ accepted ADRs document the design rationale behind every boundary. None of this 
 manufacturer's own QMS, risk file, or notified-body engagement — see
 **[Regulatory compliance](docs/regulatory-compliance.md)** for the full treatment, including an
 explicit list of what this project does and does not provide.
+
+## Roadmap
+
+MduX-rust provides runtime building blocks (UI, AI, governance) and automatically generated
+evidence today. To cover the needs common to the majority of Class B/C medical-device software,
+two efforts are prioritized next:
+
+- **Standards references usable by developers' LLMs.** The framework's original C++ project
+  (`MduX`) already prototyped this approach: a markdown version of IEC 62304 broken into modules
+  by life-cycle process, an "AI Reference" document per standard, and JSON automation schemas
+  (safety classification, traceability matrix, risk management...) meant to be consumed by an AI
+  agent during development. MduX-rust will port and adapt this corpus — IEC 62304, ISO 13485,
+  ISO 14971, then IEC 62366-1 (usability engineering) and IEC 81001-5-1 (software life-cycle
+  cybersecurity) — so a developer's AI assistant can cite the exact text of a clause and generate
+  code or documentation aligned with the corresponding requirement, without replacing a
+  regulatory expert's judgment.
+- **Regulatory documentation templates.** A `software_development_file/regulatory/` tree will
+  provide, standard by standard, a document skeleton the manufacturer fills in and adapts to
+  their own product instead of starting from a blank page:
+
+  ```text
+  software_development_file/
+  └── regulatory
+      ├── IEC_62304
+      │   ├── SAD.md      # Software Architecture Design
+      │   ├── SDD.md      # Software Design Description
+      │   └── SOUP.md     # SOUP list and justification
+      ├── IEC_62366
+      │   └── Usability_Engineering_File.md
+      ├── IEC_81001
+      │   └── Cybersecurity_SAD.md
+      ├── ISO_13485
+      │   └── README.md
+      └── ISO_14971
+          └── Risk_Management_File.md
+  ```
+
+  Eventually, `ComplianceProgram`'s structured export (trace matrix, audit trail) should be able
+  to feed these documents directly instead of remaining an artifact copied in by hand.
+
+Neither of these is shipped in MduX-rust yet — they're listed here so the roadmap is visible from
+the project's front page. Details and tracking:
+**[Regulatory compliance](docs/regulatory-compliance.md)**.
 
 ## Quickstart
 
@@ -92,7 +137,7 @@ platform setup: **[Getting started](docs/getting-started.md#vulkan-prerequisites
 
 - **[Documentation home](docs/README.md)**
 - **[Regulatory compliance](docs/regulatory-compliance.md)** — IEC 62304, notified bodies, the
-  evidence pattern, and honest scope boundaries.
+  evidence pattern, the regulatory roadmap, and honest scope boundaries.
 - **[Architecture](docs/architecture.md)** — trust zones, crate map, CI, asset governance.
 - **[Getting started](docs/getting-started.md)** — full example walkthroughs and command reference.
 - **[Architecture decision records](docs/adr/README.md)** — all 18 accepted ADRs.

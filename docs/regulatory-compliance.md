@@ -132,6 +132,54 @@ manufacturer's QMS is responsible for. A manufacturer populates and operates the
 of their own process — MduX-rust supplies the data model and the export format, not the process
 itself.
 
+## Roadmap: standards references and regulatory document templates
+
+Two efforts are prioritized next, specifically to cover the needs common to the majority of
+Class B/C medical-device software rather than just the NeuroSense 500 demonstrator's own
+requirements. Neither is shipped yet.
+
+- **Standards references usable by developers' LLMs.** The framework's original C++ project
+  (`MduX`) already prototyped this: a markdown version of IEC 62304 broken into modules by
+  life-cycle process (`docs/iec62304/`), an "AI Reference" document per standard
+  (`MduX-IEC-62304-AI-Reference.md`, `MduX-ISO-13485-AI-Reference.md`), and JSON automation
+  schemas for safety classification, traceability, and risk management, explicitly designed to be
+  consumed by an AI agent during development rather than only by a human reading the standard
+  end to end. MduX-rust will port and adapt this corpus — starting from the existing IEC 62304,
+  ISO 13485, and ISO 14971 material, then adding IEC 62366-1 (usability engineering) and
+  IEC 81001-5-1 (software life-cycle cybersecurity), neither of which the C++ project covered yet
+  — so a developer's AI assistant can cite the exact clause text and generate code or
+  documentation aligned with the corresponding requirement. This does not replace a regulatory
+  expert's judgment; it gives the assistant a grounded, structured reference instead of relying on
+  its own (unverifiable) recollection of a standard's contents.
+- **Regulatory documentation templates.** A `software_development_file/regulatory/` tree will
+  provide, standard by standard, a document skeleton a manufacturer fills in and adapts to their
+  own product instead of starting from a blank page:
+
+  ```text
+  software_development_file/
+  └── regulatory
+      ├── IEC_62304
+      │   ├── SAD.md      # Software Architecture Design
+      │   ├── SDD.md      # Software Design Description
+      │   └── SOUP.md     # SOUP list and justification
+      ├── IEC_62366
+      │   └── Usability_Engineering_File.md
+      ├── IEC_81001
+      │   └── Cybersecurity_SAD.md
+      ├── ISO_13485
+      │   └── README.md
+      └── ISO_14971
+          └── Risk_Management_File.md
+  ```
+
+  Eventually, `ComplianceProgram`'s structured export (`trace_matrix_export`, `audit_export`)
+  should be able to feed these documents directly instead of remaining an artifact a manufacturer
+  copies in by hand — closing the loop between the governance types described above and the
+  paperwork a notified body actually reads.
+
+These templates would still need a manufacturer's own content, review, and sign-off before they
+constitute part of a real technical file — see the scope boundary below.
+
 ## What this project does and does not provide
 
 > **Does not provide:** an operating ISO 13485 quality management system; a completed ISO 14971
