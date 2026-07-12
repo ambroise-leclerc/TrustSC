@@ -32,7 +32,7 @@ specification, formative/summative testing with real users).
   and the `Justification` object shared by all five standards in this corpus.
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
-- [`../../software_development_file/regulatory/IEC_62366/`](../../software_development_file/regulatory/IEC_62366/) —
+- `software_development_file/regulatory/IEC_62366/` (added in a later PR in this stack) —
   MduX-rust's own filled-in Usability Engineering File, which cites into this corpus.
 
 ## For AI agents
