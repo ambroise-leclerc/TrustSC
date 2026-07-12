@@ -11,7 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use trustsc_core::{MduxResult, Validates, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, Validates, ValidationError, validate_non_empty};
 use trustsc_image_schema::{ImageEvidence, ImagePackage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -89,14 +89,14 @@ pub struct BakeArtifacts {
     pub summary: BakeSummary,
 }
 
-pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
+pub fn bake(invocation: CliInvocation<'_>) -> TrustScResult<BakeSummary> {
     let artifacts = compile_recipe(invocation.recipe_path)?;
     write_bytes(invocation.package_output_path, &artifacts.package_bytes)?;
     write_bytes(invocation.report_output_path, &artifacts.report_bytes)?;
     Ok(artifacts.summary)
 }
 
-pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerificationSummary> {
+pub fn verify(invocation: CliInvocation<'_>) -> TrustScResult<VerificationSummary> {
     let artifacts = compile_recipe(invocation.recipe_path)?;
     let existing_package = fs::read(invocation.package_output_path).map_err(|error| {
         ValidationError::new(format!(
@@ -129,7 +129,7 @@ pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerificationSummary> 
     })
 }
 
-pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts> {
+pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifacts> {
     let recipe_path = canonical_existing_path(recipe_path.as_ref())?;
     let recipe_text = fs::read_to_string(&recipe_path).map_err(|error| {
         ValidationError::new(format!(
@@ -260,7 +260,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts
 
 /// Loads a baked `package.json` back into an [`ImagePackage`] (used by the facade embed and
 /// tests).
-pub fn parse_package_json(bytes: &[u8]) -> MduxResult<ImagePackage> {
+pub fn parse_package_json(bytes: &[u8]) -> TrustScResult<ImagePackage> {
     let document: ImagePackageDocument = serde_json::from_slice(bytes).map_err(|error| {
         ValidationError::new(format!("failed to parse image package JSON: {error}"))
     })?;
@@ -326,9 +326,9 @@ pub fn placeholder_logo_ppm() -> Vec<u8> {
 
 /// Minimal binary-PPM (P6) parser: `P6`, whitespace/comment-separated width/height/maxval,
 /// one whitespace byte, then `width * height * 3` RGB bytes.
-pub fn parse_ppm_p6(bytes: &[u8]) -> MduxResult<(u32, u32, Vec<u8>)> {
+pub fn parse_ppm_p6(bytes: &[u8]) -> TrustScResult<(u32, u32, Vec<u8>)> {
     let mut cursor = 0usize;
-    let mut next_token = |bytes: &[u8]| -> MduxResult<String> {
+    let mut next_token = |bytes: &[u8]| -> TrustScResult<String> {
         // Skip whitespace and `#` comments.
         loop {
             while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
@@ -424,7 +424,7 @@ impl ImagePackageDocument {
         }
     }
 
-    fn into_package(self) -> MduxResult<ImagePackage> {
+    fn into_package(self) -> TrustScResult<ImagePackage> {
         Ok(ImagePackage {
             id: self.id,
             width: self.width,
@@ -461,7 +461,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     encoded
 }
 
-fn hex_decode(text: &str) -> MduxResult<Vec<u8>> {
+fn hex_decode(text: &str) -> TrustScResult<Vec<u8>> {
     if text.len() % 2 != 0 {
         return Err(ValidationError::new("pixels_hex must have even length"));
     }
@@ -480,14 +480,14 @@ fn sha256_bytes(bytes: &[u8]) -> String {
     hex_encode(&hasher.finalize())
 }
 
-fn to_pretty_json<T: Serialize>(value: &T) -> MduxResult<Vec<u8>> {
+fn to_pretty_json<T: Serialize>(value: &T) -> TrustScResult<Vec<u8>> {
     let mut bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| ValidationError::new(format!("failed to serialize JSON: {error}")))?;
     bytes.push(b'\n');
     Ok(bytes)
 }
 
-fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
+fn write_bytes(path: &Path, bytes: &[u8]) -> TrustScResult<()> {
     // `path.parent()` returns `Some("")` (not `None`) for a bare filename like "package.json";
     // `create_dir_all("")` would then fail even though there's no directory to create.
     let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
@@ -504,7 +504,7 @@ fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
     })
 }
 
-fn canonical_existing_path(path: &Path) -> MduxResult<PathBuf> {
+fn canonical_existing_path(path: &Path) -> TrustScResult<PathBuf> {
     fs::canonicalize(path).map_err(|error| {
         ValidationError::new(format!(
             "failed to canonicalize path {}: {error}",
@@ -515,7 +515,7 @@ fn canonical_existing_path(path: &Path) -> MduxResult<PathBuf> {
 
 /// Walks up from the recipe to the workspace root (the directory whose Cargo.toml declares
 /// `[workspace]`).
-fn find_workspace_root(start: &Path) -> MduxResult<PathBuf> {
+fn find_workspace_root(start: &Path) -> TrustScResult<PathBuf> {
     let mut current = start.parent();
     while let Some(directory) = current {
         let manifest = directory.join("Cargo.toml");

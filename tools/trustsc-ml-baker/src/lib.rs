@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use trustsc_core::{MduxResult, ValidationError};
+use trustsc_core::{TrustScResult, ValidationError};
 use trustsc_ml_authoring::{
     ArchitectureManifest, ModelCompilationInput, compile_model_package, fingerprint_weights_file,
     import_safetensors, pipeline_description,
@@ -43,14 +43,14 @@ pub struct CliInvocation<'a> {
     pub report_output_path: &'a Path,
 }
 
-pub fn bake(invocation: CliInvocation<'_>) -> MduxResult<BakeSummary> {
+pub fn bake(invocation: CliInvocation<'_>) -> TrustScResult<BakeSummary> {
     let artifacts = compile_recipe(invocation.recipe_path)?;
     write_bytes(invocation.package_output_path, &artifacts.package_bytes)?;
     write_bytes(invocation.report_output_path, &artifacts.report_bytes)?;
     Ok(artifacts.summary)
 }
 
-pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerificationSummary> {
+pub fn verify(invocation: CliInvocation<'_>) -> TrustScResult<VerificationSummary> {
     let artifacts = compile_recipe(invocation.recipe_path)?;
     let existing_package = fs::read(invocation.package_output_path).map_err(|error| {
         ValidationError::new(format!(
@@ -88,7 +88,7 @@ pub fn verify(invocation: CliInvocation<'_>) -> MduxResult<VerificationSummary> 
 /// Phase-1 Hugging Face demonstrator entry point (ADR-017 §2): it validates the referenced
 /// tensors exist and are `F32`, but never writes committed evidence and never runs in CI —
 /// only `bake`/`verify` do that, against a recipe a human has reviewed and committed.
-pub fn import(safetensors_path: &Path, tensor_map_path: &Path) -> MduxResult<String> {
+pub fn import(safetensors_path: &Path, tensor_map_path: &Path) -> TrustScResult<String> {
     let bytes = fs::read(safetensors_path).map_err(|error| {
         ValidationError::new(format!(
             "failed to read safetensors file {}: {error}",
@@ -135,7 +135,7 @@ pub fn import(safetensors_path: &Path, tensor_map_path: &Path) -> MduxResult<Str
     Ok(fragment)
 }
 
-pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts> {
+pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifacts> {
     let recipe_path = recipe_path.as_ref();
     let recipe_text = fs::read_to_string(recipe_path).map_err(|error| {
         ValidationError::new(format!(
@@ -213,7 +213,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> MduxResult<BakeArtifacts
     })
 }
 
-fn resolve_weights(weights: &WeightsRecipe, recipe_dir: &Path) -> MduxResult<(Vec<Tensor>, String)> {
+fn resolve_weights(weights: &WeightsRecipe, recipe_dir: &Path) -> TrustScResult<(Vec<Tensor>, String)> {
     match weights {
         WeightsRecipe::Inline { tensors } => {
             let tensors: Vec<Tensor> = tensors
@@ -287,7 +287,7 @@ fn resolve_path(base: &Path, value: &str) -> PathBuf {
     }
 }
 
-fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
+fn write_bytes(path: &Path, bytes: &[u8]) -> TrustScResult<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|error| {
@@ -303,7 +303,7 @@ fn write_bytes(path: &Path, bytes: &[u8]) -> MduxResult<()> {
     })
 }
 
-fn to_pretty_json<T: Serialize>(value: &T) -> MduxResult<Vec<u8>> {
+fn to_pretty_json<T: Serialize>(value: &T) -> TrustScResult<Vec<u8>> {
     let mut bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| ValidationError::new(format!("failed to serialize JSON: {error}")))?;
     bytes.push(b'\n');

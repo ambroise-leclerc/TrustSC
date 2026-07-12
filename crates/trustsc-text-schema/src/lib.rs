@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use trustsc_core::{MduxResult, Validates, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, Validates, ValidationError, validate_non_empty};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextDirection {
@@ -21,7 +21,7 @@ pub struct FontAsset {
 }
 
 impl Validates for FontAsset {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("font family", &self.family)?;
         validate_non_empty("font source_path", &self.source_path)?;
         validate_non_empty("font sha256", &self.sha256)?;
@@ -54,7 +54,7 @@ pub struct ApprovedString {
 }
 
 impl Validates for ApprovedString {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("approved string id", &self.id)?;
         validate_non_empty("approved string locale", &self.locale)?;
         validate_non_empty("approved string value", &self.value)?;
@@ -70,7 +70,7 @@ pub struct TextureAtlas {
 }
 
 impl Validates for TextureAtlas {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.width == 0 || self.height == 0 {
             return Err(ValidationError::new(
                 "atlas dimensions must be strictly positive",
@@ -141,7 +141,7 @@ impl TextRunBounds {
 }
 
 impl Validates for CompiledTextRun {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("compiled text run id", &self.id)?;
         validate_non_empty("compiled text run source_string_id", &self.source_string_id)?;
         validate_non_empty("compiled text run locale", &self.locale)?;
@@ -170,7 +170,7 @@ pub struct NumericGlyphSet {
 }
 
 impl Validates for NumericGlyphSet {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("numeric glyph set id", &self.id)?;
         validate_non_empty("numeric glyph set locale", &self.locale)?;
         if self.entries.is_empty() {
@@ -208,7 +208,7 @@ pub struct NumericTemplate {
 }
 
 impl Validates for NumericTemplate {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("numeric template id", &self.id)?;
         validate_non_empty("numeric template locale", &self.locale)?;
         if let Some(prefix_run_id) = &self.prefix_run_id {
@@ -236,7 +236,7 @@ pub struct DeterminismEvidence {
 }
 
 impl Validates for DeterminismEvidence {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("package sha256", &self.package_sha256)?;
         validate_non_empty("toolchain_id", &self.toolchain_id)?;
         validate_non_empty("unicode_version", &self.unicode_version)?;
@@ -316,7 +316,7 @@ impl TextPackage {
             .collect()
     }
 
-    pub fn measure_run_bounds(&self, run: &CompiledTextRun) -> MduxResult<TextRunBounds> {
+    pub fn measure_run_bounds(&self, run: &CompiledTextRun) -> TrustScResult<TextRunBounds> {
         let mut bounds = TextRunBounds {
             min_x: 0,
             min_y: 0,
@@ -348,7 +348,7 @@ impl TextPackage {
 }
 
 impl Validates for TextPackage {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.fonts.is_empty() {
             return Err(ValidationError::new(
                 "text package must contain at least one font asset",
@@ -489,7 +489,7 @@ impl Validates for TextPackage {
     }
 }
 
-fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) -> MduxResult<()> {
+fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) -> TrustScResult<()> {
     let mut seen = BTreeSet::new();
     for id in ids {
         if !seen.insert(id.to_string()) {
@@ -502,7 +502,7 @@ fn ensure_unique_ids<'a>(ids: impl IntoIterator<Item = &'a str>, label: &str) ->
 fn ensure_unique_pairs<'a>(
     pairs: impl IntoIterator<Item = (&'a str, &'a str)>,
     label: &str,
-) -> MduxResult<()> {
+) -> TrustScResult<()> {
     let mut seen = BTreeSet::new();
     for (left, right) in pairs {
         let composite = format!("{left}\u{0}{right}");

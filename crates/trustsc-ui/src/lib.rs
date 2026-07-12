@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use trustsc_core::{DeterminismPolicy, MduxResult, Validates, ValidationError};
+use trustsc_core::{DeterminismPolicy, TrustScResult, Validates, ValidationError};
 use trustsc_governance::RequirementId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -121,7 +121,7 @@ impl StatusIndicatorSpec {
     /// `color_tokens` in lockstep: same non-zero length. The MedUI DSL compiler already
     /// guarantees this for generated screens, but the fields are public, so anything built by
     /// hand (or by a future authoring path) must be checked before use rather than trusted.
-    pub fn validate(&self) -> MduxResult<()> {
+    pub fn validate(&self) -> TrustScResult<()> {
         if self.state_text_keys.is_empty() {
             return Err(ValidationError::new(
                 "status indicator must declare at least one state",
@@ -169,7 +169,7 @@ impl ButtonSpec {
     /// Checks the non-emptiness invariants the MedUI compiler guarantees for generated screens.
     /// The fields are public, so anything built by hand must be checked before use rather than
     /// trusted.
-    pub fn validate(&self) -> MduxResult<()> {
+    pub fn validate(&self) -> TrustScResult<()> {
         if self.text_key.trim().is_empty() {
             return Err(ValidationError::new("button text_key must not be empty"));
         }
@@ -209,7 +209,7 @@ impl TextInputSpec {
     /// source/glyph-set/color tokens. The MedUI DSL compiler already guarantees this for
     /// generated screens, but the fields are public, so anything built by hand must be checked
     /// before use rather than trusted.
-    pub fn validate(&self) -> MduxResult<()> {
+    pub fn validate(&self) -> TrustScResult<()> {
         if self.max_length == 0 {
             return Err(ValidationError::new(
                 "text input max_length must be greater than zero",
@@ -366,7 +366,7 @@ impl UiComponent {
         id: impl Into<String>,
         label: impl Into<String>,
         requirement_ids: Vec<RequirementId>,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let component = Self {
             id: id.into(),
             label: label.into(),
@@ -379,7 +379,7 @@ impl UiComponent {
 }
 
 impl Validates for UiComponent {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.id.trim().is_empty() {
             return Err(ValidationError::new("ui component id must not be empty"));
         }
@@ -449,7 +449,7 @@ impl UiSdkConfig {
 }
 
 impl Validates for UiSdkConfig {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.width == 0 || self.height == 0 {
             return Err(ValidationError::new(
                 "ui dimensions must be greater than zero",
@@ -512,7 +512,7 @@ pub struct MedicalUiRuntime {
 }
 
 impl MedicalUiRuntime {
-    pub fn new(config: UiSdkConfig, components: Vec<UiComponent>) -> MduxResult<Self> {
+    pub fn new(config: UiSdkConfig, components: Vec<UiComponent>) -> TrustScResult<Self> {
         config.validate()?;
 
         if components.is_empty() {

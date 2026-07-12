@@ -5,7 +5,7 @@
 //! so applications never need to depend on `ash`/`winit`/`shaderc` themselves.
 //!
 //! ```no_run
-//! # fn build_framework() -> trustsc::MduxResult<trustsc::Framework> { unimplemented!() }
+//! # fn build_framework() -> trustsc::TrustScResult<trustsc::Framework> { unimplemented!() }
 //! # fn screen() -> &'static trustsc::CompiledScreenPackage { unimplemented!() }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let framework = build_framework()?;

@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Display};
 
-pub type MduxResult<T> = Result<T, ValidationError>;
+pub type TrustScResult<T> = Result<T, ValidationError>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationError {
@@ -26,10 +26,10 @@ impl Display for ValidationError {
 impl std::error::Error for ValidationError {}
 
 pub trait Validates {
-    fn validate(&self) -> MduxResult<()>;
+    fn validate(&self) -> TrustScResult<()>;
 }
 
-pub fn validate_non_empty(field: &str, value: &str) -> MduxResult<()> {
+pub fn validate_non_empty(field: &str, value: &str) -> TrustScResult<()> {
     if value.trim().is_empty() {
         return Err(ValidationError::new(format!("{field} must not be empty")));
     }
@@ -111,7 +111,7 @@ impl DeviceContext {
         software_item: impl Into<String>,
         version: impl Into<String>,
         safety_class: SafetyClass,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let context = Self {
             manufacturer: manufacturer.into(),
             product_name: product_name.into(),
@@ -133,7 +133,7 @@ impl DeviceContext {
 }
 
 impl Validates for DeviceContext {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("manufacturer", &self.manufacturer)?;
         validate_non_empty("product name", &self.product_name)?;
         validate_non_empty("software item", &self.software_item)?;

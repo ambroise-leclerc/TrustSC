@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use trustsc_core::{MduxResult, Validates, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, Validates, ValidationError, validate_non_empty};
 use trustsc_text_schema::{
     ApprovedString, AtlasGlyph, CompiledTextRun, DeterminismEvidence, FontAsset, NumericGlyphSet,
     NumericTemplate, TextPackage, TextureAtlas,
@@ -29,7 +29,7 @@ pub struct RasterizedGlyph {
 }
 
 impl Validates for RasterizedGlyph {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.pixels.len() != usize::from(self.width) * usize::from(self.height) {
             return Err(ValidationError::new(
                 "rasterized glyph pixels must match width * height",
@@ -55,7 +55,7 @@ pub struct TextCompilationInput {
 }
 
 impl Validates for TextCompilationInput {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         if self.fonts.is_empty() {
             return Err(ValidationError::new(
                 "text compilation input must contain at least one font",
@@ -120,7 +120,7 @@ impl DeterministicAtlasBuilder {
         }
     }
 
-    pub fn build(&self, glyphs: &[RasterizedGlyph]) -> MduxResult<(TextureAtlas, Vec<AtlasGlyph>)> {
+    pub fn build(&self, glyphs: &[RasterizedGlyph]) -> TrustScResult<(TextureAtlas, Vec<AtlasGlyph>)> {
         if glyphs.is_empty() {
             return Err(ValidationError::new(
                 "deterministic atlas builder requires at least one glyph",
@@ -199,7 +199,7 @@ impl DeterministicAtlasBuilder {
     }
 }
 
-pub fn fingerprint_font_file(path: impl AsRef<Path>) -> MduxResult<FontFingerprint> {
+pub fn fingerprint_font_file(path: impl AsRef<Path>) -> TrustScResult<FontFingerprint> {
     let path = path.as_ref();
     let contents = fs::read(path).map_err(|error| {
         ValidationError::new(format!(
@@ -215,7 +215,7 @@ pub fn fingerprint_font_file(path: impl AsRef<Path>) -> MduxResult<FontFingerpri
     })
 }
 
-pub fn compile_text_package(input: TextCompilationInput) -> MduxResult<TextPackage> {
+pub fn compile_text_package(input: TextCompilationInput) -> TrustScResult<TextPackage> {
     input.validate()?;
 
     let TextCompilationInput {
