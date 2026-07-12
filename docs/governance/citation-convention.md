@@ -5,6 +5,11 @@ This document defines how `docs/iec62304/`, `docs/iso13485/`, `docs/iso14971/`, 
 justification linking MduX-rust's design to a specific clause is structured. Every other file in the
 regulatory corpus follows this convention rather than restating it.
 
+This convention document is the first PR in a 9-PR stack that builds out the whole corpus (ADR-019);
+`docs/iec62304/` lands in the next PR, and `docs/iso13485/`, `docs/iso14971/`, `docs/iec62366/`,
+`docs/iec81001/`, and `software_development_file/` land in the PRs after that. Paths referenced below
+resolve once the full stack is merged.
+
 ## No standard text is ever quoted here
 
 IEC and ISO standards are commercial documents, not public domain — reproducing their normative text
@@ -90,9 +95,9 @@ Field notes:
   Not a formal schema of its own; free-form strings a human or LLM can follow.
 
 Justification objects are not collected into one giant registry file in this pass — they appear inline
-(as fenced `json` blocks) in the `software_development_file/regulatory/` documents where a specific
-design choice needs to cite its clause, and in `docs/<standard>/NN-*.md` modules where a clause's
-explanatory prose points at a concrete piece of MduX-rust as its example. A future change could lift
+(as fenced `json` blocks) in the `software_development_file/regulatory/` documents (added later in
+this PR stack) where a specific design choice needs to cite its clause, and in `docs/<standard>/NN-*.md`
+modules where a clause's explanatory prose points at a concrete piece of MduX-rust as its example. A future change could lift
 these into a single validated array if the corpus grows large enough to need one; see
 `docs/regulatory-compliance.md`.
 

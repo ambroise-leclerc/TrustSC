@@ -50,9 +50,11 @@ project's version needed to avoid:
   so a future `serde`-based JSON export from `ComplianceProgram` (not built in this change) can match
   these schemas without a redesign. `mdux_core::SafetyClass`'s Class-B/Class-C-only scope is carried
   into every schema that touches classification — no schema implies Class A support.
-- `docs/README.md`, `docs/regulatory-compliance.md`, root `README.md`, and this repo's own `CLAUDE.md`
-  are updated to point at the new corpus and at `software_development_file/`, closing the discovery gap
-  found in the C++ project's version.
+- `docs/README.md`, `docs/regulatory-compliance.md`, root `README.md`, and this repo's own (gitignored,
+  untracked) `CLAUDE.md` are each updated, across the PR stack that implements this ADR, to point at
+  the new corpus and at `software_development_file/`, closing the discovery gap found in the C++
+  project's version. The `docs/README.md`/`docs/regulatory-compliance.md`/`README.md` updates land in
+  the final PR of that stack, once the corpus and SDF tree they link to already exist.
 - `software_development_file/templates/` holds blank, standard-by-standard fill-in-the-blank documents
   any manufacturer can start from; `software_development_file/regulatory/` holds the same tree filled
   in for MduX-rust itself, citing real ADRs, crate types, and examples rather than placeholder text.
