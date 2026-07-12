@@ -45,10 +45,10 @@ management process.
 ISO 14971 sits alongside ISO 13485 (the quality management system the risk management process
 operates inside) and, for medical device software specifically, IEC 62304 (which folds a
 software-specific risk analysis into its own §7 rather than treating risk management as a
-freestanding activity for software). See `docs/iso13485/README.md` once populated, and
+freestanding activity for software). See [`docs/iso13485/README.md`](../iso13485/README.md) and
 [`docs/iec62304/06-risk-management-process.md`](../iec62304/06-risk-management-process.md) — the
-latter is already written and is the authoritative MduX-rust reference for how software-level hazard
-analysis connects to `mdux-governance`'s types; this corpus does not duplicate it.
+latter is the authoritative MduX-rust reference for how software-level hazard analysis connects to
+`mdux-governance`'s types; this corpus does not duplicate it.
 
 ## §3 Terms and definitions
 

@@ -3,7 +3,7 @@
   "$id": "https://mdux.dev/schemas/iso14971/risk-record.schema.json",
   "title": "ISO 14971 Risk Record",
   "description": "Records the risk presented by one hazardous situation — a hazard's realization in a specific circumstance — including its estimated severity/probability and the residual-risk acceptance decision after risk control. Complements crates/mdux-governance/src/lib.rs::Hazard (referenced via hazard_ref), which models the hazard's identity and controlling requirement(s) but not the hazardous-situation, severity/probability, or residual-risk detail ISO 14971 distinguishes. See docs/iso14971/02-risk-analysis-and-evaluation.md §5.4 and docs/governance/citation-convention.md.",
-  "version": "1.0.0",
+  "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": [
     "risk_id",
@@ -21,10 +21,12 @@
     },
     "hazard_ref": {
       "type": "string",
+      "minLength": 1,
       "description": "The id of the Hazard (docs/iec62304/schemas/hazard.schema.json) this risk record specializes into a specific hazardous situation. A single hazard may give rise to more than one risk record."
     },
     "hazardous_situation": {
       "type": "string",
+      "minLength": 1,
       "description": "The specific circumstance in which the referenced hazard's potential is actually realized (ISO 14971:2019 §3 Terms and definitions distinguishes 'hazard' from 'hazardous situation') — e.g. 'clinician relies on the sedation-index display during a delayed-update window'."
     },
     "severity": {
@@ -46,10 +48,10 @@
       "type": "boolean",
       "description": "ISO 14971:2019 §7.4/§6 Risk evaluation. A single field covering both pre-control risk evaluation (§6) and post-control residual risk evaluation (§7.4) — a deliberate simplification; see docs/iso14971/02-risk-analysis-and-evaluation.md §6 for why the schema does not model the standard's full pre/post-control state machine."
     },
-    "evaluation_date": { "$ref": "#/definitions/iso_date" }
+    "evaluation_date": { "$ref": "#/$defs/iso_date" }
   },
   "additionalProperties": false,
-  "definitions": {
+  "$defs": {
     "iso_date": {
       "type": "string",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$",

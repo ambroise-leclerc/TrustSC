@@ -40,8 +40,8 @@ distinguishes but `Hazard` alone does not model — see
   and the `Justification` object shared by all five standards in this corpus.
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
-- [`../../software_development_file/regulatory/ISO_14971/Risk_Management_File.md`](../../software_development_file/regulatory/ISO_14971/Risk_Management_File.md) —
-  MduX-rust's own filled-in risk management file, which cites into this corpus.
+- `software_development_file/regulatory/ISO_14971/Risk_Management_File.md` (added in a later PR in
+  this stack) — MduX-rust's own filled-in risk management file, which cites into this corpus.
 
 ## For AI agents
 
