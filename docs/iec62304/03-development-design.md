@@ -28,7 +28,8 @@ return owned data already defined by a governed crate").
 
 ### §5.3.2 Develop an architecture for the interfaces of software items
 
-Each governed-crate boundary in MduX-rust's crate map (see `CLAUDE.md`'s "Crate map" section) is an
+Each governed-crate boundary in MduX-rust's crate map (see `docs/architecture.md`'s "Crate map"
+section) is an
 interface in this sense: `mdux-core` → `mdux-governance` → `mdux-ui`/`mdux-text-*`/`mdux-ml-*` → the
 `mdux` facade → `adapters/mdux-vulkan-winit`. ADR-012 formalizes the adapter-side half of this
 (presentation adapter crates and their shader-artifact interface).

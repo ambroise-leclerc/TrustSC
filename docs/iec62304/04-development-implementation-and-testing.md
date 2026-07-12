@@ -21,9 +21,10 @@ verified."
 ### §5.5.1 Implement each software unit
 
 Implementation follows the coding standards fixed at the architecture level (module 03) —
-`#![forbid(unsafe_code)]` in every governed crate, `.clippy` lint gates in CI, and the
-governed/adapter/host-only boundary rule that determines which zone new code belongs in before it's
-written (see `CLAUDE.md`, "When adding a dependency, first ask which zone the crate lives in").
+`#![forbid(unsafe_code)]` in every governed crate — and the governed/adapter/host-only boundary rule
+that determines which zone new code belongs in before it's written (see `docs/architecture.md`'s
+"Three trust zones" section). CI does not currently run `clippy` or another lint gate — see
+`.github/workflows/ci.yml` for exactly what it does run.
 
 ### §5.5.2 Establish unit verification process
 

@@ -51,8 +51,9 @@ Two definitions matter most for how this corpus and `mdux-governance` are struct
   for how a SOUP entry connects to hazard analysis.
 - **Software item / software unit / software system** — the standard's hierarchy of decomposition.
   MduX-rust's own trust-zone split (`crates/` governed, `adapters/` edge, `tools/` host-only — ADR-005)
-  is a segregation of software items by trust boundary, which is directly relevant to §4.4's
-  segregation provisions below.
+  is a segregation of software items by trust boundary, which is directly relevant to
+  [§5.3.3's segregation provisions](03-development-design.md#533-identify-segregation-necessary-for-risk-control)
+  (module 03), not to §4.4 below (which covers legacy software).
 
 ## §4 General requirements
 

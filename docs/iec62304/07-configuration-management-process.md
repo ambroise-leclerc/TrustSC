@@ -20,8 +20,8 @@ other process clause assumes exists.
 A configuration item is anything separately identified and version-controlled: a crate, a generated
 evidence artifact, a vendored asset. MduX-rust's workspace `Cargo.toml`/`Cargo.lock` pair identifies
 every Rust dependency's exact resolved version; `Cargo.lock` is committed and CI builds with
-`--locked` (per `CLAUDE.md`), so "what was built" is never ambiguous between a developer's machine
-and CI.
+`--locked` (see `docs/architecture.md`'s "Continuous integration" section), so "what was built" is
+never ambiguous between a developer's machine and CI.
 
 ### §8.1.3 SOUP identification
 
