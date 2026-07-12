@@ -3,16 +3,16 @@
   "$id": "https://mdux.dev/schemas/iso13485/quality-management-system.schema.json",
   "title": "ISO 13485 Quality Management System Scope Record",
   "description": "Records the scope of a manufacturer's QMS as it relates to a device built on MduX-rust — which device(s) the QMS covers and which ISO 13485 requirements apply. Not a substitute for the QMS itself, and not field-aligned with any crates/mdux-governance/src/lib.rs type (mdux-governance has no organizational/QMS concept). See docs/iso13485/01-foundations-and-qms.md §4.2.2 and docs/governance/citation-convention.md.",
-  "version": "1.0.0",
+  "$comment": "Schema version 1.0.0.",
   "type": "object",
-  "required": ["qms_id", "organisation_profile", "scope_definition"],
+  "required": ["qms_id", "organization_profile", "scope_definition"],
   "properties": {
     "qms_id": {
       "type": "string",
       "pattern": "^QMS-[0-9]{4}-[0-9]{3}$",
       "description": "e.g. 'QMS-2026-001'."
     },
-    "organisation_profile": {
+    "organization_profile": {
       "type": "object",
       "required": ["name", "role"],
       "properties": {
