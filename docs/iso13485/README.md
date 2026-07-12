@@ -1,16 +1,16 @@
 # ISO 13485:2016 — Medical devices quality management systems
 
 This folder is an LLM- and human-navigable breakdown of ISO 13485, the quality management system
-(QMS) standard MduX-rust's own scaffolding is designed to feed into, written as original explanatory
+(QMS) standard TrustSC's own scaffolding is designed to feed into, written as original explanatory
 prose against the standard's real clause structure — see
 [`../governance/citation-convention.md`](../governance/citation-convention.md) for why no normative
 standard text is reproduced here, and for the citation-key format used throughout
 (`ISO 13485:2016 §N.M Clause title`).
 
-MduX-rust is a software development kit, not an organization, and does not operate a QMS of its own
-that a notified body would audit. §1's scope applies to the manufacturer who integrates MduX-rust
+TrustSC is a software development kit, not an organization, and does not operate a QMS of its own
+that a notified body would audit. §1's scope applies to the manufacturer who integrates TrustSC
 into their device software and runs a QMS around that integration. This corpus is explicit,
-sub-clause by sub-clause, about which mechanisms in MduX-rust give evidence toward a manufacturer's
+sub-clause by sub-clause, about which mechanisms in TrustSC give evidence toward a manufacturer's
 §4-§8 obligations, and which remain entirely the manufacturer's to build — see especially module 02
 (§5-§6, almost entirely organizational governance with no software analogue).
 
@@ -34,13 +34,13 @@ sub-clause by sub-clause, about which mechanisms in MduX-rust give evidence towa
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
 - `software_development_file/regulatory/ISO_13485/README.md` (added in a later PR in this stack) —
-  MduX-rust's own filled-in scope note, which cites into this corpus.
+  TrustSC's own filled-in scope note, which cites into this corpus.
 
 ## For AI agents
 
 When generating or reviewing code, an ADR, or an SDF document that claims ISO 13485 alignment: find
 the relevant module above by clause range, cite the clause using the exact citation-key format, and
-be explicit about the boundary between what a mechanism in MduX-rust gives evidence toward (mostly
+be explicit about the boundary between what a mechanism in TrustSC gives evidence toward (mostly
 §4.2's documentation requirements and §7.3's design-and-development control points, where the overlap
 with IEC 62304 §5 is real) and what is purely organizational and has no software analogue at all
 (most of §5-§6, most of §7.2/§7.4-§7.5, and the post-market obligations in §8.2) — every module in

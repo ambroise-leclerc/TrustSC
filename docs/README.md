@@ -1,6 +1,6 @@
 # Documentation
 
-Complete, English-language documentation for MduX-rust. Start with the
+Complete, English-language documentation for TrustSC. Start with the
 [README](../README.en.md) (or [French version](../README.md)) for the project pitch and a
 quickstart; the pages below go deeper.
 
@@ -9,7 +9,7 @@ quickstart; the pages below go deeper.
   reference.
 - **[Architecture](architecture.md)** — the governed/adapter/tools trust-zone boundary, the crate
   map, the evidence-generation pattern, CI, and asset governance.
-- **[Regulatory compliance](regulatory-compliance.md)** — how MduX-rust's engineering practices
+- **[Regulatory compliance](regulatory-compliance.md)** — how TrustSC's engineering practices
   are designed to align with IEC 62304 Class B/C, how its evidence artifacts and governance types
   are meant to feed a manufacturer's technical file and notified-body audits, and — just as
   importantly — what it explicitly does *not* provide.
@@ -25,13 +25,13 @@ quickstart; the pages below go deeper.
   skills under `.claude/skills/` and the MCP policy in
   [ADR-020](adr/ADR-020-ai-interaction-standardization.md). Citation keys and `Justification`
   blocks across `docs/` and `software_development_file/` are machine-checked in CI by
-  `tools/mdux-docs-lint`.
+  `tools/trustsc-docs-lint`.
 
 ## Regulatory standards reference
 
 An LLM- and human-navigable corpus of original explanatory prose (never reproduced standard text —
 see [`governance/citation-convention.md`](governance/citation-convention.md)) for the five standards
-MduX-rust's compliance scaffolding targets, each broken into modules by clause range with a compact
+TrustSC's compliance scaffolding targets, each broken into modules by clause range with a compact
 `AI-Reference.md` index and JSON Schemas ([ADR-019](adr/ADR-019-regulatory-standards-reference-corpus.md)):
 
 - **[IEC 62304](iec62304/README.md)** — software life cycle processes (the flagship, most-cited corpus).
@@ -44,8 +44,8 @@ MduX-rust's compliance scaffolding targets, each broken into modules by clause r
 ## Software development file
 
 **[`software_development_file/`](../software_development_file/README.md)** — a `templates/` tree any
-manufacturer building on MduX-rust can fill in, and a `regulatory/` tree with the same documents
-filled in for MduX-rust itself (Software Architecture/Design Description, SOUP list, Usability
+manufacturer building on TrustSC can fill in, and a `regulatory/` tree with the same documents
+filled in for TrustSC itself (Software Architecture/Design Description, SOUP list, Usability
 Engineering File, Cybersecurity SAD, QMS scope note, Risk Management File), citing into the
 regulatory standards reference above.
 

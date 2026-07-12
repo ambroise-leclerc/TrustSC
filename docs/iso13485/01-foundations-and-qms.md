@@ -27,14 +27,14 @@ it is a *regulatory-compliance* standard first: its primary purpose is to suppor
 demonstrating conformity to applicable regulatory requirements, not customer satisfaction as a
 standalone goal.
 
-MduX-rust does not fall inside this scope directly. It is a software development kit consumed by a
+TrustSC does not fall inside this scope directly. It is a software development kit consumed by a
 manufacturer's own design and development activities; it is not itself an organization, and it does
 not perform production, distribution, installation, or servicing of a device. §1's scope applies to
-the *manufacturer* who integrates MduX-rust into their device software and operates a QMS around
+the *manufacturer* who integrates TrustSC into their device software and operates a QMS around
 that integration — see `docs/regulatory-compliance.md`'s "Purpose and scope" section, which states
 this project provides "engineering scaffolding," not a QMS in its own right. Everything in this
 corpus should be read as: which pieces of a manufacturer's §4-§8 obligations does a mechanism in
-MduX-rust give evidence toward, and which remain entirely the manufacturer's to build.
+TrustSC give evidence toward, and which remain entirely the manufacturer's to build.
 
 ## §2 Normative references
 
@@ -50,19 +50,19 @@ where ISO 13485 §7.3 and IEC 62304 §5 meet — see `docs/iec62304/README.md` a
 
 ## §3 Terms and definitions
 
-Two definitions matter most for how this corpus and MduX-rust's governance model line up:
+Two definitions matter most for how this corpus and TrustSC's governance model line up:
 
 - **Medical device file** — the standard's term for the compiled set of records demonstrating
   conformity to this standard and to applicable regulatory requirements for a particular device
   type (see §4.2.3 below). It is a broader record than an IEC 62304 software development file, but
-  the two overlap heavily for a software-only or software-dominant device: `mdux_governance::ComplianceProgram`'s
+  the two overlap heavily for a software-only or software-dominant device: `trustsc_governance::ComplianceProgram`'s
   structured exports (`trace_matrix_export()`, `audit_export()`, `release_evidence_summary()`,
-  `crates/mdux-governance/src/lib.rs`) are the kind of software-side content a medical device file
-  would incorporate for a device built on MduX-rust, not a substitute for the file itself.
+  `crates/trustsc-governance/src/lib.rs`) are the kind of software-side content a medical device file
+  would incorporate for a device built on TrustSC, not a substitute for the file itself.
 - **Advisory notice, complaint, nonconforming product** — terms that drive clause 8 (module 04).
-  MduX-rust has no post-market presence of its own (it is a library, not a shipped device), so these
+  TrustSC has no post-market presence of its own (it is a library, not a shipped device), so these
   definitions apply entirely to the manufacturer's finished product, not to anything this project
-  tracks directly — a point worth stating plainly rather than stretching `mdux_governance::ProblemReport`
+  tracks directly — a point worth stating plainly rather than stretching `trustsc_governance::ProblemReport`
   to cover a role it doesn't fill (it is closer to an IEC 62304 §9 problem report than to a §8.2.2
   regulatory complaint record; see module 04 §8.2.2 below for the distinction).
 
@@ -76,9 +76,9 @@ criteria and methods needed to ensure their effective operation and control, and
 organization chooses to outsource a process affecting product conformity — retaining
 responsibility for that outsourced process and documenting how it is controlled.
 
-This last point is where MduX-rust's trust-zone architecture is directly relevant, even though
-MduX-rust is not itself a QMS. A manufacturer who builds a device UI or ML inference path on
-MduX-rust is, in effect, relying on externally-developed software components for parts of their
+This last point is where TrustSC's trust-zone architecture is directly relevant, even though
+TrustSC is not itself a QMS. A manufacturer who builds a device UI or ML inference path on
+TrustSC is, in effect, relying on externally-developed software components for parts of their
 design and development process — precisely the situation §4.1's outsourced-process language
 addresses. `docs/architecture.md` and ADR-005 (pure-Rust project boundary and dependency policy)
 give that manufacturer a documented answer to "how is this outsourced/incorporated software
@@ -101,7 +101,7 @@ necessary for effective process operation, and (per applicable regulatory requir
 documentation specified by the regulatory authority. This is the top-level "what exists" list that
 §4.2.2 through §4.2.5 elaborate.
 
-MduX-rust does not produce any of this documentation on the manufacturer's behalf — a repository of
+TrustSC does not produce any of this documentation on the manufacturer's behalf — a repository of
 governed crates and ADRs is not a quality manual. What it does provide is a documented,
 version-controlled design-rationale trail (the [18 accepted ADRs](../adr/README.md)) that a
 manufacturer's own procedures can reference as evidence of how a particular design decision was
@@ -113,13 +113,13 @@ feeding a technical file's design-and-development section.
 The quality manual describes (or references procedures describing) the scope of the QMS including
 any exclusions and their justification, the documented procedures or references to them, and a
 description of the interaction between QMS processes. This is squarely a manufacturer-authored
-document — MduX-rust has no analogue to a quality manual, and nothing in this corpus should be read
+document — TrustSC has no analogue to a quality manual, and nothing in this corpus should be read
 as implying otherwise.
 [`software_development_file/templates/ISO_13485/README.md`](../../software_development_file/templates/ISO_13485/README.md)
 is the closest thing to a starting skeleton this project provides — a scope note a manufacturer fills
 in, not a quality manual in its own right; see
 [`software_development_file/regulatory/ISO_13485/README.md`](../../software_development_file/regulatory/ISO_13485/README.md)
-for how MduX-rust states the same scope note for itself.
+for how TrustSC states the same scope note for itself.
 
 #### §4.2.3 Medical device file
 
@@ -129,13 +129,13 @@ and applicable regulatory requirements: device specifications, manufacturing/pac
 handling/distribution specifications, measurement and monitoring procedures, and installation/
 servicing requirements where applicable.
 
-For a device that incorporates MduX-rust, the software-specific slice of this file overlaps heavily
+For a device that incorporates TrustSC, the software-specific slice of this file overlaps heavily
 with an IEC 62304 software development file's content — device specifications trace to
-`mdux_governance::Requirement`s, and the compiled evidence (`ComplianceProgram::trace_matrix_export()`,
-generated `package.json`/`report.json` pairs from `tools/mdux-font-baker`/`mdux-shader-baker`/
-`mdux-ml-baker`) is exactly the kind of "records demonstrating conformity" this sub-clause asks a
+`trustsc_governance::Requirement`s, and the compiled evidence (`ComplianceProgram::trace_matrix_export()`,
+generated `package.json`/`report.json` pairs from `tools/trustsc-font-baker`/`trustsc-shader-baker`/
+`trustsc-ml-baker`) is exactly the kind of "records demonstrating conformity" this sub-clause asks a
 manufacturer to hold. It is one input among many the manufacturer's medical device file needs, not
-the file itself — production, packaging, distribution, and servicing records have no MduX-rust
+the file itself — production, packaging, distribution, and servicing records have no TrustSC
 analogue at all, since this project never reaches those life-cycle stages.
 
 #### §4.2.4 Control of documents
@@ -145,7 +145,7 @@ and identifiable, available where needed, protected from unintended use of obsol
 changes re-reviewed/re-approved. External documents (including standards) determined necessary for
 QMS operation must be identified and their distribution controlled.
 
-MduX-rust's own analogue, scoped to source and generated artifacts rather than QMS documents proper,
+TrustSC's own analogue, scoped to source and generated artifacts rather than QMS documents proper,
 is `Cargo.lock` committed and built with `--locked` (per `CLAUDE.md`'s replay-CI instructions) for
 "what exact version was used," and the bake/`verify` pattern (ADR-007) for "was the currently
 committed generated artifact produced from the currently reviewed source" — a CI check that fails
@@ -160,12 +160,12 @@ operation: kept legible, readily identifiable and retrievable, protected, and re
 the lifetime of the device as defined by the organization (or per applicable regulatory
 requirements), and not less than two years from device release by the organization.
 
-`mdux_governance::AuditEvent` (`crates/mdux-governance/src/lib.rs`) is the record-control mechanism
-closest in spirit within MduX-rust's own scope: every `add_requirement`/`add_hazard`/
+`trustsc_governance::AuditEvent` (`crates/trustsc-governance/src/lib.rs`) is the record-control mechanism
+closest in spirit within TrustSC's own scope: every `add_requirement`/`add_hazard`/
 `add_verification`/`add_problem_report` call is recorded with a sequence number and an
 `AuditCategory`, exported via `ComplianceProgram::audit_export()` as an ordered, machine-readable
 trail. This is a record of *governance-data changes within a running compliance program instance* —
-it has no persistence layer of its own (nothing in `mdux-governance` writes to disk or a database),
+it has no persistence layer of its own (nothing in `trustsc-governance` writes to disk or a database),
 so a manufacturer wanting an actual retained record under §4.2.5 must capture and store
 `audit_export()`'s output themselves as part of their release process, alongside the retention
 period their own regulatory context requires.

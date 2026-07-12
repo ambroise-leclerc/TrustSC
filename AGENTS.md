@@ -6,7 +6,7 @@ repository. This file is the canonical, tool-neutral entry point; deeper materia
 
 ## What this project is
 
-MduX-rust is a pure-Rust medical-device UI SDK with IEC 62304 Class B / Class C compliance
+TrustSC is a pure-Rust medical-device UI SDK with IEC 62304 Class B / Class C compliance
 modeling built in, targeting Vulkan (Class B) and Vulkan SC (Class C). Everything about its
 architecture is shaped by one idea: the code that runs on a device must be deterministic,
 allocation-free, `unsafe`-free, and auditable, while everything complicated (font shaping, shader
@@ -53,13 +53,13 @@ cargo run -p class_c_monitor            # NeuroSense 500 demo (ML inference + wa
 ```bash
 cargo build --locked --workspace
 cargo test --locked --quiet
-cargo run --locked -q -p mdux-docs-lint -- check
-cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
-cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
-cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
-cargo run --locked -q -p mdux-image-baker -- verify tools/mdux-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
-cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
-cargo run --locked -q -p mdux-ml-baker -- verify tools/mdux-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
+cargo run --locked -q -p trustsc-docs-lint -- check
+cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
+cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
+cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
+cargo run --locked -q -p trustsc-image-baker -- verify tools/trustsc-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
+cargo run --locked -q -p trustsc-shader-baker -- verify tools/trustsc-shader-baker/fixtures/text-shaders.toml adapters/trustsc-vulkan-winit/shaders/generated adapters/trustsc-vulkan-winit/shaders/generated/report.json
+cargo run --locked -q -p trustsc-ml-baker -- verify tools/trustsc-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
 cargo run --locked -q -p hello_world -- --headless-smoke
 cargo run --locked -q -p class_c_monitor -- --headless-smoke
 cargo run --locked -q -p hello_world -- --verify-ui=generated/verification --locales=en-US
@@ -75,7 +75,7 @@ five standards this project's compliance scaffolding targets
 [ISO 14971](docs/iso14971/README.md), [IEC 62366-1](docs/iec62366/README.md),
 [IEC 81001-5-1](docs/iec81001/README.md). Each standard folder holds clause-range modules
 (`NN-*.md`), a compact one-row-per-clause `AI-Reference.md` index, and JSON Schemas aligned with
-`crates/mdux-governance`.
+`crates/trustsc-governance`.
 
 **Protocol — follow this whenever code, an ADR, or a `software_development_file/` document claims
 alignment with a standard:**
@@ -102,12 +102,12 @@ alignment with a standard:**
    `docs/iec81001/README.md` before relying on its clause references.
 
 Citation keys and `Justification` blocks are machine-checked in CI by
-`cargo run --locked -q -p mdux-docs-lint -- check`; run it after editing anything under `docs/`
+`cargo run --locked -q -p trustsc-docs-lint -- check`; run it after editing anything under `docs/`
 or `software_development_file/`.
 
 `software_development_file/` has two mirrored trees: `templates/` (blank documents any
-manufacturer building on MduX-rust fills in) and `regulatory/` (the same documents filled in for
-MduX-rust itself). Filled documents summarize — never duplicate — machine registers like the SOUP
+manufacturer building on TrustSC fills in) and `regulatory/` (the same documents filled in for
+TrustSC itself). Filled documents summarize — never duplicate — machine registers like the SOUP
 register.
 
 ## Coding and artifact rules
@@ -115,7 +115,7 @@ register.
 - Governed crates keep `#![forbid(unsafe_code)]`. If a change seems to need `unsafe` or a native
   handle in `crates/`, it belongs in an edge adapter instead, or needs a new ADR.
 - `Cargo.lock` is committed and CI builds with `--locked`; update the lockfile deliberately.
-- Everything under `generated/` (and `adapters/mdux-vulkan-winit/shaders/generated/`) is
+- Everything under `generated/` (and `adapters/trustsc-vulkan-winit/shaders/generated/`) is
   deterministic build **evidence** — regenerate via the matching baker in `tools/`
   (`bake` to produce, `verify` to check); never hand-edit it.
 - `.medui` UI screens are compiled at build time only ([docs/dsl/](docs/dsl/overview.md)); no DSL
@@ -125,7 +125,7 @@ register.
   governed/adapter/tools line or alters a compile-time-only contract, and write a new ADR when a
   change moves such a boundary.
 - Naming: `UpperCamelCase` types, `snake_case` functions/variables/modules, crate names prefixed
-  `mdux-`.
+  `trustsc-`.
 
 ## Git conventions
 

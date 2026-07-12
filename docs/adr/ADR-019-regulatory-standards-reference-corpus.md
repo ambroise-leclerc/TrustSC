@@ -10,7 +10,7 @@ Accepted
 two pieces of scaffolding this project had not yet delivered: an LLM-consumable corpus of regulatory
 standard references (IEC 62304, ISO 13485, ISO 14971, IEC 62366-1, IEC 81001-5-1), and a
 `software_development_file/` tree with `templates/` (blank, for any manufacturer) and `regulatory/`
-(filled in for MduX-rust itself) subtrees.
+(filled in for TrustSC itself) subtrees.
 
 The sister C++ project (`MduX`) already prototyped a similar system for two of these standards. That
 prototype surfaced a reusable *pattern* — modular files grouped by clause range, a compact per-standard
@@ -39,16 +39,16 @@ project's version needed to avoid:
   `software_development_file/regulatory/` already are the "applied to this project" layer.
 - No clause of any standard is ever quoted or closely paraphrased. Every module section is original
   explanatory prose written against the clause's number and title (structural facts, not copyrightable
-  prose), pointing at a real MduX-rust mechanism — a type, another ADR, a CI step, an example — wherever
+  prose), pointing at a real TrustSC mechanism — a type, another ADR, a CI step, an example — wherever
   one genuinely applies. `docs/governance/citation-convention.md` defines the shared citation-key
   format (`"<Standard> §<clause> <title>"`) and the `Justification` object
   (`docs/iec62304/schemas/justification.schema.json`, shared by all five standards) that ties a
   specific design decision to a specific clause with a rationale and evidence pointers — this is the
   concrete mechanism for citing "the original paragraph" without reproducing it.
 - Per-standard JSON schemas (`docs/<standard>/schemas/*.schema.json`) for `Requirement`, `Hazard`, and
-  `VerificationCase` are field-aligned with `crates/mdux-governance/src/lib.rs`'s existing Rust types,
+  `VerificationCase` are field-aligned with `crates/trustsc-governance/src/lib.rs`'s existing Rust types,
   so a future `serde`-based JSON export from `ComplianceProgram` (not built in this change) can match
-  these schemas without a redesign. `mdux_core::SafetyClass`'s Class-B/Class-C-only scope is carried
+  these schemas without a redesign. `trustsc_core::SafetyClass`'s Class-B/Class-C-only scope is carried
   into every schema that touches classification — no schema implies Class A support.
 - `docs/README.md`, `docs/regulatory-compliance.md`, root `README.md`, and this repo's own (gitignored,
   untracked) `CLAUDE.md` are each updated, across the PR stack that implements this ADR, to point at
@@ -57,8 +57,8 @@ project's version needed to avoid:
   the final PR of that stack, once the corpus and SDF tree they link to already exist.
 - `software_development_file/templates/` holds blank, standard-by-standard fill-in-the-blank documents
   any manufacturer can start from; `software_development_file/regulatory/` holds the same tree filled
-  in for MduX-rust itself, citing real ADRs, crate types, and examples rather than placeholder text.
-- No changes to `mdux-governance`/`mdux-core` Rust code are made as part of this ADR — this is a
+  in for TrustSC itself, citing real ADRs, crate types, and examples rather than placeholder text.
+- No changes to `trustsc-governance`/`trustsc-core` Rust code are made as part of this ADR — this is a
   documentation and JSON-schema change only.
 
 ## Consequences
@@ -74,7 +74,7 @@ project's version needed to avoid:
 
 ### Negative / limitations
 - The schemas are not yet wired to a real `ComplianceProgram` export — `trace_matrix_export()` and
-  `audit_export()` still return pipe-delimited text (`crates/mdux-governance/src/lib.rs`), so today the
+  `audit_export()` still return pipe-delimited text (`crates/trustsc-governance/src/lib.rs`), so today the
   schemas describe an intended future shape, not a live data contract. Building that export is left as
   future work.
 - IEC 81001-5-1's exact clause numbering is less certain than the other four standards (it is a newer

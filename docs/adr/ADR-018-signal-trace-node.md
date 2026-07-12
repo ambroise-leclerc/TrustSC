@@ -21,13 +21,13 @@ reserved-region contract narrow and specific to what it actually renders.
 - A new MedUI DSL component kind, `SignalTrace`, compiles into a reserved-region descriptor
   (`CompiledNodeKind::SignalTrace { stream_source, color_token }`) analogous to `VulkanViewport`'s
   `ViewportReservation` — it does not embed arbitrary render logic in the UI package.
-- The realtime data plane (`crates/mdux/src/realtime.rs`) gains a dedicated single-sample ring channel,
+- The realtime data plane (`crates/trustsc/src/realtime.rs`) gains a dedicated single-sample ring channel,
   `FrameInputs::push_sample(source, f32)` / `FrameInputs::trace(source)`, distinct from
   `push_row`/`StreamBinding`'s `rows × bins` model. A `SignalTrace` node's sample capacity defaults to
   `DEFAULT_TRACE_SAMPLES` per-trace samples; capacity is fixed at bind time from the compiled node, so
   the runtime channel stays a bounded ring, never a growable buffer.
 - The adapter renders `SignalTrace` by reusing the existing flat solid-color shaders
-  (`adapters/mdux-vulkan-winit/shaders/flat.{vert,frag}`) verbatim, through a second pipeline object
+  (`adapters/trustsc-vulkan-winit/shaders/flat.{vert,frag}`) verbatim, through a second pipeline object
   built with `VK_PRIMITIVE_TOPOLOGY_LINE_STRIP` instead of `TRIANGLE_LIST`. The shaders themselves are
   topology-agnostic (position pass-through, interpolated color), so this needs no new GLSL, no new
   shader-baker fixture entry, and no new committed `.spv` — only a second `vkCreateGraphicsPipelines`

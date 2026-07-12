@@ -13,7 +13,7 @@
 > [`AI-Reference.md`](AI-Reference.md); treat both as provisional navigational aids, not as a
 > verified clause map in the sense the other four standards in this corpus provide.
 
-This folder is an LLM- and human-navigable breakdown of IEC 81001-5-1:2021, MduX-rust's health-
+This folder is an LLM- and human-navigable breakdown of IEC 81001-5-1:2021, TrustSC's health-
 software cybersecurity standard, written as original explanatory prose organized around the
 standard's real activity groups — see
 [`../governance/citation-convention.md`](../governance/citation-convention.md) for why no normative
@@ -50,16 +50,16 @@ for how the two standards' processes map onto each other.
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
 - `software_development_file/regulatory/IEC_81001/` (added in a later PR in this stack) —
-  MduX-rust's own filled-in cybersecurity SAD document, which cites into this corpus.
+  TrustSC's own filled-in cybersecurity SAD document, which cites into this corpus.
 
 ## For AI agents
 
 When generating or reviewing code, an ADR, or an SDF document that claims IEC 81001-5-1 alignment:
 find the relevant module above by activity group, cite using the citation-key format from
 `../governance/citation-convention.md` but **flag the clause number as approximate** rather than
-presenting it as verified, and prefer pointing at a real MduX-rust mechanism (ADR-005's trust-zone
+presenting it as verified, and prefer pointing at a real TrustSC mechanism (ADR-005's trust-zone
 boundary, the SOUP register, ADR-007's byte-verified evidence pattern) over restating the standard's
 requirement in the abstract — every module in this folder does this throughout and is the pattern to
 follow. Where a module states that an activity group is not yet applicable (e.g. security update
-management for a networked device, since MduX-rust has no network stack today), preserve that
+management for a networked device, since TrustSC has no network stack today), preserve that
 honesty rather than inventing a mechanism that does not exist in the repository.

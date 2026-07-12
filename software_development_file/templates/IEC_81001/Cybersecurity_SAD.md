@@ -4,7 +4,7 @@
 > [`docs/iec81001/README.md`](../../../docs/iec81001/README.md) for the underlying guidance — note
 > that document's caveat about clause-numbering uncertainty for this newer standard. See
 > `software_development_file/regulatory/IEC_81001/Cybersecurity_SAD.md` (added in a later PR in this stack)
-> for MduX-rust's own filled-in example.
+> for TrustSC's own filled-in example.
 
 ## Document control
 

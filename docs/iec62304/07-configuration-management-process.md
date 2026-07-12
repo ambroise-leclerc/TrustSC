@@ -18,7 +18,7 @@ other process clause assumes exists.
 ### §8.1.1-§8.1.2 Establish and use a configuration identification scheme
 
 A configuration item is anything separately identified and version-controlled: a crate, a generated
-evidence artifact, a vendored asset. MduX-rust's workspace `Cargo.toml`/`Cargo.lock` pair identifies
+evidence artifact, a vendored asset. TrustSC's workspace `Cargo.toml`/`Cargo.lock` pair identifies
 every Rust dependency's exact resolved version; `Cargo.lock` is committed and CI builds with
 `--locked` (see `docs/architecture.md`'s "Continuous integration" section), so "what was built" is
 never ambiguous between a developer's machine and CI.
@@ -45,7 +45,7 @@ partly automatic rather than fully manual.
 
 ### §8.3.1 Maintain records of configuration item history
 
-`mdux_governance::AuditEvent`'s `Lifecycle` category records every `add_requirement`/`add_hazard`/
+`trustsc_governance::AuditEvent`'s `Lifecycle` category records every `add_requirement`/`add_hazard`/
 `add_problem_report` call with a sequence number (`ComplianceProgram::record_event`), giving the
 governance-data half of configuration status a queryable history via `audit_events()`/`audit_export()`.
 
@@ -57,7 +57,7 @@ accounting. `docs/governance/soup-register.toml`'s `risk_controls` field per ent
 existing mechanism to this today — it records controls applied *because of* the SOUP dependency's
 trust-zone confinement, but does not yet track upstream-reported anomalies/CVEs as a distinct list.
 This is a gap for a manufacturer to close in their own configuration management plan, not something
-MduX-rust currently automates; see `docs/iec62304/08-problem-resolution-process.md` for the related
+TrustSC currently automates; see `docs/iec62304/08-problem-resolution-process.md` for the related
 problem-resolution-process expectations.
 
 ---

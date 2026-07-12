@@ -5,7 +5,7 @@
 > guidance, and [`docs/iec62304/06-risk-management-process.md`](../../../docs/iec62304/06-risk-management-process.md)
 > for the software-specific slice of this process. See
 > `software_development_file/regulatory/ISO_14971/Risk_Management_File.md` (added in a later PR in this stack)
-> for MduX-rust's own filled-in example.
+> for TrustSC's own filled-in example.
 
 ## Document control
 
@@ -69,7 +69,7 @@ post-production information is in place. ]
   "standard": "ISO 14971",
   "clause_ref": "ISO 14971:2019 §7.1 Risk reduction",
   "rationale": "[ ... ]",
-  "requirement_id": "[ optional mdux-governance RequirementId ]",
+  "requirement_id": "[ optional trustsc-governance RequirementId ]",
   "evidence_refs": ["[ ... ]"]
 }
 ```

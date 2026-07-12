@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdux.dev/schemas/iec62366/usability-engineering-record.schema.json",
+  "$id": "https://trustsc.dev/schemas/iec62366/usability-engineering-record.schema.json",
   "title": "IEC 62366-1 Usability Engineering File Record",
-  "description": "One use-scenario/evaluation entry suitable for inclusion in a manufacturer's IEC 62366-1 §4.2 usability engineering file. No mdux-governance Rust type mirrors this yet — this schema is a documentation-level recording shape only, deliberately aligned in style with docs/iec62304/schemas/hazard.schema.json and verification-case.schema.json so a future export could reuse the same conventions. See docs/iec62366/01-scope-and-general-requirements.md §4.2 and docs/governance/citation-convention.md.",
+  "description": "One use-scenario/evaluation entry suitable for inclusion in a manufacturer's IEC 62366-1 §4.2 usability engineering file. No trustsc-governance Rust type mirrors this yet — this schema is a documentation-level recording shape only, deliberately aligned in style with docs/iec62304/schemas/hazard.schema.json and verification-case.schema.json so a future export could reuse the same conventions. See docs/iec62366/01-scope-and-general-requirements.md §4.2 and docs/governance/citation-convention.md.",
   "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": ["ue_record_id", "use_scenario", "evaluation_type", "evaluation_method", "findings"],
@@ -35,11 +35,11 @@
     "evaluation_type": {
       "type": "string",
       "enum": ["Formative", "Summative"],
-      "description": "IEC 62366-1:2015 §5.6 Formative evaluation or §5.7 Summative evaluation. See docs/iec62366/03-formative-and-summative-evaluation.md for what MduX-rust's --verify-ui tooling does and does not provide toward either."
+      "description": "IEC 62366-1:2015 §5.6 Formative evaluation or §5.7 Summative evaluation. See docs/iec62366/03-formative-and-summative-evaluation.md for what TrustSC's --verify-ui tooling does and does not provide toward either."
     },
     "evaluation_method": {
       "type": "string",
-      "description": "How the evaluation was performed, e.g. 'Simulated-use test with representative users', 'Expert/heuristic review', 'mdux --verify-ui inspection-based check (GoldenBounds/ChromeColor/TextPresence/InkContainment)'. Free text: this schema does not constrain method to MduX-rust-generated evidence."
+      "description": "How the evaluation was performed, e.g. 'Simulated-use test with representative users', 'Expert/heuristic review', 'trustsc --verify-ui inspection-based check (GoldenBounds/ChromeColor/TextPresence/InkContainment)'. Free text: this schema does not constrain method to TrustSC-generated evidence."
     },
     "findings": {
       "type": "string",
@@ -53,7 +53,7 @@
     "risk_control_measures": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Risk control measures adopted as a result of this record, ideally naming real mdux_governance::RequirementId values (see crates/mdux-governance/src/lib.rs and docs/iec62304/02-development-planning-and-requirements.md §5.2.2 Include risk control measures in requirements) rather than free-standing mitigation notes."
+      "description": "Risk control measures adopted as a result of this record, ideally naming real trustsc_governance::RequirementId values (see crates/trustsc-governance/src/lib.rs and docs/iec62304/02-development-planning-and-requirements.md §5.2.2 Include risk control measures in requirements) rather than free-standing mitigation notes."
     },
     "evaluation_date": {
       "$ref": "#/$defs/iso_date",

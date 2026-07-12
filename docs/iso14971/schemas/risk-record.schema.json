@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdux.dev/schemas/iso14971/risk-record.schema.json",
+  "$id": "https://trustsc.dev/schemas/iso14971/risk-record.schema.json",
   "title": "ISO 14971 Risk Record",
-  "description": "Records the risk presented by one hazardous situation — a hazard's realization in a specific circumstance — including its estimated severity/probability and the residual-risk acceptance decision after risk control. Complements crates/mdux-governance/src/lib.rs::Hazard (referenced via hazard_ref), which models the hazard's identity and controlling requirement(s) but not the hazardous-situation, severity/probability, or residual-risk detail ISO 14971 distinguishes. See docs/iso14971/02-risk-analysis-and-evaluation.md §5.4 and docs/governance/citation-convention.md.",
+  "description": "Records the risk presented by one hazardous situation — a hazard's realization in a specific circumstance — including its estimated severity/probability and the residual-risk acceptance decision after risk control. Complements crates/trustsc-governance/src/lib.rs::Hazard (referenced via hazard_ref), which models the hazard's identity and controlling requirement(s) but not the hazardous-situation, severity/probability, or residual-risk detail ISO 14971 distinguishes. See docs/iso14971/02-risk-analysis-and-evaluation.md §5.4 and docs/governance/citation-convention.md.",
   "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": [
@@ -32,17 +32,17 @@
     "severity": {
       "type": "string",
       "enum": ["Catastrophic", "Critical", "Serious", "Minor", "Negligible"],
-      "description": "ISO 14971:2019 §5.5 Estimation of risk. Manufacturer's own judgment; not computed by MduX-rust."
+      "description": "ISO 14971:2019 §5.5 Estimation of risk. Manufacturer's own judgment; not computed by TrustSC."
     },
     "probability": {
       "type": "string",
       "enum": ["Frequent", "Probable", "Occasional", "Remote", "Improbable"],
-      "description": "ISO 14971:2019 §5.5 Estimation of risk. Manufacturer's own judgment; not computed by MduX-rust."
+      "description": "ISO 14971:2019 §5.5 Estimation of risk. Manufacturer's own judgment; not computed by TrustSC."
     },
     "risk_control_measures": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "ISO 14971:2019 §7.1-§7.3 Risk control. Ideally naming real mdux_governance::RequirementId values (crates/mdux-governance/src/lib.rs) rather than free-standing mitigation notes, since Hazard.controlled_by already requires this link at the Hazard level."
+      "description": "ISO 14971:2019 §7.1-§7.3 Risk control. Ideally naming real trustsc_governance::RequirementId values (crates/trustsc-governance/src/lib.rs) rather than free-standing mitigation notes, since Hazard.controlled_by already requires this link at the Hazard level."
     },
     "residual_risk_acceptable": {
       "type": "boolean",

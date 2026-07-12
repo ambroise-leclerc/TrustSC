@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdux.dev/schemas/iec81001/security-risk-record.schema.json",
+  "$id": "https://trustsc.dev/schemas/iec81001/security-risk-record.schema.json",
   "title": "IEC 81001-5-1 Security Risk Record",
-  "description": "Records a security risk identified for a health software product built on MduX-rust — a threat/vulnerability pair and its assessed impact, controls, and residual-risk acceptance decision. Distinct from docs/iec62304/schemas/hazard.schema.json's safety Hazard: security risk and safety risk are related but not interchangeable concepts, see docs/iec81001/02-security-risk-management.md. Relevant to IEC 81001-5-1:2021's security risk management activity group (approx. §5) — clause numbering is a best-effort placeholder, see docs/iec81001/README.md. Not currently field-aligned with any crates/mdux-governance/src/lib.rs type; mdux-governance has no dedicated security-risk type today.",
+  "description": "Records a security risk identified for a health software product built on TrustSC — a threat/vulnerability pair and its assessed impact, controls, and residual-risk acceptance decision. Distinct from docs/iec62304/schemas/hazard.schema.json's safety Hazard: security risk and safety risk are related but not interchangeable concepts, see docs/iec81001/02-security-risk-management.md. Relevant to IEC 81001-5-1:2021's security risk management activity group (approx. §5) — clause numbering is a best-effort placeholder, see docs/iec81001/README.md. Not currently field-aligned with any crates/trustsc-governance/src/lib.rs type; trustsc-governance has no dedicated security-risk type today.",
   "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": [
@@ -27,7 +27,7 @@
     },
     "affected_component": {
       "type": "string",
-      "description": "The crate, adapter, or tool this risk concerns, e.g. 'adapters/mdux-vulkan-winit' or 'crates/mdux-ml-authoring'. Free text rather than an enum, since it should stay in step with the workspace's actual crate map (docs/architecture.md) without requiring this schema to be updated whenever a crate is added."
+      "description": "The crate, adapter, or tool this risk concerns, e.g. 'adapters/trustsc-vulkan-winit' or 'crates/trustsc-ml-authoring'. Free text rather than an enum, since it should stay in step with the workspace's actual crate map (docs/architecture.md) without requiring this schema to be updated whenever a crate is added."
     },
     "attack_vector": {
       "type": "string",
@@ -45,7 +45,7 @@
     "security_controls": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Controls that mitigate this risk, as free text pointing at a real mechanism where one exists — e.g. 'ADR-005 trust-zone confinement', '#![forbid(unsafe_code)] in crates/mdux-ml-runtime', 'Classifier1D::new() fail-closed self-test (ADR-017)', 'tools/mdux-ml-baker verify byte-digest check (ADR-007)'. May be empty only if residual_risk_acceptable is being assessed with no controls yet identified; most records are expected to list at least one."
+      "description": "Controls that mitigate this risk, as free text pointing at a real mechanism where one exists — e.g. 'ADR-005 trust-zone confinement', '#![forbid(unsafe_code)] in crates/trustsc-ml-runtime', 'Classifier1D::new() fail-closed self-test (ADR-017)', 'tools/trustsc-ml-baker verify byte-digest check (ADR-007)'. May be empty only if residual_risk_acceptable is being assessed with no controls yet identified; most records are expected to list at least one."
     },
     "residual_risk_acceptable": {
       "type": "boolean",

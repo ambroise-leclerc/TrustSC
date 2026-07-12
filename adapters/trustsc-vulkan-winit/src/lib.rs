@@ -1,4 +1,4 @@
-//! Reusable Vulkan 1.0 + winit presentation adapter for MduX applications (ADR-005/ADR-012 edge
+//! Reusable Vulkan 1.0 + winit presentation adapter for TrustSC applications (ADR-005/ADR-012 edge
 //! adapter crate). Consumes only owned data from governed `trustsc` crates — a built `Framework` and
 //! a `&'static CompiledScreenPackage` — and owns everything platform-specific (window creation,
 //! the Vulkan instance/device/swapchain/pipeline, glyph-atlas upload, and the winit event loop)

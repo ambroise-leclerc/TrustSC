@@ -14,14 +14,14 @@
 group, not a parallel transcription. It contains no reproduced standard text (see
 [`../governance/citation-convention.md`](../governance/citation-convention.md)); use it to find which
 module covers a given activity group, then open that module for the actual explanatory prose and
-MduX-rust cross-references.*
+TrustSC cross-references.*
 
 # IEC 81001-5-1:2021 — AI-Reference index
 
 ## §4-§5 (approx.) — Scope and relationship to IEC 62304 ([detail](01-scope-and-relationship-to-iec62304.md))
 
-- **Scope** — health software product life cycle security; MduX-rust is again scaffolding a
-  manufacturer's device software uses, not itself the regulated product; MduX-rust has no network
+- **Scope** — health software product life cycle security; TrustSC is again scaffolding a
+  manufacturer's device software uses, not itself the regulated product; TrustSC has no network
   stack in any crate today. [→](01-scope-and-relationship-to-iec62304.md#4-approx-scope)
 - **Terms** — security risk vs. safety risk (distinct concepts); secure product development life
   cycle as six activity groups. [→](01-scope-and-relationship-to-iec62304.md#4-approx-terms)
@@ -32,19 +32,19 @@ MduX-rust cross-references.*
 
 ## §5 (approx.) — Security risk management ([detail](02-security-risk-management.md))
 
-- **Identifying threats and vulnerabilities** — distinct from hazard identification; MduX-rust's
+- **Identifying threats and vulnerabilities** — distinct from hazard identification; TrustSC's
   attack surface is scoped by the trust-zone boundary and the absence of a network stack. [→](02-security-risk-management.md#5-approx-identifying-threats-and-vulnerabilities)
 - **Security risk is not safety risk** — the two can share a controlling requirement but are
   different analyses; `Hazard` is not a security risk record. [→](02-security-risk-management.md#5-approx-security-risk-is-not-safety-risk)
 - **Security risk assessment and acceptance** — impact framing (confidentiality/integrity/
   availability) and a residual-risk acceptance decision, mirrored in the schema below. [→](02-security-risk-management.md#5-approx-security-risk-assessment-and-acceptance)
 - **Architecture as an existing control** — trust-zone boundary, SOUP register, byte-verified
-  evidence as controls a manufacturer's security risk record can cite directly. [→](02-security-risk-management.md#5-approx-where-mdux-rusts-architecture-already-functions-as-a-control)
+  evidence as controls a manufacturer's security risk record can cite directly. [→](02-security-risk-management.md#5-approx-where-trustsc-rusts-architecture-already-functions-as-a-control)
 
 ## §6 (approx.) — Secure design and secure implementation ([detail](03-secure-design-and-implementation.md))
 
 - **Secure design principles** — attack surface minimization, defense in depth, least privilege,
-  applied to MduX-rust's real architecture rather than stated abstractly. [→](03-secure-design-and-implementation.md#6-approx-secure-design-principles)
+  applied to TrustSC's real architecture rather than stated abstractly. [→](03-secure-design-and-implementation.md#6-approx-secure-design-principles)
 - **Trust-zone boundary as attack-surface minimization** — ADR-005's governed/adapter/tools split;
   ADR-012's "owned data only" rule at the adapter boundary. [→](03-secure-design-and-implementation.md#attack-surface-minimization-via-the-trust-zone-boundary)
 - **`#![forbid(unsafe_code)]`** — compiler-enforced memory safety across every governed crate; scoped
@@ -64,7 +64,7 @@ MduX-rust cross-references.*
 - **Security update management** — honestly not yet applicable for update *delivery*: no crate in the
   workspace performs networking; update authentication/delivery/rollback is entirely the
   manufacturer's responsibility. [→](04-security-verification-and-update-management.md#7-approx-security-update-management)
-- **Security guidelines for users** — MduX-rust has no end-user product; developer-facing guidance on
+- **Security guidelines for users** — TrustSC has no end-user product; developer-facing guidance on
   which mechanisms have security implications a manufacturer's own operator documentation should
   reflect. [→](04-security-verification-and-update-management.md#7-approx-security-guidelines-for-users)
 

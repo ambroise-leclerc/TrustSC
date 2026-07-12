@@ -1,37 +1,37 @@
-# Usability Engineering File — MduX-rust
+# Usability Engineering File — TrustSC
 
-> Filled-in example for MduX-rust itself. See
+> Filled-in example for TrustSC itself. See
 > [`software_development_file/templates/IEC_62366/Usability_Engineering_File.md`](../../templates/IEC_62366/Usability_Engineering_File.md)
 > for the blank template, and [`docs/iec62366/README.md`](../../../docs/iec62366/README.md) for the
 > underlying clause-by-clause guidance.
 
 ## Document control
 
-- **Product / software item:** MduX-rust's UI layer (`mdux-ui`, the MedUI DSL, `mdux-text-*`,
-  `adapters/mdux-vulkan-winit`)
-- **Scope note:** MduX-rust provides UI *building blocks* and build-time enforcement, not a finished
+- **Product / software item:** TrustSC's UI layer (`trustsc-ui`, the MedUI DSL, `trustsc-text-*`,
+  `adapters/trustsc-vulkan-winit`)
+- **Scope note:** TrustSC provides UI *building blocks* and build-time enforcement, not a finished
   device's usability engineering file — a manufacturer's actual use specification, evaluation
   results, and summative testing are theirs to conduct and document. This file states what
-  MduX-rust's mechanisms can feed into that process.
+  TrustSC's mechanisms can feed into that process.
 
 ## 1. Use specification
 
 > `IEC 62366-1:2015 §5.1 Use specification`
 
-Not applicable to MduX-rust as an SDK — intended use, patient population, and use environment are
+Not applicable to TrustSC as an SDK — intended use, patient population, and use environment are
 device-specific and belong to the manufacturer's own use specification.
 
 ## 2. Frequently used functions and hazard-related use scenarios
 
 > `IEC 62366-1:2015 §5.2 Identify frequently used functions and hazard-related use scenarios`
 
-MduX-rust's `@safety_critical` MedUI annotation (see
+TrustSC's `@safety_critical` MedUI annotation (see
 [`docs/dsl/safety-monitor-contract.md`](../../../docs/dsl/safety-monitor-contract.md) and
 [ADR-011](../../../docs/adr/ADR-011-medui-safety-monitor-and-vulkan-viewport-contract.md)) is the
 mechanism a manufacturer uses to mark which UI elements correspond to hazard-related use scenarios in
 their own analysis. ADR-011 states that a safety-critical UI element should also bind an explicit
 `requirement` identifier so its traceability stays compatible with the governance model — but as of
-this writing the `.medui` compiler (`crates/mdux-ui-dsl-authoring`) does not yet enforce that binding
+this writing the `.medui` compiler (`crates/trustsc-ui-dsl-authoring`) does not yet enforce that binding
 at build time: `@safety_critical(cv_check: [...])` and a node's `requirement` are independent
 attributes, and a `@safety_critical` node with no `requirement` currently compiles without error. A
 manufacturer relying on this link being build-enforced should verify that against the compiler
@@ -60,22 +60,22 @@ representative users, which remains the manufacturer's responsibility.
 
 > `IEC 62366-1:2015 §5.5 User interface design and implementation`
 
-Implemented across `mdux-ui-dsl-authoring` (the `.medui` compiler), `mdux-ui` (UI policy/runtime
-types), and `adapters/mdux-vulkan-winit` (Vulkan rendering, glyph atlas upload, the winit event
+Implemented across `trustsc-ui-dsl-authoring` (the `.medui` compiler), `trustsc-ui` (UI policy/runtime
+types), and `adapters/trustsc-vulkan-winit` (Vulkan rendering, glyph atlas upload, the winit event
 loop).
 
 ## 6. Formative evaluation
 
 > `IEC 62366-1:2015 §5.6 Formative evaluation`
 
-Not conducted by MduX-rust itself — a manufacturer's iterative usability evaluation activities are
+Not conducted by TrustSC itself — a manufacturer's iterative usability evaluation activities are
 theirs to run and document, using their own `.medui` screens as the artifact under test.
 
 ## 7. Summative evaluation
 
 > `IEC 62366-1:2015 §5.7 Summative evaluation`
 
-Not conducted by MduX-rust itself, and not automatable by `--verify-ui` (see §4 above) — summative
+Not conducted by TrustSC itself, and not automatable by `--verify-ui` (see §4 above) — summative
 evaluation for hazard-related use scenarios requires real representative users and is the
 manufacturer's responsibility.
 

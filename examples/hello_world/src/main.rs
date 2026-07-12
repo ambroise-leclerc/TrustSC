@@ -8,7 +8,7 @@ use trustsc::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = DeviceContext::new(
         "Acme Medical",
-        "MduX-rust Hello World",
+        "TrustSC Hello World",
         "hello-world-ui",
         "0.1.0",
         SafetyClass::B,

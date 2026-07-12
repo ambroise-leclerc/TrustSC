@@ -14,7 +14,7 @@ Required properties:
 
 Notes:
 
-- `requirement` is a MduX-rust traceability extension used to keep the generated UI aligned with the existing governance path.
+- `requirement` is a TrustSC traceability extension used to keep the generated UI aligned with the existing governance path.
 - `label` must be `t("key")`.
 - `on_press` is currently limited to predefined `SystemEvent` values.
 

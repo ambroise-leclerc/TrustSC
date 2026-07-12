@@ -6,13 +6,13 @@ The last two sub-clauses of §5 close the usability engineering process's loop: 
 evaluation feeds back into design iteratively as the interface is built, and summative evaluation
 confirms — usually through observed use by representative users — that the finished interface,
 in particular its hazard-related use scenarios, is acceptably safe. This is the module where this
-corpus draws its sharpest line between what MduX-rust genuinely automates and what it cannot touch
+corpus draws its sharpest line between what TrustSC genuinely automates and what it cannot touch
 at all: `--verify-ui` (ADR-016) is a real, running piece of formative-evaluation-adjacent
 machinery, and summative evaluation is, honestly, entirely outside a UI SDK's reach.
 
 **Key areas covered:**
 - Formative evaluation and what `--verify-ui` does and does not substitute for
-- Summative evaluation and why MduX-rust provides no mechanism for it
+- Summative evaluation and why TrustSC provides no mechanism for it
 - How both connect back to the usability engineering file (module 01, §4.2)
 
 ---
@@ -74,7 +74,7 @@ typically means observing representative users perform representative tasks unde
 conditions and analyzing the use errors (if any) that occur, with a documented rationale for the
 user sample, task selection, and pass/fail criteria.
 
-MduX-rust provides no mechanism for this clause, and none of its existing tooling is a
+TrustSC provides no mechanism for this clause, and none of its existing tooling is a
 partial substitute the way `--verify-ui` is for §5.6. There is no human-subject testing
 infrastructure, no protocol for recruiting or characterizing a representative user sample, no
 task-performance measurement, and no statistical methodology for evaluating results — all of
@@ -86,15 +86,15 @@ device's usability file, precisely the kind of overclaiming `docs/regulatory-com
 wording discipline ("supports," "provides evidence for" — never "ensures," "is compliant with")
 exists to prevent.
 
-What MduX-rust's governance types can hold, once a manufacturer has actually conducted a
+What TrustSC's governance types can hold, once a manufacturer has actually conducted a
 summative evaluation, is the *record* of its outcome: a `usability-engineering-record.schema.json`
 entry with `evaluation_type: "Summative"`, the `use_errors_identified` the study surfaced, and
 the `risk_control_measures` (real `RequirementId`s) that followed from it, cross-referenced into
-`mdux_governance::VerificationCase` the same way any other verification evidence is
+`trustsc_governance::VerificationCase` the same way any other verification evidence is
 (`method: "demonstration"`, `evidence`: a pointer to the study report) — see
 `docs/iec62304/schemas/verification-case.schema.json` and
 `docs/iec62304/04-development-implementation-and-testing.md` for the general pattern this
-reuses. This is recordkeeping for evidence generated entirely outside MduX-rust, not evidence
+reuses. This is recordkeeping for evidence generated entirely outside TrustSC, not evidence
 generation.
 
 ---

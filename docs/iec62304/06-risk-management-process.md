@@ -20,7 +20,7 @@ this clause specializes for software.
 ### §7.1.1-§7.1.3 Identify and evaluate contributing sequences
 
 For each identified hazard, the manufacturer analyzes whether and how software could contribute to
-the sequence of events leading to it, and estimates the resulting risk. `mdux_governance::Hazard`
+the sequence of events leading to it, and estimates the resulting risk. `trustsc_governance::Hazard`
 (`id`, `description`, `controlled_by`) is a structured record of the outcome of this analysis — not
 the analysis process itself, which remains the manufacturer's engineering judgment, but a place to
 record which requirements exist *because of* that analysis.
@@ -42,7 +42,7 @@ rejects a hazard with no controlling requirement, so this link cannot be left im
 A concrete instance in the example applications: `examples/class_c_monitor`'s sedation-index alert
 path exists because a delayed or missed alert is a hazardous-contribution scenario for a
 depth-of-anesthesia monitor — `Classifier1D::predict()`'s deterministic, allocation-free inference
-and `mdux-ml-runtime`'s fail-closed self-test at startup (ADR-017) are risk control measures for
+and `trustsc-ml-runtime`'s fail-closed self-test at startup (ADR-017) are risk control measures for
 that hazard, not incidental performance properties.
 
 ### §7.2.2 Implement risk control measures
@@ -62,14 +62,14 @@ being verified.
 ### §7.3.2 Verify no new hazards introduced
 
 Introducing a risk control measure must not itself create a new hazardous contribution — e.g. adding
-`mdux-ml-runtime`'s startup self-test could in principle introduce a new failure mode (a false
+`trustsc-ml-runtime`'s startup self-test could in principle introduce a new failure mode (a false
 self-test failure blocking a device that would otherwise function correctly); ADR-017's design
 explicitly accepts "fail closed" as the safer of the two failure directions for this tradeoff.
 
 ## §7.4 Risk management of software changes
 
 A change to software already in the field re-enters this process before release — see module 05
-(§6.2.2) for how modification analysis and risk management connect. `mdux_governance::AuditEvent`'s
+(§6.2.2) for how modification analysis and risk management connect. `trustsc_governance::AuditEvent`'s
 `Verification` category (recorded by `ComplianceProgram::add_verification`) gives a change's
 re-verification a place in the sequenced audit trail.
 

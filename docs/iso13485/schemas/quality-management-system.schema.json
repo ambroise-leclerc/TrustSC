@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdux.dev/schemas/iso13485/quality-management-system.schema.json",
+  "$id": "https://trustsc.dev/schemas/iso13485/quality-management-system.schema.json",
   "title": "ISO 13485 Quality Management System Scope Record",
-  "description": "Records the scope of a manufacturer's QMS as it relates to a device built on MduX-rust — which device(s) the QMS covers and which ISO 13485 requirements apply. Not a substitute for the QMS itself, and not field-aligned with any crates/mdux-governance/src/lib.rs type (mdux-governance has no organizational/QMS concept). See docs/iso13485/01-foundations-and-qms.md §4.2.2 and docs/governance/citation-convention.md.",
+  "description": "Records the scope of a manufacturer's QMS as it relates to a device built on TrustSC — which device(s) the QMS covers and which ISO 13485 requirements apply. Not a substitute for the QMS itself, and not field-aligned with any crates/trustsc-governance/src/lib.rs type (trustsc-governance has no organizational/QMS concept). See docs/iso13485/01-foundations-and-qms.md §4.2.2 and docs/governance/citation-convention.md.",
   "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": ["qms_id", "organization_profile", "scope_definition"],
@@ -30,7 +30,7 @@
               "device_name": { "type": "string" },
               "classification": {
                 "type": "string",
-                "description": "The organization's regulatory device classification (jurisdiction-specific, e.g. EU MDR Class IIb, FDA Class II) — distinct from mdux_core::SafetyClass, which is an IEC 62304 software safety classification, not a device classification."
+                "description": "The organization's regulatory device classification (jurisdiction-specific, e.g. EU MDR Class IIb, FDA Class II) — distinct from trustsc_core::SafetyClass, which is an IEC 62304 software safety classification, not a device classification."
               },
               "risk_class": {
                 "type": "string",

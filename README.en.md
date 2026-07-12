@@ -1,4 +1,4 @@
-# MduX-rust
+# TrustSC
 
 🇫🇷 [Version française](README.md)
 
@@ -18,14 +18,14 @@ visible to an operator; evidence an auditor can't easily reproduce; and safety-c
 elements whose behavior is hard to guarantee once the rendering stack allocates or shapes text at
 runtime.
 
-## What MduX-rust provides today
+## What TrustSC provides today
 
-MduX-rust splits the workspace into three trust zones — a small, `unsafe`-free governed core
+TrustSC splits the workspace into three trust zones — a small, `unsafe`-free governed core
 (`crates/`), edge adapters that isolate native Vulkan/windowing bindings (`adapters/`), and
 host-only tooling that never ships in a runtime artifact (`tools/`) — so review effort
 concentrates where it matters. Every asset pipeline (fonts, images, shaders, and now ML weights)
 bakes a source input into committed, byte-verified evidence (`package.json` + `report.json`),
-re-checked automatically in CI instead of asserted by hand. On top of that, `mdux-governance`
+re-checked automatically in CI instead of asserted by hand. On top of that, `trustsc-governance`
 provides working `Requirement`/`Hazard`/`VerificationCase`/`AuditEvent` types with structured
 trace-matrix and audit-trail export.
 
@@ -67,7 +67,7 @@ The two efforts previously tracked here as a roadmap are now delivered
   `software_development_file/regulatory/` already are the "applied to this project" layer.
 - **Regulatory documentation templates** — [`software_development_file/`](software_development_file/README.md)
   has a `templates/` tree any manufacturer fills in, and a `regulatory/` tree with the same
-  documents filled in for MduX-rust itself, citing real ADRs, `mdux-governance` types, and
+  documents filled in for TrustSC itself, citing real ADRs, `trustsc-governance` types, and
   examples.
 
 Details and tracking: **[Regulatory compliance](docs/regulatory-compliance.md)**.
@@ -90,8 +90,8 @@ Full command reference and Vulkan installation steps: **[Getting started](docs/g
 
 | Directory | Contents |
 |---|---|
-| `crates/` | Governed core: device/compliance model, UI policy, text and ML pipelines, the `mdux` facade. |
-| `adapters/mdux-vulkan-winit` | The Vulkan + winit presentation adapter — the only crate touching native windowing/graphics bindings. |
+| `crates/` | Governed core: device/compliance model, UI policy, text and ML pipelines, the `trustsc` facade. |
+| `adapters/trustsc-vulkan-winit` | The Vulkan + winit presentation adapter — the only crate touching native windowing/graphics bindings. |
 | `tools/` | Host-only bake/verify tooling for fonts, images, shaders, and ML model evidence. |
 | `examples/` | `hello_world` (smallest smoke demo), `class_b_device`, `class_c_monitor` (NeuroSense 500), `class_c_vulkansc_device`. |
 

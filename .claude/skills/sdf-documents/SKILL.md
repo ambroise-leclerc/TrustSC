@@ -7,10 +7,10 @@ description: Fill in or review software_development_file/ documents (SAD, SDD, S
 
 `software_development_file/` holds two mirrored trees (ADR-019, see its `README.md`):
 
-- `templates/` — blank documents any manufacturer building on MduX-rust fills in for their own
+- `templates/` — blank documents any manufacturer building on TrustSC fills in for their own
   device. Keep them product-neutral: structural headings, guidance prose, placeholder tables —
-  no MduX-rust-specific claims.
-- `regulatory/` — the **same** documents filled in for MduX-rust itself. This is the worked
+  no TrustSC-specific claims.
+- `regulatory/` — the **same** documents filled in for TrustSC itself. This is the worked
   example; keep the two trees structurally in sync (a heading added to one is added to the other).
 
 Documents per standard: `IEC_62304/{SAD,SDD,SOUP}.md`, `IEC_62366/Usability_Engineering_File.md`,
@@ -25,7 +25,7 @@ block. Follow the worked examples in `software_development_file/regulatory/IEC_6
 ````markdown
 > `IEC 62304:2006 §5.3.3 Identify segregation necessary for risk control`
 
-Prose explaining how MduX-rust addresses this clause, citing concrete mechanisms...
+Prose explaining how TrustSC addresses this clause, citing concrete mechanisms...
 
 ```json
 { "justification_id": "JUS-00N", "standard": "IEC 62304", "clause_ref": "...", "rationale": "...", "evidence_refs": ["..."] }
@@ -34,7 +34,7 @@ Prose explaining how MduX-rust addresses this clause, citing concrete mechanisms
 
 For the citation-key grammar, `Justification` field rules, and JUS-id allocation, use the
 `regulatory-citations` skill / `docs/governance/citation-convention.md`. The linter
-(`cargo run --locked -q -p mdux-docs-lint -- check`) validates both after your edits.
+(`cargo run --locked -q -p trustsc-docs-lint -- check`) validates both after your edits.
 
 ## Hard rules
 
@@ -42,7 +42,7 @@ For the citation-key grammar, `Justification` field rules, and JUS-id allocation
   summarizes `docs/governance/soup-register.toml`; it must not re-list entries that would drift.
   Same principle for anything CI already verifies (evidence reports, trace matrices).
 - Never reproduce standards' normative text — original prose only (see `regulatory-citations`).
-- Be honest about gaps: where MduX-rust deliberately does *not* provide something (a QMS, a
+- Be honest about gaps: where TrustSC deliberately does *not* provide something (a QMS, a
   clinical evaluation, trend analysis), the filled documents say so explicitly and assign it to
   the manufacturer — follow the existing tone in `regulatory/` and
   `docs/regulatory-compliance.md`.

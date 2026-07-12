@@ -4,7 +4,7 @@
 
 The remaining four sub-clauses of §5: writing and unit-verifying software units (§5.5), integrating
 them and testing the integration (§5.6), testing the whole system against its requirements (§5.7),
-and releasing it (§5.8). This module also covers where MduX-rust's evidence-generation pattern
+and releasing it (§5.8). This module also covers where TrustSC's evidence-generation pattern
 (ADR-007) sits relative to each sub-clause, since it is the project's primary answer to "how is this
 verified."
 
@@ -28,16 +28,16 @@ that determines which zone new code belongs in before it's written (see `docs/ar
 
 ### §5.5.2 Establish unit verification process
 
-Unit-level correctness is verified by `cargo test`, scoped per crate. `mdux-ml-runtime`'s
+Unit-level correctness is verified by `cargo test`, scoped per crate. `trustsc-ml-runtime`'s
 `Classifier1D::new()` additionally performs a unit-verification step *at runtime*, not only at
-build time: it re-runs every golden self-test vector baked by `mdux-ml-authoring` and fails closed
+build time: it re-runs every golden self-test vector baked by `trustsc-ml-authoring` and fails closed
 on any bit-mismatch, catching miscompilation or target floating-point drift that a build-time test
 suite alone cannot (ADR-017).
 
 ### §5.5.3 Unit verification
 
 Beyond `cargo test`, generated-evidence crates verify their own committed artifacts by
-byte-comparison: `tools/mdux-font-baker`, `tools/mdux-shader-baker`, and `tools/mdux-ml-baker` each
+byte-comparison: `tools/trustsc-font-baker`, `tools/trustsc-shader-baker`, and `tools/trustsc-ml-baker` each
 expose a `verify` subcommand that re-derives a `report.json` from its source input and fails if the
 digest doesn't match what's committed (ADR-007). This is unit verification of the *baking* process,
 distinct from testing the runtime crates that consume the baked output.
@@ -46,7 +46,7 @@ distinct from testing the runtime crates that consume the baked output.
 
 ### §5.6.1 Integrate software units
 
-`FrameworkBuilder` (`crates/mdux/src/lib.rs`) is the composition root where `DeviceContext` +
+`FrameworkBuilder` (`crates/trustsc/src/lib.rs`) is the composition root where `DeviceContext` +
 `ComplianceProgram` + `UiSdkConfig` + `UiComponent`s are wired together — the point at which
 previously independently-developed governed crates become one `Framework`.
 
@@ -69,7 +69,7 @@ software rasterizer as well as real hardware.
 
 ### §5.7.2 Use of software problem resolution process
 
-Failures found during system testing are logged as `mdux_governance::ProblemReport`s and flow
+Failures found during system testing are logged as `trustsc_governance::ProblemReport`s and flow
 through module 08 (Problem resolution process) rather than being fixed silently outside that record.
 
 ## §5.8 Software release
@@ -88,7 +88,7 @@ requirement (no orphans), and a Class C device has at least one recorded hazard.
 
 ### §5.8.3 Document released versions
 
-`DeviceContext.compliance_label()` (`crates/mdux-core/src/lib.rs`) formats
+`DeviceContext.compliance_label()` (`crates/trustsc-core/src/lib.rs`) formats
 `"{product_name} {version} ({safety_class})"` — the minimal identity string a release record needs,
 generated from the same typed data used throughout the compliance program rather than hand-typed
 separately.

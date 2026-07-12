@@ -5,7 +5,7 @@
 The first five sub-clauses of §5 (Usability engineering process): defining what the device is
 for and who uses it, finding the use scenarios where a use error could cause harm, turning that
 analysis into a concrete user interface specification, planning how the interface will be
-evaluated, and finally designing and implementing it. This is the module where MduX-rust's real
+evaluated, and finally designing and implementing it. This is the module where TrustSC's real
 mechanisms — the MedUI DSL, its compile-time text-budget and layout checks, and its
 requirement-bound safety-critical annotation — have the most to say, because §5.3 and §5.5 are
 about the interface as a designed, specified artifact, which is exactly what the DSL produces.
@@ -30,8 +30,8 @@ frequently used functions and foreseeable use scenarios can be identified agains
 is entirely an input the manufacturer supplies about their own device; nothing about a UI SDK can
 generate or infer a clinical intended-use statement.
 
-MduX-rust's relevant contribution is indirect: the `mdux_core::DeviceContext` type
-(`crates/mdux-core/src/lib.rs`) that every `Framework` is built around carries a device identity
+TrustSC's relevant contribution is indirect: the `trustsc_core::DeviceContext` type
+(`crates/trustsc-core/src/lib.rs`) that every `Framework` is built around carries a device identity
 and `SafetyClass`, and the example applications (`examples/hello_world`, `examples/class_c_monitor`)
 show the pattern of stating a device's identity and classification alongside its compliance
 program. That is a place to *anchor* a use specification's device identity to the same
@@ -53,11 +53,11 @@ Against the use specification, the manufacturer identifies which functions are u
 enough that habituation and automaticity become a design concern, and works through foreseeable
 use scenarios to find the ones where a use error could contribute to a hazardous situation —
 hazard-related use scenarios in this standard's sense (§3 above). This is a structured brainstorm
-against real clinical workflow, not a mechanical derivation from a UI's structure; MduX-rust
+against real clinical workflow, not a mechanical derivation from a UI's structure; TrustSC
 cannot run it, and nothing in the framework claims otherwise.
 
-Where MduX-rust connects to this clause is at the output side, once the manufacturer has
-identified a hazard-related use scenario: `mdux_governance::Hazard` (`id`, `description`,
+Where TrustSC connects to this clause is at the output side, once the manufacturer has
+identified a hazard-related use scenario: `trustsc_governance::Hazard` (`id`, `description`,
 `controlled_by`) is a structured place to record that a use scenario contributes to a
 hazard, and `Hazard::validate()`'s requirement that `controlled_by` be non-empty enforces the same
 discipline IEC 62304 §7.2.1 applies to a software-contributed hazard (`docs/iec62304/06-risk-management-process.md
@@ -85,7 +85,7 @@ scenarios into concrete requirements for the interface itself: what information 
 displayed, what controls must exist, how they must be labeled, and — critically for a
 hazard-related scenario — what interface properties are the actual risk control (a specific
 alert's color, position, or persistence, not just "an alert exists"). This is the clause where
-MduX-rust's MedUI DSL is most directly relevant, because a `.medui` file *is* a formal,
+TrustSC's MedUI DSL is most directly relevant, because a `.medui` file *is* a formal,
 machine-checked expression of a big part of a user interface specification, for the narrow slice
 of "structure, layout, text content, and safety-critical bindings" — not for the broader
 clinical-workflow specification §5.3 as a whole calls for.
@@ -122,7 +122,7 @@ authoring the `.medui` file and is not recoverable from it.
 The evaluation plan states which use scenarios will be evaluated, by what method (formative,
 summative, or both), against what acceptance criteria, and — for hazard-related scenarios
 selected for summative evaluation — why they were selected. This is a planning document the
-manufacturer writes before evaluation begins; MduX-rust has no artifact that plays this role.
+manufacturer writes before evaluation begins; TrustSC has no artifact that plays this role.
 
 The closest the framework comes is structural rather than substantive: `--verify-ui`'s check
 vocabulary (`GoldenBounds`, `ChromeColor`, `TextPresence`, `InkContainment`, `ColorHash` — ADR-016,
@@ -139,7 +139,7 @@ treat them as the plan itself.
 
 This is where the interface specified in §5.3 is actually built, and it is the clause module 03's
 formative evaluation discussion (§5.6) sits closest to — design and formative evaluation are
-meant to iterate together, not run as a single pass. MduX-rust's widget architecture (ADR-015,
+meant to iterate together, not run as a single pass. TrustSC's widget architecture (ADR-015,
 `docs/adr/ADR-015-widget-organization-principles.md`) is the framework's implementation substrate
 for this clause: a closed, compiler-enforced widget set (`CriticalButton`, `Button`, `TextInput`,
 `Label`, `Clock`, `NumericDisplay`, `StatusIndicator`, `Panel`, `Image`, `VulkanViewport`,
@@ -148,7 +148,7 @@ the application, chosen specifically (per ADR-015's five-framework survey) becau
 implemented screen a static structure that can be pinned as evidence — directly useful once §5.6/
 §5.7 evaluation needs something concrete to evaluate against.
 
-Several implementation-level design choices in MduX-rust exist specifically to reduce
+Several implementation-level design choices in TrustSC exist specifically to reduce
 use-error-prone interface implementation, worth citing here even though they were motivated by
 determinism/certifiability concerns first and usability second:
 

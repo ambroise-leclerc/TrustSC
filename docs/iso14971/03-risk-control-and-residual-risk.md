@@ -29,9 +29,9 @@ over measures that merely inform a user of a residual danger — a preference or
 applies when choosing among available options, not something a UI/ML SDK can decide on the
 manufacturer's behalf.
 
-What MduX-rust does provide is the structural guarantee that a control measure is actually expressed
+What TrustSC does provide is the structural guarantee that a control measure is actually expressed
 as engineering work rather than left as a paper intention: `Hazard.controlled_by`
-(`crates/mdux-governance/src/lib.rs`), a non-empty list of `RequirementId`s, is `Hazard::validate()`'s
+(`crates/trustsc-governance/src/lib.rs`), a non-empty list of `RequirementId`s, is `Hazard::validate()`'s
 enforced link from a hazard to at least one requirement that must exist and be verified (module 01
 §4.4 in the IEC 62304 corpus covers the requirement side of this link in detail). Whether the chosen
 requirement implements an inherently safe design change, a protective measure, or an information
@@ -42,7 +42,7 @@ disclosure is a property of what the requirement says, not something the type sy
 Before implementing a chosen control, a manufacturer analyzes the available options for effectiveness
 and for any new risk they might introduce (a concern §7.6 revisits directly once a measure is
 implemented). This analysis is engineering and clinical judgment applied to the specific hazardous
-situation and has no MduX-rust automation. One structural pattern in this repository is worth noting
+situation and has no TrustSC automation. One structural pattern in this repository is worth noting
 as an analog a manufacturer might find useful to imitate, without it being the same activity: an ADR
 under `docs/adr/` documents not just the decision made but the options considered and rejected and why
 (see, for example, ADR-018's discussion of why `SignalTrace` was added as a dedicated primitive rather
@@ -56,14 +56,14 @@ Once a control measure is expressed as a software requirement, its implementatio
 ordinary software development process — `docs/iec62304/06-risk-management-process.md` §7.2.2 already
 covers this: a risk control measure gets no separate implementation track from any other requirement,
 and every requirement (risk-control or otherwise) needs at least one `VerificationCase`
-(`ComplianceProgram::validate()`, `crates/mdux-governance/src/lib.rs`) or the compliance program fails
+(`ComplianceProgram::validate()`, `crates/trustsc-governance/src/lib.rs`) or the compliance program fails
 to validate.
 
 `examples/class_c_monitor` (NeuroSense 500) is a fully worked instance of this clause end to end.
 The hazardous situation (module 02 §5.4) is a delayed or missed sedation-index alert. The risk control
 measures are: `Classifier1D::predict()`'s deterministic, allocation-free inference path over each
 64-bin EEG spectral row (no heap allocation, no unbounded-time operation in the hot path), and
-`mdux-ml-runtime`'s startup self-test, which re-runs every golden input/output vector baked into the
+`trustsc-ml-runtime`'s startup self-test, which re-runs every golden input/output vector baked into the
 model package and fails closed — refusing to construct — if any output diverges bit-for-bit from what
 was recorded (ADR-017). Both are implemented as ordinary Rust code verified by `cargo test` and the CI
 `verify` step against `generated/models/eeg-demo/`, exactly like any other requirement.
@@ -84,7 +84,7 @@ After a control measure is implemented, the risk that remains is re-estimated an
 the same acceptability criteria used in module 02 §6. `docs/iso14971/schemas/risk-record.schema.json`'s
 `residual_risk_acceptable` boolean and `risk_control_measures` array (ideally populated with the
 `RequirementId`s that were credited) are the structured place this outcome is recorded, alongside which
-measures were credited for it. As noted in module 02, MduX-rust computes no residual risk value itself
+measures were credited for it. As noted in module 02, TrustSC computes no residual risk value itself
 — it has no quantitative risk model — so this field always reflects a judgment made outside the
 schema, not a computed result.
 
@@ -93,14 +93,14 @@ schema, not a computed result.
 Where a residual risk remains unacceptable by the manufacturer's own criteria, and no further risk
 control is practicable, a risk-benefit analysis weighing the residual risk against the medical benefit
 of the device is required. This is a clinical and regulatory judgment call that sits well outside what
-a UI/ML rendering SDK can inform, let alone automate — MduX-rust provides no scaffolding for this
+a UI/ML rendering SDK can inform, let alone automate — TrustSC provides no scaffolding for this
 subclause, and none should be inferred from anything in this repository.
 
 ## §7.6 Risks arising from risk control measures
 
 Implementing a control measure must not itself introduce a new hazard or increase an existing risk.
 `docs/iec62304/06-risk-management-process.md` §7.3.2 already covers a concrete instance of this exact
-reasoning: introducing `mdux-ml-runtime`'s startup self-test could in principle create a new failure
+reasoning: introducing `trustsc-ml-runtime`'s startup self-test could in principle create a new failure
 mode (a false self-test failure blocking a device that would otherwise function correctly), and
 ADR-017's design explicitly accepts "fail closed" as the safer of the two possible failure directions
 for that specific tradeoff — a documented instance of a manufacturer's engineering team performing
@@ -126,9 +126,9 @@ Once individual risks have been controlled and their residual risk judged accept
 the manufacturer evaluates the *overall* residual risk presented by the device as a whole — because
 several individually acceptable risks can combine into an overall picture that needs its own judgment
 against the device's benefits. `ComplianceProgram::trace_rows()`/`release_evidence_summary()`
-(`crates/mdux-governance/src/lib.rs`) give an aggregate, structured export — counts of requirements,
+(`crates/trustsc-governance/src/lib.rs`) give an aggregate, structured export — counts of requirements,
 hazards, verifications, and problem reports for a device — that could serve as one input to this
-evaluation, but MduX-rust performs no aggregation of risk *values* and reaches no acceptability
+evaluation, but TrustSC performs no aggregation of risk *values* and reaches no acceptability
 conclusion of its own. The overall judgment remains the manufacturer's; this repository supplies
 inputs a reviewer could consult, not the review's outcome.
 
@@ -145,7 +145,7 @@ exists, and a Class C device has at least one recorded hazard — and `AuditEven
 
 Neither constitutes the review itself. The review this subclause describes is a documented sign-off by
 an accountable person (module 01 §4.2's management-responsibility obligation), and no type in
-`mdux-governance` today represents that sign-off as a first-class record — `ComplianceProgram::validate()`
+`trustsc-governance` today represents that sign-off as a first-class record — `ComplianceProgram::validate()`
 succeeding is evidence a reviewer could point to, not a substitute for the review having actually taken
 place.
 

@@ -28,16 +28,16 @@ class of failure is this standard's subject, and it sits alongside, not inside, 
 software lifecycle (see `docs/iec62304/01-scope-and-general-requirements.md §2 Normative
 references`).
 
-MduX-rust is a UI software development kit, not a finished medical device, and it does not
+TrustSC is a UI software development kit, not a finished medical device, and it does not
 author a device's intended use, its user population, or its use environment — those are the
-manufacturer's inputs to clause 5.1 below. What MduX-rust does provide is a constrained UI
+manufacturer's inputs to clause 5.1 below. What TrustSC does provide is a constrained UI
 authoring and rendering layer (the MedUI DSL, described throughout module 02) whose compile-time
 checks and runtime determinism narrow a specific, real slice of use-related risk: text that
 overflows or truncates, controls that overlap or render in the wrong place, and safety-critical
 elements whose approved content silently drifts from what shipped. This corpus is honest that
 this is a narrow slice — clause 1's full scope (use specification, formative and summative
 evaluation with real users, clinical-workflow risk analysis) is substantially broader than
-anything a UI SDK can automate, and modules 02-03 say so at each point where MduX-rust has
+anything a UI SDK can automate, and modules 02-03 say so at each point where TrustSC has
 nothing to offer.
 
 ## §2 Normative references
@@ -53,19 +53,19 @@ evidence.
 
 ## §3 Terms and definitions
 
-A handful of terms drive how this corpus and MduX-rust's mechanisms line up:
+A handful of terms drive how this corpus and TrustSC's mechanisms line up:
 
 - **User interface** — every means by which an operator and the device exchange information,
   including controls, displays, alarms, and packaging/labeling as far as it affects operation.
-  MduX-rust's slice of this is the on-device rendered surface only: the compiled screens produced
-  by the MedUI DSL (`docs/dsl/overview.md`) and rendered by `adapters/mdux-vulkan-winit`. Physical
+  TrustSC's slice of this is the on-device rendered surface only: the compiled screens produced
+  by the MedUI DSL (`docs/dsl/overview.md`) and rendered by `adapters/trustsc-vulkan-winit`. Physical
   controls, packaging, and instructions-for-use fall outside what this SDK touches.
 - **Use error** — an act or omission by a user that produces a result different from what the
   manufacturer intended or the user expected, distinguished from **abnormal use** (a user action
   or inaction reasonably excluded from risk control because it contradicts foreseeable use).
-  MduX-rust cannot classify a real operator's action as a use error or abnormal use — that
+  TrustSC cannot classify a real operator's action as a use error or abnormal use — that
   judgment requires the manufacturer's use specification (§5.1) and clinical context. What
-  MduX-rust's `--verify-ui` tooling (ADR-016, module 03) can do is confirm that the interface, as
+  TrustSC's `--verify-ui` tooling (ADR-016, module 03) can do is confirm that the interface, as
   rendered, presents the information the manufacturer intended it to present, which is a
   precondition for a use-error analysis to be meaningful at all.
 - **Hazard-related use scenario** — a use scenario whose associated use error(s) could lead to
@@ -75,12 +75,12 @@ A handful of terms drive how this corpus and MduX-rust's mechanisms line up:
 - **Usability engineering file** — the standard's equivalent of a design history file, specific to
   usability: every use specification, evaluation plan, formative and summative evaluation record,
   and the resulting user interface specification, collected so a reviewer can trace a shipped
-  interface back to the evidence that justified it. §4.2 below describes what MduX-rust
+  interface back to the evidence that justified it. §4.2 below describes what TrustSC
   contributes toward one.
 - **Formative evaluation** / **summative evaluation** — module 03 covers both; the short version
   is that formative evaluation informs design iteratively during development, while summative
   evaluation confirms the finished interface is safe for its intended users, uses, and
-  environments, typically through observed use by representative users. MduX-rust has real,
+  environments, typically through observed use by representative users. TrustSC has real,
   running mechanisms relevant to formative evaluation and essentially nothing for summative
   evaluation — see module 03 for exactly where that line falls.
 
@@ -97,9 +97,9 @@ field/complaint/service history and prior evaluation records, rather than requir
 process to be repeated from a blank slate, provided the gap analysis itself is documented and any
 identified gap is closed.
 
-MduX-rust has no code path for this today, and this corpus does not pretend otherwise. There is
+TrustSC has no code path for this today, and this corpus does not pretend otherwise. There is
 no mechanism for importing an existing, non-MedUI-authored screen and attaching retrofitted
-usability evidence to it — a manufacturer bringing a legacy UI (built before adopting MduX-rust,
+usability evidence to it — a manufacturer bringing a legacy UI (built before adopting TrustSC,
 or built outside it entirely) under this standard applies §4.1's gap-analysis provisions using
 their own process, and the resulting record lives in their usability engineering file, not in
 anything this SDK generates. Where §4.1 is directly actionable is the opposite direction: every
@@ -120,17 +120,17 @@ The usability engineering file collects the use specification, the identified ha
 scenarios, the user interface specification, the evaluation plan, and the formative/summative
 evaluation records into one traceable set, so a reviewer can follow a shipped interface's design
 back to the analysis that justified it — the usability counterpart of IEC 62304's overall design
-history file discipline. MduX-rust does not assemble this file; it is squarely the manufacturer's
+history file discipline. TrustSC does not assemble this file; it is squarely the manufacturer's
 document, built around their own use specification and evaluation program.
 
-What this corpus and `mdux-governance` contribute is a structured place to *record* two pieces
+What this corpus and `trustsc-governance` contribute is a structured place to *record* two pieces
 that belong inside that file once a manufacturer has done the underlying work: a hazard-related
 use scenario, its evaluation, and its findings (`schemas/usability-engineering-record.schema.json`,
 this folder — an entry per use scenario/evaluation pairing, deliberately mirroring the shape of
 `docs/iec62304/schemas/hazard.schema.json` and `verification-case.schema.json`), and the risk
 control measures that scenario drove, which — like every risk control measure under IEC 62304
 §5.2.2 (`docs/iec62304/02-development-planning-and-requirements.md §5.2.2`) — should exist as an
-actual `mdux_governance::Requirement`, not a free-floating note. `risk_control_measures` in that
+actual `trustsc_governance::Requirement`, not a free-floating note. `risk_control_measures` in that
 schema is deliberately a list of strings intended to hold real `RequirementId`s for exactly this
 reason. None of this constitutes an operating usability engineering file by itself — see
 `docs/regulatory-compliance.md`'s "Governance types are scaffolding, not an operating QMS"

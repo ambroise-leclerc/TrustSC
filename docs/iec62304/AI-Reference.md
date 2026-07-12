@@ -1,7 +1,7 @@
 *This is a compact, complete index over `docs/iec62304/`'s modular files — one row per clause, not a
 parallel transcription. It contains no reproduced standard text (see
 [`../governance/citation-convention.md`](../governance/citation-convention.md)); use it to find which
-module covers a given clause, then open that module for the actual explanatory prose and MduX-rust
+module covers a given clause, then open that module for the actual explanatory prose and TrustSC
 cross-references.*
 
 # IEC 62304:2006+AMD1:2015 — AI-Reference index
@@ -12,14 +12,14 @@ placeholder — if a row exists here, its module has real content.
 
 ## §1-§4 — Scope and general requirements ([detail](01-scope-and-general-requirements.md))
 
-- **§1 Scope** — applies to development/maintenance of medical device software; MduX-rust is an SDK a
+- **§1 Scope** — applies to development/maintenance of medical device software; TrustSC is an SDK a
   manufacturer's device software uses, not itself the regulated device. [→](01-scope-and-general-requirements.md#1-scope)
 - **§2 Normative references** — ties to ISO 13485, ISO 14971, IEC 62366-1 (and informatively IEC 81001-5-1). [→](01-scope-and-general-requirements.md#2-normative-references)
 - **§3 Terms and definitions** — SOUP and the software item/unit/system hierarchy matter most here. [→](01-scope-and-general-requirements.md#3-terms-and-definitions)
-- **§4.1 Quality management system** — MduX-rust doesn't provide the QMS; see `docs/iso13485/`. [→](01-scope-and-general-requirements.md#41-quality-management-system)
+- **§4.1 Quality management system** — TrustSC doesn't provide the QMS; see `docs/iso13485/`. [→](01-scope-and-general-requirements.md#41-quality-management-system)
 - **§4.2 Risk management process** — `Hazard::validate()`'s non-empty `controlled_by` is the machine-checked integration point. [→](01-scope-and-general-requirements.md#42-risk-management-process)
 - **§4.3 Software safety classification** — Class A/B/C defined; `SafetyClass` models only B/C. [→](01-scope-and-general-requirements.md#43-software-safety-classification)
-- **§4.4 Legacy software** — not currently applicable to MduX-rust itself. [→](01-scope-and-general-requirements.md#44-legacy-software)
+- **§4.4 Legacy software** — not currently applicable to TrustSC itself. [→](01-scope-and-general-requirements.md#44-legacy-software)
 
 ## §5.1-§5.2 — Planning and requirements ([detail](02-development-planning-and-requirements.md))
 

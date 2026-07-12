@@ -17,7 +17,7 @@ to its resolution and any consequent re-verification.
 
 ### §9.1.1-§9.1.2 Receive and document problem reports
 
-`mdux_governance::ProblemReport { id, summary, closed }` gives every problem report a stable
+`trustsc_governance::ProblemReport { id, summary, closed }` gives every problem report a stable
 identity and an explicit open/closed state; `ComplianceProgram::add_problem_report()` records the
 report's arrival as a `Lifecycle` `AuditEvent`, so "when was this reported" is derivable from the
 sequenced audit trail rather than relying on an external issue tracker's own timestamp as the sole
@@ -39,7 +39,7 @@ exist at release time.
 
 ### §9.1.5 Trend analysis
 
-Not currently automated by `mdux-governance` — the type gives a manufacturer a queryable list of
+Not currently automated by `trustsc-governance` — the type gives a manufacturer a queryable list of
 problem reports (`ComplianceProgram` does not yet expose a public `problems()` accessor alongside
 `requirements()`/`audit_events()`), but does not itself perform trend analysis across problem
 reports. This is a gap for a manufacturer's own post-market surveillance process to close, not
@@ -52,7 +52,7 @@ something this project claims to automate.
 Resolution of a problem report follows the same development-process modules (02-04) any other
 change does, with the additional requirement that the report itself, and any hazard or requirement
 it touches, stay linked. `Hazard.controlled_by` and `VerificationCase.requirement` are the two link
-fields that keep this traceable in `mdux-governance`'s model — a resolution that changes a
+fields that keep this traceable in `trustsc-governance`'s model — a resolution that changes a
 requirement's implementation should, if that requirement controls a hazard or has active
 verification cases, be re-verified against them rather than assumed correct.
 

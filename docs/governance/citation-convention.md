@@ -2,7 +2,7 @@
 
 This document defines how `docs/iec62304/`, `docs/iso13485/`, `docs/iso14971/`, `docs/iec62366/`,
 `docs/iec81001/`, and `software_development_file/` cite regulatory-standard clauses, and how a
-justification linking MduX-rust's design to a specific clause is structured. Every other file in the
+justification linking TrustSC's design to a specific clause is structured. Every other file in the
 regulatory corpus follows this convention rather than restating it.
 
 This convention document is the first PR in a 9-PR stack that builds out the whole corpus (ADR-019);
@@ -19,7 +19,7 @@ Everything under `docs/<standard>/` is **original explanatory prose** written ag
 *structure* (numbers and titles, which are not copyrightable in the way normative prose is), not a
 transcription. A developer or auditor who needs the actual normative wording of a clause consults
 their own licensed copy of the standard; this corpus tells them which clause to open and why it's
-relevant to MduX-rust, and cites MduX-rust's own design (ADRs, crate types, examples) as far as
+relevant to TrustSC, and cites TrustSC's own design (ADRs, crate types, examples) as far as
 possible in its place.
 
 ## Citation key format
@@ -52,7 +52,7 @@ Rules:
 - The short title is the clause's own heading, kept short enough to read inline.
 - The same string is used verbatim as: the modular file's `##`/`###` heading, the corresponding row in
   that standard's `AI-Reference.md`, and the `clause_ref` value in any `Requirement` or `Justification`
-  object that cites it (`mdux-governance::Requirement.source_clause` is a free-text field already — this
+  object that cites it (`trustsc-governance::Requirement.source_clause` is a free-text field already — this
   convention is simply what goes in it).
 
 ## The `Justification` object
@@ -60,16 +60,16 @@ Rules:
 `docs/iec62304/schemas/justification.schema.json` defines this shape once; it is shared by all five
 standards (a justification's `standard` field says which one it's citing) rather than duplicated per
 standard. This is the concrete mechanism for "a justification with a reference to the original
-paragraph": a small, schema-validated record tying a design decision in MduX-rust to a specific clause,
+paragraph": a small, schema-validated record tying a design decision in TrustSC to a specific clause,
 with a human-readable rationale and pointers to the evidence (an ADR, a source file, an example, a
-`mdux-governance` requirement) that substantiates it.
+`trustsc-governance` requirement) that substantiates it.
 
 ```json
 {
   "justification_id": "JUS-001",
   "standard": "IEC 62304",
   "clause_ref": "IEC 62304:2006 §7.1 Analysis of software contributing to hazardous situations",
-  "rationale": "mdux-governance::Hazard requires >=1 controlling Requirement, and ComplianceProgram::validate() rejects a Class C device with zero recorded hazards, giving §7.1's hazard analysis a machine-checked minimum rather than a paper-only record.",
+  "rationale": "trustsc-governance::Hazard requires >=1 controlling Requirement, and ComplianceProgram::validate() rejects a Class C device with zero recorded hazards, giving §7.1's hazard analysis a machine-checked minimum rather than a paper-only record.",
   "requirement_id": "REQ-EEG-ALERT-LATENCY",
   "evidence_refs": [
     "crates/trustsc-governance/src/lib.rs",
@@ -84,9 +84,9 @@ Field notes:
 - `justification_id` — `JUS-NNN`, sequential, unique across the whole corpus (not per-standard).
 - `standard` — one of `IEC 62304`, `ISO 13485`, `ISO 14971`, `IEC 62366-1`, `IEC 81001-5-1`.
 - `clause_ref` — a citation key in the format above.
-- `rationale` — why/how MduX-rust's design addresses or informs this clause. Written in prose, not a
+- `rationale` — why/how TrustSC's design addresses or informs this clause. Written in prose, not a
   restatement of the clause itself.
-- `requirement_id` *(optional)* — cross-references a real `mdux-governance::RequirementId` when the
+- `requirement_id` *(optional)* — cross-references a real `trustsc-governance::RequirementId` when the
   justification backs a specific tracked requirement rather than a general design property.
   `crates/trustsc-governance/src/lib.rs` defines this type; that crate has no `serde` support yet, so this
   is a documentation-level cross-reference today, not a live join — see `docs/adr/ADR-019-regulatory-standards-reference-corpus.md`
@@ -97,7 +97,7 @@ Field notes:
 Justification objects are not collected into one giant registry file in this pass — they appear inline
 (as fenced `json` blocks) in the `software_development_file/regulatory/` documents (added later in
 this PR stack) where a specific design choice needs to cite its clause, and in `docs/<standard>/NN-*.md`
-modules where a clause's explanatory prose points at a concrete piece of MduX-rust as its example. A future change could lift
+modules where a clause's explanatory prose points at a concrete piece of TrustSC as its example. A future change could lift
 these into a single validated array if the corpus grows large enough to need one; see
 `docs/regulatory-compliance.md`.
 

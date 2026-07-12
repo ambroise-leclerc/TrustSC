@@ -3,7 +3,7 @@
 ## Module overview
 
 This module covers what IEC 81001-5-1:2021 applies to, the terms it introduces that matter for
-MduX-rust, and — most importantly for a corpus that already has an IEC 62304 module — how the two
+TrustSC, and — most importantly for a corpus that already has an IEC 62304 module — how the two
 standards' processes relate. IEC 81001-5-1 does not describe a parallel life cycle; it describes a
 set of security-specific activities that a manufacturer weaves into the life cycle IEC 62304 already
 requires, drawing on IEC 62443-4-1's secure-product-development requirements for the "how." Everything
@@ -15,7 +15,7 @@ running alongside development.
 - Terms load-bearing for the rest of this module group
 - Relationship to IEC 62304's life cycle processes
 - Relationship to IEC 62443-4-1's secure-product-development requirements
-- What "integration" means concretely for a project like MduX-rust
+- What "integration" means concretely for a project like TrustSC
 
 ---
 
@@ -24,10 +24,10 @@ running alongside development.
 IEC 81001-5-1 applies to the security of software used in, or as, a health software product across
 its life cycle — development, deployment, and maintenance. Like IEC 62304's own scope statement
 (see [`../iec62304/01-scope-and-general-requirements.md §1`](../iec62304/01-scope-and-general-requirements.md#1-scope)),
-this is a standard aimed at a manufacturer's process for *their* product; MduX-rust is again in the
+this is a standard aimed at a manufacturer's process for *their* product; TrustSC is again in the
 position of being scaffolding a manufacturer's device software depends on, not the regulated health
-software product itself. A manufacturer building on MduX-rust applies IEC 81001-5-1 to their own
-device, informed by what MduX-rust's own trust-zone architecture and evidence pipeline already give
+software product itself. A manufacturer building on TrustSC applies IEC 81001-5-1 to their own
+device, informed by what TrustSC's own trust-zone architecture and evidence pipeline already give
 them — which is the throughline of modules 02-04.
 
 It is worth being explicit about what "cybersecurity" means in this context versus what it does not:
@@ -35,10 +35,10 @@ IEC 81001-5-1 is about the security of the software product's own life cycle and
 artifact — secure design, secure coding practices, vulnerability handling, secure update delivery —
 not about network protocol implementations, cryptographic library selection, or hospital IT network
 segmentation, which are largely a deployment-environment and systems-integration concern outside a
-single SDK's scope. MduX-rust today has **no network stack in any crate or adapter** — no
+single SDK's scope. TrustSC today has **no network stack in any crate or adapter** — no
 `adapters/` crate performs networking, and no governed crate parses untrusted network input. Several
 activity groups this corpus describes (most notably security update *delivery* mechanisms) are
-therefore honestly out of scope for what MduX-rust ships today; module 04 states this explicitly
+therefore honestly out of scope for what TrustSC ships today; module 04 states this explicitly
 rather than describing a mechanism that does not exist.
 
 ## §4 (approx.) Terms
@@ -70,7 +70,7 @@ how IEC 62304 §7 (software risk management) sits inside a manufacturer's overal
 (see [`../iec62304/06-risk-management-process.md §7.1`](../iec62304/06-risk-management-process.md#71-analysis-of-software-contributing-to-hazardous-situations)):
 
 - Security risk management (module 02) sits alongside IEC 62304 §7's safety risk management, sharing
-  the same requirement-and-verification machinery in `mdux-governance` where a control happens to
+  the same requirement-and-verification machinery in `trustsc-governance` where a control happens to
   serve both purposes, but producing its own distinct risk records where it does not.
 - Secure design and secure implementation (module 03) sit alongside IEC 62304 §5.3-§5.5's
   architectural design, detailed design, and unit implementation/verification clauses — a security
@@ -87,7 +87,7 @@ how IEC 62304 §7 (software risk management) sits inside a manufacturer's overal
   distinguishing feature that its motivating "problem" is a vulnerability report rather than a
   functional defect report.
 
-`mdux-governance`'s `Requirement`/`VerificationCase`/`ProblemReport`/`AuditEvent` types (module 02 of
+`trustsc-governance`'s `Requirement`/`VerificationCase`/`ProblemReport`/`AuditEvent` types (module 02 of
 `../iec62304/`) do not currently distinguish a security-motivated record from a safety-motivated one
 at the type level — both flow through the same `ComplianceProgram`. This is an accurate description
 of the current repository state, not a design recommendation either way; a manufacturer wanting a

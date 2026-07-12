@@ -11,7 +11,7 @@ The DSL must produce evidence that can be audited, diffed, and consumed by runti
 ## Decision
 
 - `examples/hello_world/build.rs` compiles `.medui` source into a Rust module stored in `OUT_DIR`.
-- The host-side compiler lives in `crates/mdux-ui-dsl-authoring` and is used as a build dependency only.
+- The host-side compiler lives in `crates/trustsc-ui-dsl-authoring` and is used as a build dependency only.
 - Generated artifacts contain:
   - static screen layout data
   - node metadata required by the runtime

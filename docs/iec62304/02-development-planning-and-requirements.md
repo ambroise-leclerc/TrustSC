@@ -19,7 +19,7 @@ documents that must stay current as the project evolves, not one-time artifacts.
 ### §5.1.1 General
 
 A manufacturer plans the software development process for each software system before starting
-detailed design. The plan need not be a single document — for a project like MduX-rust it can be
+detailed design. The plan need not be a single document — for a project like TrustSC it can be
 composed of the ADR trail (`docs/adr/`), the CI workflow (`.github/workflows/ci.yml`), and
 `docs/architecture.md`, provided together they cover the plan's required content (§5.1.2).
 
@@ -28,14 +28,14 @@ composed of the ADR trail (`docs/adr/`), the CI workflow (`.github/workflows/ci.
 The plan must address, at minimum: the processes/activities/deliverables of development; traceability
 between requirements, design, implementation, and verification; the software configuration/problem
 resolution processes to use; and the measures used to control coding standards, tools, and
-integration environments. MduX-rust's equivalent artifacts:
+integration environments. TrustSC's equivalent artifacts:
 
-- **Traceability** — `mdux-governance::ComplianceProgram::trace_rows()`/`trace_matrix_export()`
-  (`crates/mdux-governance/src/lib.rs`) generate a requirement → verification → hazard matrix
+- **Traceability** — `trustsc-governance::ComplianceProgram::trace_rows()`/`trace_matrix_export()`
+  (`crates/trustsc-governance/src/lib.rs`) generate a requirement → verification → hazard matrix
   directly from the types a manufacturer populates, rather than a hand-maintained spreadsheet.
 - **Configuration management** — module 07 of this corpus; `Cargo.lock` committed and CI building
   `--locked` is the mechanism (ADR-005).
-- **Problem resolution** — module 08; GitHub Issues plus `mdux-governance::ProblemReport`.
+- **Problem resolution** — module 08; GitHub Issues plus `trustsc-governance::ProblemReport`.
 - **Coding standards/tools** — `#![forbid(unsafe_code)]` in every governed crate, enforced at
   compile time rather than by review checklist (ADR-005).
 
@@ -51,7 +51,7 @@ mechanism §5.1.3 asks for.
 
 Software requirements state what the software must do, not how — functional/capability behavior,
 performance, interfaces with hardware/other software, and (per §5.2.2, folded in below) required
-risk control measures. `mdux_governance::Requirement { id, title, source_clause, verification_intent }`
+risk control measures. `trustsc_governance::Requirement { id, title, source_clause, verification_intent }`
 gives every requirement a stable id, a citable clause it traces back to, and a stated verification
 intent up front, rather than letting verification strategy be decided after the fact.
 
@@ -65,7 +65,7 @@ must exist as an actual `Requirement`, checkable by `ComplianceProgram::validate
 ### §5.2.3 Requirements re-evaluation and update
 
 Requirements evolve as design and testing surface new information; each change goes through the
-same approval described below rather than being edited silently. `mdux_governance::AuditEvent`
+same approval described below rather than being edited silently. `trustsc_governance::AuditEvent`
 (category `Lifecycle`) records `add_requirement` calls with a sequence number, giving requirement
 changes a timestamped-by-sequence trail (`ComplianceProgram::add_requirement`).
 
@@ -78,11 +78,11 @@ side of this pairing.
 
 ### §5.2.5 Requirements approval
 
-MduX-rust does not prescribe a specific approval workflow (that's the manufacturer's QMS role per
+TrustSC does not prescribe a specific approval workflow (that's the manufacturer's QMS role per
 §4.1). Its `.medui` DSL has a `@safety_critical` annotation and a per-node `requirement` identifier
 that ADR-011 intends to be bound together, so an approved requirement stays traceable to the UI
 element it governs — but as of this writing the `.medui` compiler
-(`crates/mdux-ui-dsl-authoring`) does not enforce that pairing at build time: the two are independent
+(`crates/trustsc-ui-dsl-authoring`) does not enforce that pairing at build time: the two are independent
 attributes, and a `@safety_critical` node with no `requirement` currently compiles without error.
 This is a gap between ADR-011's stated intent and the current implementation, not a build-time
 guarantee to rely on today.

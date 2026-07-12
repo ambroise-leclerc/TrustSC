@@ -5,8 +5,8 @@ This tree is the `software_development_file/` scaffold named in the root `README
 
 ```
 software_development_file/
-├── templates/    # blank, fillable by any manufacturer building on MduX-rust
-└── regulatory/   # the same tree, filled in for MduX-rust itself (added in the next PR in this stack)
+├── templates/    # blank, fillable by any manufacturer building on TrustSC
+└── regulatory/   # the same tree, filled in for TrustSC itself (added in the next PR in this stack)
 ```
 
 Only `templates/` exists as of this PR — `regulatory/` is added in the PR immediately after it.
@@ -23,16 +23,16 @@ Only `templates/` exists as of this PR — `regulatory/` is added in the PR imme
 
 Blank documents with section headers matching each standard's clauses, a citation blockquote per
 section pointing at the relevant `docs/<standard>/` module, and `[ ... ]` placeholders. A
-manufacturer building a device on MduX-rust copies these into their own document set and fills them
-in — they contain no MduX-rust-specific content.
+manufacturer building a device on TrustSC copies these into their own document set and fills them
+in — they contain no TrustSC-specific content.
 
 ## `regulatory/`
 
 *(Added in the PR immediately after this one — not present yet as of this PR.)*
 
-The same documents, filled in for MduX-rust itself: real architecture description, real SOUP
+The same documents, filled in for TrustSC itself: real architecture description, real SOUP
 entries (derived from `docs/governance/soup-register.toml`), real citations into `docs/<standard>/`
-and the ADR trail. These describe MduX-rust as a software development kit — they are not, and do not
+and the ADR trail. These describe TrustSC as a software development kit — they are not, and do not
 claim to be, a finished medical device's regulatory file. See `docs/regulatory-compliance.md`'s scope
 disclaimer for what this project does and does not provide.
 

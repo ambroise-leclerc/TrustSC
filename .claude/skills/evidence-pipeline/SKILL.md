@@ -1,6 +1,6 @@
 ---
 name: evidence-pipeline
-description: Regenerate or verify the deterministic evidence artifacts under generated/ and adapters/mdux-vulkan-winit/shaders/generated/ (fonts, images, shaders, ML model packages). Use when a change touches any baked artifact, a baker fixture/recipe, a shader source, a vendored asset, or when CI's verify steps fail.
+description: Regenerate or verify the deterministic evidence artifacts under generated/ and adapters/trustsc-vulkan-winit/shaders/generated/ (fonts, images, shaders, ML model packages). Use when a change touches any baked artifact, a baker fixture/recipe, a shader source, a vendored asset, or when CI's verify steps fail.
 ---
 
 # Evidence pipeline
@@ -9,7 +9,7 @@ Every generated artifact in this repo follows the ADR-007 pattern: a host-only b
 consumes a committed recipe (`tools/<baker>/fixtures/*.toml`), deterministically produces the
 artifact plus a `report.json`, and CI re-verifies the committed bytes on every push.
 
-**Never hand-edit anything under `generated/` or `adapters/mdux-vulkan-winit/shaders/generated/`**
+**Never hand-edit anything under `generated/` or `adapters/trustsc-vulkan-winit/shaders/generated/`**
 — always regenerate through the baker, then commit the changed bytes together with the recipe
 change that caused them.
 
@@ -17,10 +17,10 @@ change that caused them.
 
 | Baker | Recipe fixtures | Output |
 |---|---|---|
-| `mdux-font-baker` | `tools/mdux-font-baker/fixtures/*.toml` | `generated/fonts/<id>/{package.json,report.json}` |
-| `mdux-image-baker` | `tools/mdux-image-baker/fixtures/*.toml` | `generated/images/<id>/{package.json,report.json}` |
-| `mdux-shader-baker` | `tools/mdux-shader-baker/fixtures/text-shaders.toml` | `adapters/mdux-vulkan-winit/shaders/generated/*.spv` + `report.json` |
-| `mdux-ml-baker` | `tools/mdux-ml-baker/fixtures/*.toml` | `generated/models/<id>/{package.json,report.json}` |
+| `trustsc-font-baker` | `tools/trustsc-font-baker/fixtures/*.toml` | `generated/fonts/<id>/{package.json,report.json}` |
+| `trustsc-image-baker` | `tools/trustsc-image-baker/fixtures/*.toml` | `generated/images/<id>/{package.json,report.json}` |
+| `trustsc-shader-baker` | `tools/trustsc-shader-baker/fixtures/text-shaders.toml` | `adapters/trustsc-vulkan-winit/shaders/generated/*.spv` + `report.json` |
+| `trustsc-ml-baker` | `tools/trustsc-ml-baker/fixtures/*.toml` | `generated/models/<id>/{package.json,report.json}` |
 
 Two subcommands each:
 - `bake <recipe> <out...>` — regenerate the artifact (run after changing a recipe, GLSL source,
@@ -28,7 +28,7 @@ Two subcommands each:
 - `verify <recipe> <artifact> <report>` — byte-verify the committed artifact (what CI runs; see
   the exact argument lists in `.github/workflows/ci.yml` or the CI-replay block in `AGENTS.md`).
 
-`mdux-ml-baker` also has `import` (pulls Hugging Face `safetensors` into a recipe): it is an
+`trustsc-ml-baker` also has `import` (pulls Hugging Face `safetensors` into a recipe): it is an
 offline, host-only authoring aid — it never runs in CI and its output recipe must be
 human-reviewed before committing.
 

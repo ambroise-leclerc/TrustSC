@@ -16,7 +16,7 @@ The DSL memo requires compile-time golden-reference generation for CV-based safe
   - optional text key
   - optional color token
   - requested CV checks
-- For `MduX-rust`, safety-critical UI elements must still bind an explicit `requirement` identifier so UI traceability remains compatible with the current governance model.
+- For `TrustSC`, safety-critical UI elements must still bind an explicit `requirement` identifier so UI traceability remains compatible with the current governance model.
 - `VulkanViewport` compiles into a reserved region descriptor only; it does not embed arbitrary render logic in the UI package.
 
 ## Consequences

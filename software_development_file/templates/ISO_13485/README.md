@@ -4,7 +4,7 @@
 > [`docs/iso13485/README.md`](../../../docs/iso13485/README.md) for the underlying clause-by-clause
 > guidance. See
 > `software_development_file/regulatory/ISO_13485/README.md` (added in a later PR in this stack)
-> for how MduX-rust states this same scope note for itself.
+> for how TrustSC states this same scope note for itself.
 
 A single markdown file cannot substitute for a manufacturer's actual ISO 13485 quality management
 system — that system spans document control, management review, resource management, and much more

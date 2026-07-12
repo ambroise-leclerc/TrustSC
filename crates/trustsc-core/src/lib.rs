@@ -61,7 +61,7 @@ pub struct FrameworkIdentity {
 impl Default for FrameworkIdentity {
     fn default() -> Self {
         Self {
-            name: "MduX-rust".to_string(),
+            name: "TrustSC".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }

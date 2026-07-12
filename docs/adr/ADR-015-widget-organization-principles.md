@@ -128,7 +128,7 @@ verification rules all stay unchanged.
 
 ### 2. `FrameEvents` — the bounded outbound event plane
 
-The `mdux` facade gains `FrameEvents`, the mirror image of `FrameInputs`: a queue of
+The `trustsc` facade gains `FrameEvents`, the mirror image of `FrameInputs`: a queue of
 `WidgetEvent` values with capacity allocated once at construction and **no allocation
 afterwards**. The event vocabulary:
 

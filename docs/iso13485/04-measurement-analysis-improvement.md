@@ -7,7 +7,7 @@
 contain nonconformity when it occurs, analyze data for trends, and act on what it learns. This is
 the clause with the strongest surface-level resemblance to IEC 62304 §9 (problem resolution, see
 `docs/iec62304/08-problem-resolution-process.md`) and to this project's own honestly-stated gaps —
-several sub-clauses below are places MduX-rust explicitly does not automate a post-market or
+several sub-clauses below are places TrustSC explicitly does not automate a post-market or
 QMS-level activity, and this module says so rather than stretching a software type to cover a role
 it doesn't fill.
 
@@ -28,7 +28,7 @@ processes needed to demonstrate conformity of product, ensure QMS conformity, an
 effectiveness — determining applicable methods, including statistical techniques, and the extent of
 their use.
 
-`mdux_governance::ComplianceProgram` is a measurement instrument for one specific, narrow slice of
+`trustsc_governance::ComplianceProgram` is a measurement instrument for one specific, narrow slice of
 this general obligation: the software requirement/verification/hazard coverage of a device's
 governed UI and ML layers. `ComplianceProgram::validate()` and `release_evidence_summary()` give a
 manufacturer a repeatable, automatic method for checking one part of product conformity (every
@@ -45,9 +45,9 @@ The organization must gather and monitor information on whether it has met custo
 an early-warning input to detecting quality problems, with the method for gathering and using this
 feedback documented.
 
-No MduX-rust analogue: this project has no end customers of a finished medical device and gathers no
+No TrustSC analogue: this project has no end customers of a finished medical device and gathers no
 post-market feedback. A manufacturer's feedback process about their device is entirely their own, and
-nothing in `mdux-governance` represents customer feedback as a concept.
+nothing in `trustsc-governance` represents customer feedback as a concept.
 
 ### §8.2.2 Complaint handling
 
@@ -57,9 +57,9 @@ represents a reportable event, investigation (with rationale if not investigated
 regulatory reporting need, handling of complaints related to counterfeit product, and record
 retention.
 
-`mdux_governance::ProblemReport { id, summary, closed }` is deliberately *not* built to be this — it
+`trustsc_governance::ProblemReport { id, summary, closed }` is deliberately *not* built to be this — it
 is the software project's own defect record (closer to IEC 62304 §9's problem report, see
-`docs/iec62304/08-problem-resolution-process.md`), tracking whether an issue found in MduX-rust's own
+`docs/iec62304/08-problem-resolution-process.md`), tracking whether an issue found in TrustSC's own
 development or a manufacturer's integration testing is open or resolved. It has no field for
 "received from a customer," no reportable-event evaluation, and no regulatory-reporting workflow. A
 manufacturer's actual post-market complaint handling process is a distinct QMS procedure this
@@ -71,7 +71,7 @@ Where applicable regulatory requirements specify notification of adverse events 
 advisory notices meeting reportability criteria, the organization must have documented procedures
 for such reporting.
 
-No MduX-rust analogue whatsoever — this is a manufacturer-to-regulator communication obligation that
+No TrustSC analogue whatsoever — this is a manufacturer-to-regulator communication obligation that
 presupposes a marketed device and a post-market surveillance capability neither this project nor its
 governance types attempt to model.
 
@@ -102,14 +102,14 @@ processes, methods demonstrating the processes' ability to achieve planned resul
 corrective action taken when planned results are not achieved and process effectiveness not
 maintained.
 
-For the two processes MduX-rust most directly instruments — asset-pipeline baking and UI/ML
+For the two processes TrustSC most directly instruments — asset-pipeline baking and UI/ML
 verification — `.github/workflows/ci.yml` running every baker's `verify` subcommand and
 `--verify-ui`'s checks on every push is continuous process monitoring in the sense this sub-clause
 asks for: a build that fails to reproduce its committed evidence, or a screen that fails to render
 within its `GoldenBounds`, is the process failing to achieve its planned result, surfaced
 immediately rather than at the next scheduled audit. This is real, but scoped only to the two
 processes named — the QMS's other processes (purchasing, design review scheduling, training) have no
-equivalent automated monitoring within MduX-rust's scope.
+equivalent automated monitoring within TrustSC's scope.
 
 ### §8.2.6 Monitoring and measurement of product
 
@@ -140,7 +140,7 @@ actions appropriate to the effects (or potential effects) of the nonconformity, 
 advisory notices or product recall. Rework must be documented, including its effect on product
 conformity, and re-verified per documented procedures once complete.
 
-No dedicated MduX-rust type models "nonconforming product" as this sub-clause defines it — that
+No dedicated TrustSC type models "nonconforming product" as this sub-clause defines it — that
 concept applies to a manufactured device, not a software library. The nearest adjacent mechanism is
 negative: `ComplianceProgram::validate()` refusing to succeed (an orphaned verification case, a
 Class C device with no hazard, a requirement with zero verification cases) is closer to *preventing
@@ -159,7 +159,7 @@ product characteristics and trends (including opportunities for improvement), su
 audit results, and service reports where applicable — with analysis methods including appropriate
 statistical techniques and results recorded.
 
-`mdux_governance` exposes the raw material for one slice of this analysis (requirements, hazards,
+`trustsc_governance` exposes the raw material for one slice of this analysis (requirements, hazards,
 verification cases, problem reports, and the sequenced audit trail) but performs no aggregation,
 trend detection, or statistical analysis over it itself — `docs/iec62304/08-problem-resolution-process.md#915-trend-analysis`
 notes the identical gap from the IEC 62304 angle: `ComplianceProgram` has no public accessor
@@ -197,7 +197,7 @@ not adversely affect the ability to meet applicable regulatory requirements or s
 and reviewing the effectiveness of preventive action taken.
 
 Together these three sub-clauses describe a closed-loop CAPA (corrective and preventive action)
-process that MduX-rust does not implement. The connective tissue it does provide is traceability
+process that TrustSC does not implement. The connective tissue it does provide is traceability
 once a manufacturer's own CAPA process identifies a needed change: a `ProblemReport` transitioning
 from open to closed, and any requirement or hazard that change touches, stay linked via
 `Hazard.controlled_by` and `VerificationCase.requirement` — the same linkage
@@ -207,7 +207,7 @@ mechanism serving both standards' resolution-traceability expectations. What is 
 and stated as a gap rather than implied to be covered: root-cause determination, action planning and
 approval, effectiveness review, and the "does this action adversely affect safety/regulatory
 compliance" check are all judgment calls a manufacturer's own CAPA procedure makes — no type in
-`mdux-governance` performs or records any of them today.
+`trustsc-governance` performs or records any of them today.
 
 ---
 

@@ -41,14 +41,14 @@ gaps followed from that:
   short operational recipe pointing into the authoritative docs (progressive disclosure), so the
   underlying references stay single-sourced. The format is markdown-first: tools without skill
   support (and humans) read them as ordinary documentation.
-- **`tools/mdux-docs-lint` machine-checks the citation contract in CI.** A host-only tool (ADR-005
-  tools zone, no new dependencies — `serde_json` only, following `mdux-ml-baker`'s hand-parsing
+- **`tools/trustsc-docs-lint` machine-checks the citation contract in CI.** A host-only tool (ADR-005
+  tools zone, no new dependencies — `serde_json` only, following `trustsc-ml-baker`'s hand-parsing
   precedent) that scans `docs/**/*.md` and `software_development_file/**/*.md` and fails the
   build on: a citation-key-shaped string whose standard id + edition year is not one of the five
   pinned identifiers; a cited clause number absent from that standard's `AI-Reference.md` index
   (with prefix/range awareness); a `Justification` block that fails the structural rules of
   `justification.schema.json`; a duplicate `justification_id`; or an `evidence_refs` path that
-  does not exist in the repository. CI runs `cargo run --locked -q -p mdux-docs-lint -- check`
+  does not exist in the repository. CI runs `cargo run --locked -q -p trustsc-docs-lint -- check`
   alongside the existing evidence `verify` steps.
 - **No MCP servers are adopted, and no `.mcp.json` is committed.** Evaluation of the candidate
   categories:
@@ -60,8 +60,8 @@ gaps followed from that:
     mildly counterproductive: ADR-005's dependency policy makes new third-party crates rare,
     deliberate, human-reviewed SOUP-register events; a live crate-docs feed optimizes for the
     casual dependency addition this project is designed to resist.
-  - *A custom MduX governance server* (querying the trace matrix, SOUP register, audit trail) —
-    the only genuinely interesting candidate, but premature: `mdux-governance` still exports
+  - *A custom TrustSC governance server* (querying the trace matrix, SOUP register, audit trail) —
+    the only genuinely interesting candidate, but premature: `trustsc-governance` still exports
     pipe-delimited text, and ADR-019 already defers the `serde` JSON export it would build on.
     Re-evaluate once that export exists.
 
@@ -82,7 +82,7 @@ gaps followed from that:
 
 ### Negative / limitations
 
-- `mdux-docs-lint` validates structure, not truth: it cannot check that a clause's short title
+- `trustsc-docs-lint` validates structure, not truth: it cannot check that a clause's short title
   matches the real standard, that a rationale is sound, or that prose stays clear of
   paraphrasing normative text — those remain human-review duties (the linter's clause-number
   check is only as good as the `AI-Reference.md` indexes it trusts).

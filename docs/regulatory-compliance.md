@@ -2,12 +2,12 @@
 
 ## Purpose and scope
 
-This document explains how MduX-rust's engineering practices are designed to align with IEC
+This document explains how TrustSC's engineering practices are designed to align with IEC
 62304 Class B/C software-development expectations, and how the artifacts it generates are meant
 to feed a manufacturer's own technical file and notified-body audits.
 
-**This document, and MduX-rust itself, is not a regulatory clearance, not a Quality Management
-System, and not a substitute for a manufacturer's own processes.** MduX-rust is engineering
+**This document, and TrustSC itself, is not a regulatory clearance, not a Quality Management
+System, and not a substitute for a manufacturer's own processes.** TrustSC is engineering
 scaffolding: a template, a set of governed crates, and evidence-generation tooling that a
 manufacturer integrates into their own ISO 13485 QMS, their own ISO 14971 risk management file,
 and their own engagement with a notified body. Nothing in this repository is itself a certified
@@ -28,7 +28,7 @@ Teams building Class B/C medical software under IEC 62304 repeatedly run into th
   indicators) is hard to guarantee when the rendering/localization stack allocates, shapes text,
   or resolves fallback fonts at runtime.
 
-MduX-rust's crate `mdux-governance` (`crates/mdux-governance/src/lib.rs`) provides working types
+TrustSC's crate `trustsc-governance` (`crates/trustsc-governance/src/lib.rs`) provides working types
 for the first point directly: `Requirement`, `Hazard`, `VerificationCase`, `ProblemReport`, and an
 `AuditEvent` trail, composed by a `ComplianceProgram` that:
 
@@ -70,8 +70,8 @@ Every asset pipeline in the repo (fonts, images, shaders, ML weights) follows th
 `tools/*-baker` binary compiles a reviewed source input plus a recipe into a committed
 `package.json` (the data) and `report.json` (a SHA-256 digest, tool version, and the exact options
 used). CI runs only `verify`, which re-derives the artifact and checks it is byte-identical to
-what's committed — `tools/mdux-font-baker`, `tools/mdux-image-baker`, `tools/mdux-shader-baker`,
-`tools/mdux-ml-baker` all work this way.
+what's committed — `tools/trustsc-font-baker`, `tools/trustsc-image-baker`, `tools/trustsc-shader-baker`,
+`tools/trustsc-ml-baker` all work this way.
 
 This is directly what an IEC 62304 §5-8/§9 verification record and configuration-management
 process ask for: a documented, reproducible link between a source input and a shipped artifact,
@@ -81,15 +81,15 @@ checked automatically rather than asserted by hand.
 
 Machine-learning inference is usually where a Class C device's SOUP exposure grows fastest — an
 ONNX Runtime or PyTorch dependency is a large, general-purpose native stack that a manufacturer
-did not write and cannot fully audit. ADR-017 takes a different approach for MduX-rust:
+did not write and cannot fully audit. ADR-017 takes a different approach for TrustSC:
 
-- **Weights are data, not code.** `tools/mdux-ml-baker` bakes a `ModelPackage` offline and commits
+- **Weights are data, not code.** `tools/trustsc-ml-baker` bakes a `ModelPackage` offline and commits
   it as evidence (`generated/models/<id>/{package.json,report.json}`), byte-verified by CI. The
   demonstrator model that ships in `examples/class_c_monitor` (`generated/models/eeg-demo/`) was
   baked from openly available weights; a manufacturer's own clinically-qualified weights go
-  through the identical pipeline. **Swapping the weights changes zero lines of `mdux-ml-runtime`
+  through the identical pipeline. **Swapping the weights changes zero lines of `trustsc-ml-runtime`
   or application source.**
-- **The inference engine itself (`crates/mdux-ml-runtime`) is from-scratch Rust**: Dense/Conv1D/
+- **The inference engine itself (`crates/trustsc-ml-runtime`) is from-scratch Rust**: Dense/Conv1D/
   pooling/activation kernels as plain, strictly-ordered scalar loops, `#![forbid(unsafe_code)]`,
   no SIMD, no FMA — no ONNX Runtime, PyTorch, `tract`, or other native/foreign inference stack is
   ever linked into a device crate.
@@ -111,7 +111,7 @@ under IEC 62304 §8. Each entry records, as data (not prose scattered across a w
 whether it is a `yocto_target_dependency`, its `support_model`, a `boundary_rationale` explaining
 which trust zone confines it, and a list of `risk_controls`. This register is kept current with
 the repository as crates move between zones (for example, when `ash`/`winit` moved from
-`examples/hello_world` directly into the `adapters/mdux-vulkan-winit` edge adapter) — a register
+`examples/hello_world` directly into the `adapters/trustsc-vulkan-winit` edge adapter) — a register
 that drifts from the code it describes is worse than no register at all.
 
 ## ADRs as design-rationale input
@@ -124,12 +124,12 @@ each one.
 
 ## Governance types are scaffolding, not an operating QMS
 
-`mdux-governance`'s types give an application a place to *record* requirements, hazards,
+`trustsc-governance`'s types give an application a place to *record* requirements, hazards,
 verifications, and audit events in a structured, exportable form. They do not, by themselves,
 constitute an operating quality system: nothing in this repository performs management review,
 CAPA, supplier qualification, post-market surveillance, or any of the other ISO 13485 processes a
 manufacturer's QMS is responsible for. A manufacturer populates and operates these types as part
-of their own process — MduX-rust supplies the data model and the export format, not the process
+of their own process — TrustSC supplies the data model and the export format, not the process
 itself.
 
 ## Standards reference corpus and the software development file
@@ -151,7 +151,7 @@ Both efforts previously tracked on this page's roadmap are now delivered
   original paragraph."
 - **Regulatory documentation templates** — [`software_development_file/`](../software_development_file/README.md)
   has a `templates/` tree any manufacturer fills in, and a `regulatory/` tree with the same documents
-  filled in for MduX-rust itself, citing real ADRs, `mdux-governance` types, and examples.
+  filled in for TrustSC itself, citing real ADRs, `trustsc-governance` types, and examples.
 
   ```text
   software_development_file/
@@ -161,11 +161,11 @@ Both efforts previously tracked on this page's roadmap are now delivered
   │   ├── IEC_81001/Cybersecurity_SAD.md
   │   ├── ISO_13485/README.md
   │   └── ISO_14971/Risk_Management_File.md
-  └── regulatory/   # the same tree, filled in for MduX-rust
+  └── regulatory/   # the same tree, filled in for TrustSC
       └── ...
   ```
 
-The JSON schemas are field-aligned with `crates/mdux-governance/src/lib.rs`'s existing types
+The JSON schemas are field-aligned with `crates/trustsc-governance/src/lib.rs`'s existing types
 (`Requirement`, `Hazard`, `VerificationCase`) so a future `serde`-based export from
 `ComplianceProgram` — still not built, and not part of this change — can match them without a
 redesign, closing the loop between the governance types described above and the paperwork a
