@@ -1,7 +1,7 @@
 {
-  "report_kind": "mdux-font-baker-report",
-  "package_sha256": "60d08e41b72f2b0f173afcc4993443586e51a7e608d2607ba1fe0e85ceb81766",
-  "recipe_sha256": "bf966fcedda58ba2ec3ff8973f840c454b7927fc5afbfa55cada1e0ad435aeb5",
+  "report_kind": "trustsc-font-baker-report",
+  "package_sha256": "ebe184c6aff33dbe3f7e2948a88ff3f871647c7009642466d4e6df9c91d99e87",
+  "recipe_sha256": "8cb743e62f48ebc5307d9bc689914f9d985847e7fff220de216b64f7bcb9c581",
   "atlas_sha256": "58ed64ad929688881c0681145d0cf99999e6f417f93bbcee5750c873ce27e3bd",
   "glyph_count": 95,
   "approved_string_count": 17,

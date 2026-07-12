@@ -1,5 +1,5 @@
 schema_version = 1
-manifest_kind = "mdux-image-asset"
+manifest_kind = "trustsc-image-asset"
 asset_id = "acme-logo"
 license = "CC0-1.0"
 
@@ -13,4 +13,4 @@ intended_usage = "Application brand mark for the NeuroSense 500 top bar (placeho
 
 [provenance]
 origin = "generated in-repo, deterministic generator"
-generator = "mdux-image-baker generate-placeholder (pure-integer two-tone mark; see generate_placeholder_logo)"
+generator = "trustsc-image-baker generate-placeholder (pure-integer two-tone mark; see generate_placeholder_logo)"

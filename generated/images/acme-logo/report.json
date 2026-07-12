@@ -1,7 +1,7 @@
 {
-  "report_kind": "mdux-image-baker-report",
-  "package_sha256": "f9330c126787ff8530260ea8bb407678d6a091820f28a21d4e3370237639338c",
-  "recipe_sha256": "9da835f8a9443f4c8ba92969707cc8f77304227dfe3a3a7fa177c99b70804fd3",
+  "report_kind": "trustsc-image-baker-report",
+  "package_sha256": "b0882347fe8fbb0aca613cb312b45fc3d0b8949ba9b0f283f745fc5146fe0d70",
+  "recipe_sha256": "440c48ab1642a5705fff557b9fbb07ce6ce18c84913b3fb2538136fe4766f47a",
   "source_sha256": "58b8c6925db8f9af34be9aa260ed03f5891b55ec446aa85f457648937bbd32bb",
   "image_id": "LOGO-ACME",
   "width": 144,

@@ -181,7 +181,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifa
     let recipe_sha256 = sha256_text(&recipe_text);
     let param_count: usize = package.tensors.iter().map(|tensor| tensor.data.len()).sum();
     let report_document = BakeReportDocument {
-        report_kind: "mdux-ml-baker-report".to_string(),
+        report_kind: "trustsc-ml-baker-report".to_string(),
         model_id: package.model_id.clone(),
         labels: package.output_spec.labels.clone(),
         package_sha256: package.evidence.package_sha256.clone(),

@@ -256,7 +256,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifa
     let recipe_sha256 = sha256_text(&loaded_recipe.recipe_text);
     let package_document = PackageDocument::from(&package);
     let report_document = BakeReportDocument {
-        report_kind: "mdux-font-baker-report".to_string(),
+        report_kind: "trustsc-font-baker-report".to_string(),
         package_sha256: package.evidence.package_sha256.clone(),
         recipe_sha256,
         atlas_sha256: atlas_sha256.clone(),
@@ -441,9 +441,9 @@ fn load_font_context(loaded_recipe: &LoadedRecipe) -> TrustScResult<FontContext>
             "font manifest schema_version must be 1",
         ));
     }
-    if manifest.manifest_kind != "mdux-font-asset" {
+    if manifest.manifest_kind != "trustsc-font-asset" {
         return Err(ValidationError::new(
-            "font manifest kind must be mdux-font-asset",
+            "font manifest kind must be trustsc-font-asset",
         ));
     }
     if manifest.face.family != manifest.asset_family {

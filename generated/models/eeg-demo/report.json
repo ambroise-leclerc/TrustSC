@@ -1,5 +1,5 @@
 {
-  "report_kind": "mdux-ml-baker-report",
+  "report_kind": "trustsc-ml-baker-report",
   "model_id": "EEG-DOA-LINEAR",
   "labels": [
     "AWAKE",

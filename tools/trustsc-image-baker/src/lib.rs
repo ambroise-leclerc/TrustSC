@@ -16,7 +16,7 @@ use trustsc_image_schema::{ImageEvidence, ImagePackage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const TOOLCHAIN_ID: &str = "mdux-image-baker-0.1.0";
+pub const TOOLCHAIN_ID: &str = "trustsc-image-baker-0.1.0";
 
 /// Intrinsic size of the generated Acme placeholder logo.
 pub const PLACEHOLDER_LOGO_WIDTH: u32 = 144;
@@ -166,9 +166,9 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifa
             "image manifest schema_version must be 1",
         ));
     }
-    if manifest.manifest_kind != "mdux-image-asset" {
+    if manifest.manifest_kind != "trustsc-image-asset" {
         return Err(ValidationError::new(format!(
-            "manifest {} is not an mdux-image-asset manifest",
+            "manifest {} is not a trustsc-image-asset manifest",
             manifest_path.display()
         )));
     }
@@ -233,7 +233,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifa
 
     let package_bytes = to_pretty_json(&ImagePackageDocument::from_package(&package))?;
     let report = ImageBakeReportDocument {
-        report_kind: "mdux-image-baker-report".to_string(),
+        report_kind: "trustsc-image-baker-report".to_string(),
         package_sha256: package.evidence.package_sha256.clone(),
         recipe_sha256,
         source_sha256: source_sha256.clone(),
@@ -626,7 +626,7 @@ mod tests {
             &manifest_path,
             r#"
 schema_version = 2
-manifest_kind = "mdux-image-asset"
+manifest_kind = "trustsc-image-asset"
 asset_id = "test"
 license = "CC0-1.0"
 
