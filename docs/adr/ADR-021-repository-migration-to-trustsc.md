@@ -14,14 +14,6 @@ C++ `MduX` prototype it started as a sibling of. Two things have made that name 
   byte-verified evidence pipelines (ADR-007), a zero-SOUP ML inference stack (ADR-017), a
   regulatory reference corpus and software-development-file scaffold (ADR-019), and machine-
   checked citation discipline (ADR-020). The UI is one pillar, not the identity.
-- **Public provenance hygiene.** GitHub's repository-page contributor sidebar credits
-  `Co-authored-by:` trailers found in the head commits of merged pull requests, which GitHub
-  retains forever under immutable `refs/pull/N/head` refs — even when every such PR was
-  squash-merged and the default branch contains no such trailers (verified: `main` has zero).
-  As a result the public repository page lists AI-tool identities from early, pre-convention PR
-  branches as "contributors", contradicting this repository's git convention that commits and
-  PRs carry no AI attribution. Those refs cannot be deleted by the repository owner, and a
-  repository *rename* preserves them; only a fresh repository drops them.
 
 The replacement name, **TrustSC**, was selected after an availability and conflict search
 (crates.io, GitHub, npm, domains, USPTO/EUIPO screens): *trust* structurally contains *rust*,
