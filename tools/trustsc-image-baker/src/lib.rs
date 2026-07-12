@@ -168,7 +168,7 @@ pub fn compile_recipe(recipe_path: impl AsRef<Path>) -> TrustScResult<BakeArtifa
     }
     if manifest.manifest_kind != "trustsc-image-asset" {
         return Err(ValidationError::new(format!(
-            "manifest {} is not an trustsc-image-asset manifest",
+            "manifest {} is not a trustsc-image-asset manifest",
             manifest_path.display()
         )));
     }
