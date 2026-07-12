@@ -9,6 +9,8 @@ IEC 62304 (a requirement, a verification case, an audit trail, and a Vulkan-rend
 this framework's compliance APIs, not a certified medical device. No `ash`, `winit`, or `shaderc`
 dependency of its own.
 
+**⚠️ Note:** The compliance APIs (`ComplianceProgram`, `Requirement`, `VerificationCase`) model IEC 62304 artifacts for demonstration purposes. Using this crate does not by itself make a real device compliant or certified.
+
 `hello_world.medui`:
 
 ```
