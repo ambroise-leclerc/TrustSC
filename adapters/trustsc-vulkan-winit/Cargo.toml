@@ -1,0 +1,12 @@
+[package]
+name = "trustsc-vulkan-winit"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+trustsc = { path = "../../crates/trustsc" }
+trustsc-ui-verify = { path = "../../crates/trustsc-ui-verify" }
+ash = { version = "0.38", default-features = false, features = ["loaded"] }
+ash-window = "0.13"
+raw-window-handle = "0.6"
+winit = "0.29"

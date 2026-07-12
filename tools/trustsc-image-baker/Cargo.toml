@@ -1,0 +1,12 @@
+[package]
+name = "trustsc-image-baker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+trustsc-core = { version = "0.1.0", path = "../../crates/trustsc-core" }
+trustsc-image-schema = { version = "0.1.0", path = "../../crates/trustsc-image-schema" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.10"
+toml = "1.1.2"

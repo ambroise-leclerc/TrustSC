@@ -44,7 +44,7 @@ Three trust zones, formalized by [ADR-005](../../../docs/adr/ADR-005-pure-rust-p
 > `IEC 62304:2006 §5.3.2 Develop an architecture for the interfaces of software items`
 
 `mdux-core` → `mdux-governance` → `mdux-ui`/`mdux-text-*`/`mdux-ml-*` → the `mdux` facade →
-`adapters/mdux-vulkan-winit`. `FrameworkBuilder` (`crates/mdux/src/lib.rs`) is the composition root:
+`adapters/trustsc-vulkan-winit`. `FrameworkBuilder` (`crates/trustsc/src/lib.rs`) is the composition root:
 it wires `DeviceContext` + `ComplianceProgram` + `UiSdkConfig` + `UiComponent`s together and
 cross-validates them (a Class C device is rejected unless its UI config uses the Vulkan SC profile;
 a UI component must reference a requirement that actually exists in the compliance program) before
@@ -83,12 +83,12 @@ traceable review record rather than a document that drifts silently from the cod
   "justification_id": "JUS-001",
   "standard": "IEC 62304",
   "clause_ref": "IEC 62304:2006 §5.3.3 Identify segregation necessary for risk control",
-  "rationale": "unsafe code and native SDK handles are confined to adapters/mdux-vulkan-winit; every governed crate under crates/ carries #![forbid(unsafe_code)] at the crate root, making the trust-zone segregation a compiler-enforced property rather than a reviewed convention.",
+  "rationale": "unsafe code and native SDK handles are confined to adapters/trustsc-vulkan-winit; every governed crate under crates/ carries #![forbid(unsafe_code)] at the crate root, making the trust-zone segregation a compiler-enforced property rather than a reviewed convention.",
   "evidence_refs": [
     "docs/adr/ADR-005-pure-rust-project-boundary-and-dependency-policy.md",
     "docs/adr/ADR-012-presentation-adapter-crates-and-shader-artifacts.md",
-    "crates/mdux-core/src/lib.rs",
-    "adapters/mdux-vulkan-winit"
+    "crates/trustsc-core/src/lib.rs",
+    "adapters/trustsc-vulkan-winit"
   ]
 }
 ```

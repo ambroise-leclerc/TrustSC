@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use mdux::{
+use trustsc::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Requirement, RequirementId, SafetyClass,
     UiComponent, UiSdkConfig, VerificationCase, VerificationMethod,
 };

@@ -1,9 +1,0 @@
-[package]
-name = "mdux-text-runtime"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-arrayvec = "0.7"
-mdux-core = { path = "../mdux-core" }
-mdux-text-schema = { path = "../mdux-text-schema" }

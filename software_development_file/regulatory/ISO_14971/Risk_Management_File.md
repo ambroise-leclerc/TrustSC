@@ -48,7 +48,7 @@ manufacturer's clinical/regulatory judgment. `mdux-governance` records the *outc
 > `ISO 14971:2019 §7 Risk control`
 
 Every risk control measure is required to exist as an actual `Requirement`
-(`crates/mdux-governance/src/lib.rs`), not a free-floating note — `Hazard.controlled_by` is a list of
+(`crates/trustsc-governance/src/lib.rs`), not a free-floating note — `Hazard.controlled_by` is a list of
 `RequirementId`s. Each such `Requirement` must in turn have at least one `VerificationCase`
 (`ComplianceProgram::validate()`), so a risk control measure cannot be recorded as implemented
 without also being verified.
@@ -87,7 +87,7 @@ governance model — this project provides the record type, not the intake proce
   "clause_ref": "ISO 14971:2019 §7.1 Risk reduction",
   "rationale": "Hazard.controlled_by requires at least one Requirement, and that Requirement in turn requires at least one VerificationCase (ComplianceProgram::validate()), so a risk control measure cannot be recorded as in place without also being tied to verification evidence.",
   "evidence_refs": [
-    "crates/mdux-governance/src/lib.rs",
+    "crates/trustsc-governance/src/lib.rs",
     "docs/adr/ADR-017-zero-soup-ml-inference-pipeline.md",
     "examples/class_c_monitor"
   ]

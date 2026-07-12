@@ -1,8 +1,8 @@
-mdux::include_medui_screen!();
-mdux::include_scenarios!();
+trustsc::include_medui_screen!();
+trustsc::include_scenarios!();
 
 use class_c_monitor::app_logic::AppLogic;
-use mdux::{
+use trustsc::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Hazard, Requirement, RequirementId,
     SafetyClass, UiSdkConfig, VerificationCase, VerificationMethod,
 };
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // there is no second, test-only implementation of this behavior.
     let (input, realtime) = AppLogic::new().into_closures();
 
-    mdux_vulkan_winit::App::new(framework, screen)
+    trustsc_vulkan_winit::App::new(framework, screen)
         .with_input(input)
         .with_realtime(realtime)
         // ADR-016 --verify-ui replays these scenarios; the windowed run above never touches

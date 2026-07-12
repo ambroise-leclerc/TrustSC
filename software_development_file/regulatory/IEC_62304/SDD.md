@@ -79,7 +79,7 @@ exercises rendered UI output against compiled bounds
   "rationale": "mdux-ml-runtime's Classifier1D re-runs baked golden self-test vectors at construction and fails closed on any bit-mismatch, giving the unit-level detailed design a runtime self-check beyond what a build-time test suite alone provides.",
   "evidence_refs": [
     "docs/adr/ADR-017-zero-soup-ml-inference-pipeline.md",
-    "crates/mdux-ml-runtime"
+    "crates/trustsc-ml-runtime"
   ]
 }
 ```

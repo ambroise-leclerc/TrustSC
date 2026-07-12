@@ -1,0 +1,20 @@
+[package]
+name = "trustsc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+trustsc-core = { path = "../trustsc-core" }
+trustsc-governance = { path = "../trustsc-governance" }
+trustsc-image-schema = { path = "../trustsc-image-schema" }
+trustsc-ml-authoring = { path = "../trustsc-ml-authoring" }
+trustsc-ml-runtime = { path = "../trustsc-ml-runtime" }
+trustsc-ml-schema = { path = "../trustsc-ml-schema" }
+trustsc-text-authoring = { path = "../trustsc-text-authoring" }
+trustsc-text-runtime = { path = "../trustsc-text-runtime" }
+trustsc-text-schema = { path = "../trustsc-text-schema" }
+trustsc-ui = { path = "../trustsc-ui" }
+
+[build-dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"

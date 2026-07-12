@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-mdux = { path = "../../crates/mdux" }
+trustsc = { path = "../../crates/trustsc" }
