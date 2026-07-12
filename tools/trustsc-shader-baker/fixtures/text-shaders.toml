@@ -1,0 +1,41 @@
+shader_dir = "../../../adapters/trustsc-vulkan-winit/shaders"
+
+[[shaders]]
+source = "hello_text.vert"
+kind = "vertex"
+output = "hello_text.vert.spv"
+
+[[shaders]]
+source = "hello_text.frag"
+kind = "fragment"
+output = "hello_text.frag.spv"
+
+[[shaders]]
+source = "heightfield.vert"
+kind = "vertex"
+output = "heightfield.vert.spv"
+
+[[shaders]]
+source = "heightfield.frag"
+kind = "fragment"
+output = "heightfield.frag.spv"
+
+[[shaders]]
+source = "flat.vert"
+kind = "vertex"
+output = "flat.vert.spv"
+
+[[shaders]]
+source = "flat.frag"
+kind = "fragment"
+output = "flat.frag.spv"
+
+[[shaders]]
+source = "image.vert"
+kind = "vertex"
+output = "image.vert.spv"
+
+[[shaders]]
+source = "image.frag"
+kind = "fragment"
+output = "image.frag.spv"

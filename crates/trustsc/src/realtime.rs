@@ -1,0 +1,1465 @@
+//! Bounded realtime screen bindings (ADR-013): the dynamic counterpart of
+//! [`crate::screen_text::ScreenTextLayout`]. Where the static layout resolves approved runs once
+//! at startup, this module resolves *where* each realtime element renders (clock, numeric
+//! display, status indicator, streaming viewport), from *which* template/glyph set, with *what*
+//! fixed capacity — so the presentation adapter stays a dumb executor and applications stay at
+//! `frame.set_number("SEDATION_INDEX", 42)`.
+//!
+//! Everything is sized at construction: the per-frame API ([`FrameInputs`]) allocates nothing.
+
+use trustsc_core::{MduxResult, ValidationError};
+use trustsc_text_schema::TextPackage;
+use trustsc_image_schema::ImagePackage;
+use trustsc_ui::{ClockFormat, CompiledNodeKind, CompiledScreenPackage, Rect, resolve_color_token};
+
+/// Default ring-buffer dimensions for a streaming viewport (rows of history × bins per row).
+pub const DEFAULT_STREAM_ROWS: usize = 64;
+pub const DEFAULT_STREAM_BINS: usize = 64;
+
+/// Default sample-ring capacity for a `SignalTrace` node (ADR-018) — a single scrolling
+/// amplitude series, distinct from `StreamBinding`'s `rows × bins` spectral ring.
+pub const DEFAULT_TRACE_SAMPLES: usize = 512;
+
+/// Where and how a `Clock` node renders. The adapter feeds it from the platform clock; the
+/// application writes no code for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClockBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub format: ClockFormat,
+    pub glyph_set_id: String,
+    /// Maximum glyph draw commands one render of this clock can produce.
+    pub capacity: usize,
+}
+
+/// Where and how a `NumericDisplay` node renders, bound to its realtime `source`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NumberBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub source: &'static str,
+    pub template_id: String,
+    /// Index into [`ScreenBindings::displays`] of the package whose template resolved
+    /// (unique-match across all display packages, ADR-014).
+    pub display_index: usize,
+    pub color_token: &'static str,
+    /// Maximum glyph draw commands (max_chars digits + affix run glyphs).
+    pub capacity: usize,
+}
+
+/// Where and how a `StatusIndicator` node renders: one resolved approved run per state, selected
+/// by index at runtime.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StatusBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub source: &'static str,
+    /// Per-state resolved run ids (standard package, binding locale), index-aligned with the
+    /// screen's `state_text_keys` and `color_tokens`.
+    pub state_run_ids: Vec<String>,
+    /// Per-state render origins (`bounds - run_bounds.min`, like the static layout).
+    pub state_origins: Vec<(i32, i32)>,
+    pub color_tokens: &'static [&'static str],
+    /// Maximum glyph draw commands across all states.
+    pub capacity: usize,
+}
+
+/// A streaming viewport's declared ring buffer: `rows` history rows of `bins` samples, rendered
+/// as the 3D DSA waterfall inside `bounds`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StreamBinding {
+    pub node_id: &'static str,
+    pub source: &'static str,
+    pub bounds: Rect,
+    pub rows: usize,
+    pub bins: usize,
+}
+
+/// A `SignalTrace` node's declared sample ring (ADR-018): a single scrolling amplitude series of
+/// `capacity` normalized samples, tinted with `rgba` resolved once at binding time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TraceBinding {
+    pub node_id: &'static str,
+    pub source: &'static str,
+    pub bounds: Rect,
+    pub rgba: [f32; 4],
+    pub capacity: usize,
+}
+
+/// A Panel underlay's resolved render state: bounds + theme color resolved to RGBA at binding
+/// time (unknown tokens fail here, not silently at draw time).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub rgba: [f32; 4],
+}
+
+/// A governed image's resolved render state: the full validated package (uploaded once by the
+/// adapter) at its intrinsic-size bounds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub image: ImagePackage,
+}
+
+/// A `Button`'s resolved interaction state (ADR-015): hit-test bounds, the event `source` key,
+/// and the face/pressed tints — both derived once here from the theme table, never per frame.
+/// The label itself renders through the static text path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ButtonBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub source: &'static str,
+    /// Face color, resolved from the spec's theme token.
+    pub rgba: [f32; 4],
+    /// Pressed-state tint derived from the face color at binding time.
+    pub pressed_rgba: [f32; 4],
+}
+
+/// A `TextInput`'s resolved render state (ADR-015): where echoed content renders, from which
+/// baked glyph set, with what fixed capacity. The buffer itself lives in the application (the
+/// controlled component); the caret is a flat rect drawn by the adapter, not a glyph, so
+/// `capacity` is exactly `max_length`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextInputBinding {
+    pub node_id: &'static str,
+    pub bounds: Rect,
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub source: &'static str,
+    pub glyph_set_id: String,
+    pub max_length: u16,
+    pub color_token: &'static str,
+    /// Maximum glyph draw commands one render of this input can produce.
+    pub capacity: usize,
+}
+
+/// Every realtime binding resolved from a compiled screen, plus the packages they render from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreenBindings {
+    pub standard: TextPackage,
+    /// Approved display packages, one glyph atlas each; `NumberBinding::display_index` selects.
+    pub displays: Vec<TextPackage>,
+    pub locale: String,
+    pub clocks: Vec<ClockBinding>,
+    pub numbers: Vec<NumberBinding>,
+    pub statuses: Vec<StatusBinding>,
+    pub streams: Vec<StreamBinding>,
+    pub traces: Vec<TraceBinding>,
+    pub panels: Vec<PanelBinding>,
+    pub images: Vec<ImageBinding>,
+    pub buttons: Vec<ButtonBinding>,
+    /// `CriticalButton` faces, resolved the same way as `buttons` for rendering only. Kept in a
+    /// separate list rather than folded into `buttons` because that list also drives the
+    /// adapter's click hit-testing (ADR-015 §3): a `CriticalButton`'s press is dispatched through
+    /// its own framework-governed path (`WidgetEvent::CriticalButtonPressed`, resolved directly
+    /// from the compiled screen in the adapter), never as a generic `ButtonPressed`.
+    pub critical_button_chrome: Vec<ButtonBinding>,
+    pub text_inputs: Vec<TextInputBinding>,
+}
+
+impl ScreenBindings {
+    /// Resolves every dynamic node of `screen`: `Clock` against the standard package's clock
+    /// glyph set, `NumericDisplay` against its template in the display package,
+    /// `StatusIndicator` against its per-state approved runs for `locale`, and every
+    /// `VulkanViewport` as a stream declaration with the default ring dimensions.
+    pub fn from_screen(
+        screen: &'static CompiledScreenPackage,
+        standard: TextPackage,
+        displays: Vec<TextPackage>,
+        image_packages: &[ImagePackage],
+        locale: &str,
+    ) -> MduxResult<Self> {
+        let mut clocks = Vec::new();
+        let mut numbers = Vec::new();
+        let mut statuses = Vec::new();
+        let mut streams = Vec::new();
+        let mut traces = Vec::new();
+        let mut panels = Vec::new();
+        let mut images = Vec::new();
+        let mut buttons = Vec::new();
+        let mut critical_button_chrome = Vec::new();
+        let mut text_inputs = Vec::new();
+
+        for node in screen.nodes {
+            match &node.kind {
+                CompiledNodeKind::Clock(spec) => {
+                    let glyph_set_id = crate::DEFAULT_STANDARD_DIGITS_GLYPH_SET_ID.to_string();
+                    let glyph_set = standard
+                        .find_numeric_glyph_set(&glyph_set_id)
+                        .ok_or_else(|| {
+                            ValidationError::new(format!(
+                                "clock {} requires glyph set {glyph_set_id} in the standard package",
+                                node.id
+                            ))
+                        })?;
+                    for required in ['0', ':', '-', ' '] {
+                        if !glyph_set
+                            .entries
+                            .iter()
+                            .any(|entry| entry.character == required)
+                        {
+                            return Err(ValidationError::new(format!(
+                                "clock {} glyph set {glyph_set_id} is missing '{required}'",
+                                node.id
+                            )));
+                        }
+                    }
+                    let glyph_height = max_glyph_height(&standard, &glyph_set_id)?;
+                    let capacity = match spec.format {
+                        ClockFormat::TimeSeconds => 8,
+                        ClockFormat::DateTimeSeconds => 19,
+                    };
+                    clocks.push(ClockBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        origin_x: node.bounds.x,
+                        origin_y: centered_origin_y(node.bounds, glyph_height),
+                        format: spec.format,
+                        glyph_set_id,
+                        capacity,
+                    });
+                }
+                CompiledNodeKind::NumericDisplay(spec) => {
+                    // Unique-match template resolution across all display packages (ADR-014).
+                    let mut matches = displays
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, package)| package.find_template(spec.template_id).is_some());
+                    let (display_index, display) = match (matches.next(), matches.next()) {
+                        (Some(found), None) => found,
+                        (None, _) => {
+                            return Err(ValidationError::new(format!(
+                                "numeric display {} references unknown template {} (searched {} display packages)",
+                                node.id,
+                                spec.template_id,
+                                displays.len()
+                            )));
+                        }
+                        (Some(_), Some(_)) => {
+                            return Err(ValidationError::new(format!(
+                                "numeric display {} template {} is ambiguous across display packages",
+                                node.id, spec.template_id
+                            )));
+                        }
+                    };
+                    let template = display
+                        .find_template(spec.template_id)
+                        .expect("template presence just checked");
+                    let mut capacity = usize::from(template.max_chars);
+                    for affix_run_id in
+                        [&template.prefix_run_id, &template.suffix_run_id].into_iter().flatten()
+                    {
+                        let run = display.find_run(affix_run_id).ok_or_else(|| {
+                            ValidationError::new(format!(
+                                "numeric display {} template references unknown run {affix_run_id}",
+                                node.id
+                            ))
+                        })?;
+                        capacity += run.glyphs.len();
+                    }
+                    let glyph_height = max_glyph_height(display, &template.glyph_set_id)?;
+                    numbers.push(NumberBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        origin_x: node.bounds.x,
+                        origin_y: centered_origin_y(node.bounds, glyph_height),
+                        source: spec.source,
+                        template_id: spec.template_id.to_string(),
+                        display_index,
+                        color_token: spec.color_token,
+                        capacity,
+                    });
+                }
+                CompiledNodeKind::StatusIndicator(spec) => {
+                    spec.validate()?;
+                    let mut state_run_ids = Vec::with_capacity(spec.state_text_keys.len());
+                    let mut state_origins = Vec::with_capacity(spec.state_text_keys.len());
+                    let mut capacity = 0usize;
+                    for state_text_key in spec.state_text_keys {
+                        let run = standard
+                            .find_run_for_string(state_text_key, locale)
+                            .ok_or_else(|| {
+                                ValidationError::new(format!(
+                                    "status indicator {} state {state_text_key} has no compiled run for locale {locale}",
+                                    node.id
+                                ))
+                            })?;
+                        let run_bounds = standard.measure_run_bounds(run)?;
+                        let origin_x =
+                            node.bounds.x.checked_sub(run_bounds.min_x).ok_or_else(|| {
+                                ValidationError::new(format!(
+                                    "status indicator {} origin x is out of i32 range",
+                                    node.id
+                                ))
+                            })?;
+                        let origin_y =
+                            node.bounds.y.checked_sub(run_bounds.min_y).ok_or_else(|| {
+                                ValidationError::new(format!(
+                                    "status indicator {} origin y is out of i32 range",
+                                    node.id
+                                ))
+                            })?;
+                        capacity = capacity.max(run.glyphs.len());
+                        state_run_ids.push(run.id.clone());
+                        state_origins.push((origin_x, origin_y));
+                    }
+                    statuses.push(StatusBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        source: spec.source,
+                        state_run_ids,
+                        state_origins,
+                        color_tokens: spec.color_tokens,
+                        capacity,
+                    });
+                }
+                CompiledNodeKind::VulkanViewport(spec) => {
+                    streams.push(StreamBinding {
+                        node_id: node.id,
+                        source: spec.stream_source,
+                        bounds: node.bounds,
+                        rows: DEFAULT_STREAM_ROWS,
+                        bins: DEFAULT_STREAM_BINS,
+                    });
+                }
+                CompiledNodeKind::SignalTrace(spec) => {
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "signal trace {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    traces.push(TraceBinding {
+                        node_id: node.id,
+                        source: spec.stream_source,
+                        bounds: node.bounds,
+                        rgba,
+                        capacity: DEFAULT_TRACE_SAMPLES,
+                    });
+                }
+                CompiledNodeKind::Panel(spec) => {
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "panel {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    panels.push(PanelBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        rgba,
+                    });
+                }
+                CompiledNodeKind::Image(spec) => {
+                    let package = image_packages
+                        .iter()
+                        .find(|package| package.id == spec.image_id)
+                        .ok_or_else(|| {
+                            ValidationError::new(format!(
+                                "image {} references unknown image package {}",
+                                node.id, spec.image_id
+                            ))
+                        })?;
+                    // Defense in depth vs a hand-built screen: the compiler already pins
+                    // declared bounds == intrinsic dimensions (ADR-014, no scaling).
+                    if (node.bounds.width, node.bounds.height) != (package.width, package.height)
+                    {
+                        return Err(ValidationError::new(format!(
+                            "image {} bounds {}x{} do not match package {} intrinsic size {}x{}",
+                            node.id,
+                            node.bounds.width,
+                            node.bounds.height,
+                            spec.image_id,
+                            package.width,
+                            package.height
+                        )));
+                    }
+                    images.push(ImageBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        image: package.clone(),
+                    });
+                }
+                // Label has no realtime state at all.
+                CompiledNodeKind::Label(_) => {}
+                // CriticalButton's press dispatch is framework-governed and resolved separately
+                // by the adapter directly from the compiled screen (ADR-015 §4); only its chrome
+                // (face color) is bound here, the same way a Button's is.
+                CompiledNodeKind::CriticalButton(spec) => {
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "critical button {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    critical_button_chrome.push(ButtonBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        source: node.id,
+                        rgba,
+                        pressed_rgba: pressed_tint(rgba),
+                    });
+                }
+                CompiledNodeKind::Button(spec) => {
+                    spec.validate()?;
+                    let rgba = resolve_color_token(spec.color_token).ok_or_else(|| {
+                        ValidationError::new(format!(
+                            "button {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        ))
+                    })?;
+                    buttons.push(ButtonBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        source: spec.source,
+                        rgba,
+                        pressed_rgba: pressed_tint(rgba),
+                    });
+                }
+                CompiledNodeKind::TextInput(spec) => {
+                    spec.validate()?;
+                    if resolve_color_token(spec.color_token).is_none() {
+                        return Err(ValidationError::new(format!(
+                            "text input {} references unknown theme color token {}",
+                            node.id, spec.color_token
+                        )));
+                    }
+                    let glyph_set_id = spec.glyph_set_id.to_string();
+                    if standard.find_numeric_glyph_set(&glyph_set_id).is_none() {
+                        return Err(ValidationError::new(format!(
+                            "text input {} requires glyph set {glyph_set_id} in the standard package",
+                            node.id
+                        )));
+                    }
+                    let glyph_height = max_glyph_height(&standard, &glyph_set_id)?;
+                    text_inputs.push(TextInputBinding {
+                        node_id: node.id,
+                        bounds: node.bounds,
+                        origin_x: node.bounds.x,
+                        origin_y: centered_origin_y(node.bounds, glyph_height),
+                        source: spec.source,
+                        glyph_set_id,
+                        max_length: spec.max_length,
+                        color_token: spec.color_token,
+                        capacity: usize::from(spec.max_length),
+                    });
+                }
+            }
+        }
+
+        Ok(Self {
+            standard,
+            displays,
+            locale: locale.to_string(),
+            clocks,
+            numbers,
+            statuses,
+            streams,
+            traces,
+            panels,
+            images,
+            buttons,
+            critical_button_chrome,
+            text_inputs,
+        })
+    }
+
+    /// The renderer sizes its dynamic vertex buffer from this: the worst-case total glyph draw
+    /// commands one frame can produce across every realtime text binding.
+    pub fn max_dynamic_quads(&self) -> usize {
+        self.clocks.iter().map(|binding| binding.capacity).sum::<usize>()
+            + self.numbers.iter().map(|binding| binding.capacity).sum::<usize>()
+            + self.statuses.iter().map(|binding| binding.capacity).sum::<usize>()
+            + self.text_inputs.iter().map(|binding| binding.capacity).sum::<usize>()
+    }
+}
+
+/// The pressed-state tint of a button face: the face color darkened once at binding time
+/// (RGB × 0.8, alpha unchanged) — no color is computed per frame.
+fn pressed_tint(rgba: [f32; 4]) -> [f32; 4] {
+    [rgba[0] * 0.8, rgba[1] * 0.8, rgba[2] * 0.8, rgba[3]]
+}
+
+fn centered_origin_y(bounds: Rect, glyph_height: u32) -> i32 {
+    bounds.y + (bounds.height.saturating_sub(glyph_height) / 2) as i32
+}
+
+fn max_glyph_height(package: &TextPackage, glyph_set_id: &str) -> MduxResult<u32> {
+    let glyph_set = package.find_numeric_glyph_set(glyph_set_id).ok_or_else(|| {
+        ValidationError::new(format!("unknown numeric glyph set {glyph_set_id}"))
+    })?;
+    let mut height = 0u32;
+    for entry in &glyph_set.entries {
+        if let Some(atlas_glyph) = package.find_glyph(entry.atlas_index, entry.glyph_id) {
+            height = height.max(u32::from(atlas_glyph.height));
+        }
+    }
+    Ok(height)
+}
+
+/// The bounded per-frame mailbox: the application's realtime closure writes into it, the
+/// adapter drains it before recording each frame. All storage is allocated at construction from
+/// the screen's bindings; the setters allocate nothing and reject unknown sources with typed
+/// errors. Values persist between frames until overwritten.
+#[derive(Clone, Debug)]
+pub struct FrameInputs {
+    numbers: Vec<(&'static str, i64)>,
+    statuses: Vec<(&'static str, u8, usize)>, // (source, state_index, state_count)
+    streams: Vec<StreamState>,
+    traces: Vec<TraceState>,
+    texts: Vec<TextSlot>,
+}
+
+/// One `TextInput` source's echoed content: the storage is reserved at construction and the
+/// approved character set is copied from the binding's baked glyph set, so `set_text` can
+/// enforce length and charset without touching the packages again.
+#[derive(Clone, Debug)]
+struct TextSlot {
+    source: &'static str,
+    value: String,
+    max_length: usize,
+    allowed: Vec<char>,
+}
+
+#[derive(Clone, Debug)]
+struct StreamState {
+    source: &'static str,
+    rows: usize,
+    bins: usize,
+    /// Ring storage, `rows × bins`, normalized samples.
+    data: Vec<f32>,
+    /// Physical row the *next* push writes to.
+    cursor: usize,
+}
+
+/// One `SignalTrace` source's sample ring (ADR-018): a single scrolling series, distinct from
+/// `StreamState`'s `rows × bins` spectral ring.
+#[derive(Clone, Debug)]
+struct TraceState {
+    source: &'static str,
+    capacity: usize,
+    /// Ring storage, `capacity` normalized samples.
+    data: Vec<f32>,
+    /// Physical slot the *next* push writes to.
+    cursor: usize,
+}
+
+impl FrameInputs {
+    /// Fails only on an internally inconsistent `ScreenBindings` (a text input referencing a
+    /// glyph set absent from the standard package). `ScreenBindings::from_screen` already
+    /// guarantees the invariant, but the fields are public, so a hand-built or mutated value
+    /// must fail fast here rather than surface later as misleading `set_text` charset errors.
+    pub fn from_bindings(bindings: &ScreenBindings) -> MduxResult<Self> {
+        let mut texts = Vec::with_capacity(bindings.text_inputs.len());
+        for binding in &bindings.text_inputs {
+            let glyph_set = bindings
+                .standard
+                .find_numeric_glyph_set(&binding.glyph_set_id)
+                .ok_or_else(|| {
+                    ValidationError::new(format!(
+                        "text input {} references glyph set {} missing from the standard package \
+                         (inconsistent screen bindings)",
+                        binding.node_id, binding.glyph_set_id
+                    ))
+                })?;
+            texts.push(TextSlot {
+                source: binding.source,
+                // Reserved for the worst UTF-8 case so set_text never reallocates.
+                value: String::with_capacity(usize::from(binding.max_length) * 4),
+                max_length: usize::from(binding.max_length),
+                allowed: glyph_set.entries.iter().map(|entry| entry.character).collect(),
+            });
+        }
+
+        Ok(Self {
+            numbers: bindings
+                .numbers
+                .iter()
+                .map(|binding| (binding.source, 0i64))
+                .collect(),
+            statuses: bindings
+                .statuses
+                .iter()
+                .map(|binding| (binding.source, 0u8, binding.state_run_ids.len()))
+                .collect(),
+            streams: bindings
+                .streams
+                .iter()
+                .map(|binding| StreamState {
+                    source: binding.source,
+                    rows: binding.rows,
+                    bins: binding.bins,
+                    data: vec![0.0; binding.rows * binding.bins],
+                    cursor: 0,
+                })
+                .collect(),
+            traces: bindings
+                .traces
+                .iter()
+                .map(|binding| TraceState {
+                    source: binding.source,
+                    capacity: binding.capacity,
+                    data: vec![0.0; binding.capacity],
+                    cursor: 0,
+                })
+                .collect(),
+            texts,
+        })
+    }
+
+    /// Sets the current value of a `NumericDisplay` source. The value is range-checked at render
+    /// time against the template (`max_chars`, `allow_negative`).
+    pub fn set_number(&mut self, source: &str, value: i64) -> MduxResult<()> {
+        let slot = self
+            .numbers
+            .iter_mut()
+            .find(|(slot_source, _)| *slot_source == source)
+            .ok_or_else(|| {
+                ValidationError::new(format!("unknown numeric source {source}"))
+            })?;
+        slot.1 = value;
+        Ok(())
+    }
+
+    /// Selects the active state of a `StatusIndicator` source by index.
+    pub fn set_status(&mut self, source: &str, state_index: u8) -> MduxResult<()> {
+        let slot = self
+            .statuses
+            .iter_mut()
+            .find(|(slot_source, _, _)| *slot_source == source)
+            .ok_or_else(|| {
+                ValidationError::new(format!("unknown status source {source}"))
+            })?;
+        if usize::from(state_index) >= slot.2 {
+            return Err(ValidationError::new(format!(
+                "status source {source} has {} states, index {state_index} is out of range",
+                slot.2
+            )));
+        }
+        slot.1 = state_index;
+        Ok(())
+    }
+
+    /// Pushes one spectrum row into a stream's ring buffer, overwriting the oldest row once the
+    /// ring is full. `row.len()` must equal the stream's declared `bins`.
+    pub fn push_row(&mut self, source: &str, row: &[f32]) -> MduxResult<()> {
+        let stream = self
+            .streams
+            .iter_mut()
+            .find(|stream| stream.source == source)
+            .ok_or_else(|| {
+                ValidationError::new(format!("unknown stream source {source}"))
+            })?;
+        if row.len() != stream.bins {
+            return Err(ValidationError::new(format!(
+                "stream {source} expects rows of {} bins, got {}",
+                stream.bins,
+                row.len()
+            )));
+        }
+        let start = stream.cursor * stream.bins;
+        stream.data[start..start + stream.bins].copy_from_slice(row);
+        stream.cursor = (stream.cursor + 1) % stream.rows;
+        Ok(())
+    }
+
+    /// Pushes one sample into every `SignalTrace` binding for `source`'s ring buffer (ADR-018),
+    /// overwriting the oldest sample once each ring is full — the scrolling-amplitude counterpart
+    /// of [`push_row`](Self::push_row)'s spectral ring. Updates *all* matching rings, not just the
+    /// first: two `SignalTrace` nodes could legitimately share one `stream_source` (e.g. the same
+    /// signal rendered twice at different sizes), and only advancing one would leave the other
+    /// silently stale.
+    pub fn push_sample(&mut self, source: &str, sample: f32) -> MduxResult<()> {
+        let mut matched = false;
+        for trace in self.traces.iter_mut().filter(|trace| trace.source == source) {
+            matched = true;
+            trace.data[trace.cursor] = sample;
+            trace.cursor = (trace.cursor + 1) % trace.capacity;
+        }
+        if !matched {
+            return Err(ValidationError::new(format!("unknown trace source {source}")));
+        }
+        Ok(())
+    }
+
+    /// Echoes a `TextInput` source's current content for this frame (ADR-015 controlled
+    /// component: the application owns the buffer, the renderer only draws what it is handed).
+    /// Rejects unknown sources, content longer than the declared `max_length`, and characters
+    /// outside the binding's baked glyph set — the charset boundary is enforced here, not in
+    /// the renderer.
+    pub fn set_text(&mut self, source: &str, value: &str) -> MduxResult<()> {
+        let slot = self
+            .texts
+            .iter_mut()
+            .find(|slot| slot.source == source)
+            .ok_or_else(|| ValidationError::new(format!("unknown text source {source}")))?;
+        let length = value.chars().count();
+        if length > slot.max_length {
+            return Err(ValidationError::new(format!(
+                "text source {source} accepts at most {} characters, got {length}",
+                slot.max_length
+            )));
+        }
+        for character in value.chars() {
+            if !slot.allowed.contains(&character) {
+                return Err(ValidationError::new(format!(
+                    "text source {source} rejects character '{character}' outside its approved glyph set"
+                )));
+            }
+        }
+        slot.value.clear();
+        slot.value.push_str(value);
+        Ok(())
+    }
+
+    /// The current echoed content of a text source (renderer-side read).
+    pub fn text(&self, source: &str) -> Option<&str> {
+        self.texts
+            .iter()
+            .find(|slot| slot.source == source)
+            .map(|slot| slot.value.as_str())
+    }
+
+    /// The current value of a numeric source (renderer-side read).
+    pub fn number(&self, source: &str) -> Option<i64> {
+        self.numbers
+            .iter()
+            .find(|(slot_source, _)| *slot_source == source)
+            .map(|(_, value)| *value)
+    }
+
+    /// The active state index of a status source (renderer-side read).
+    pub fn status_index(&self, source: &str) -> Option<u8> {
+        self.statuses
+            .iter()
+            .find(|(slot_source, _, _)| *slot_source == source)
+            .map(|(_, index, _)| *index)
+    }
+
+    /// The ring storage and write cursor of a stream (renderer-side read): `data` is
+    /// `rows × bins` row-major, `cursor` is the physical row the next push will overwrite —
+    /// i.e. the *oldest* row currently on screen.
+    pub fn stream(&self, source: &str) -> Option<(&[f32], usize)> {
+        self.streams
+            .iter()
+            .find(|stream| stream.source == source)
+            .map(|stream| (stream.data.as_slice(), stream.cursor))
+    }
+
+    /// The ring storage and write cursor of a `SignalTrace` source (renderer-side read): `data`
+    /// is `capacity` samples, `cursor` is the physical slot the next push will overwrite — i.e.
+    /// the *oldest* sample currently on screen.
+    pub fn trace(&self, source: &str) -> Option<(&[f32], usize)> {
+        self.traces
+            .iter()
+            .find(|trace| trace.source == source)
+            .map(|trace| (trace.data.as_slice(), trace.cursor))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        CompiledNode, CompiledScreenPackage, LayoutKind, LayoutSpec, NumericDisplaySpec,
+        SignalTraceSpec, StatusIndicatorSpec, ViewportReservation, default_display_text_packages,
+        default_standard_text_package,
+    };
+    use trustsc_ui::ClockSpec;
+
+    const MONITOR_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "BindingsTest",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 8,
+            padding: 16,
+        },
+        nodes: &[
+            CompiledNode {
+                id: "wall-clock",
+                bounds: Rect { x: 372, y: 16, width: 676, height: 48 },
+                kind: CompiledNodeKind::Clock(ClockSpec {
+                    format: ClockFormat::DateTimeSeconds,
+                }),
+            },
+            CompiledNode {
+                id: "sedation-index",
+                bounds: Rect { x: 16, y: 72, width: 1248, height: 120 },
+                kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                    requirement_id: "REQ-NS-001",
+                    template_id: "TPL-SEDATION-INDEX",
+                    source: "SEDATION_INDEX",
+                    color_token: "Theme.Colors.ScoreDigits",
+                }),
+            },
+            CompiledNode {
+                id: "system-status",
+                bounds: Rect { x: 1064, y: 16, width: 200, height: 48 },
+                kind: CompiledNodeKind::StatusIndicator(StatusIndicatorSpec {
+                    requirement_id: "REQ-NS-003",
+                    source: "MONITOR_STATUS",
+                    state_text_keys: &["STR-NS-NOMINAL", "STR-NS-ALERT", "STR-NS-FAULT"],
+                    color_tokens: &["Theme.Colors.A", "Theme.Colors.B", "Theme.Colors.C"],
+                }),
+            },
+            CompiledNode {
+                id: "eeg-dsa",
+                bounds: Rect { x: 16, y: 200, width: 1248, height: 504 },
+                kind: CompiledNodeKind::VulkanViewport(ViewportReservation {
+                    stream_source: "EEG_DSA",
+                }),
+            },
+            CompiledNode {
+                id: "ecg-trace",
+                bounds: Rect { x: 16, y: 720, width: 1248, height: 240 },
+                kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                    stream_source: "ECG_WAVEFORM",
+                    color_token: "Theme.Colors.Nominal",
+                }),
+            },
+        ],
+        golden_references: &[],
+    };
+
+    fn bindings() -> ScreenBindings {
+        ScreenBindings::from_screen(
+            &MONITOR_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("bindings should resolve")
+    }
+
+    #[test]
+    fn resolves_one_binding_per_dynamic_node_with_documented_capacities() {
+        let bindings = bindings();
+
+        assert_eq!(bindings.clocks.len(), 1);
+        assert_eq!(bindings.clocks[0].capacity, 19); // YYYY-MM-DD HH:MM:SS
+        assert_eq!(bindings.numbers.len(), 1);
+        assert_eq!(bindings.numbers[0].capacity, 2); // affixless, max_chars = 2
+        assert_eq!(bindings.statuses.len(), 1);
+        assert_eq!(bindings.statuses[0].state_run_ids.len(), 3);
+        assert_eq!(bindings.streams.len(), 1);
+        assert_eq!(bindings.streams[0].rows, DEFAULT_STREAM_ROWS);
+        assert_eq!(bindings.streams[0].bins, DEFAULT_STREAM_BINS);
+        assert_eq!(bindings.traces.len(), 1);
+        assert_eq!(bindings.traces[0].source, "ECG_WAVEFORM");
+        assert_eq!(bindings.traces[0].capacity, DEFAULT_TRACE_SAMPLES);
+        assert_eq!(
+            bindings.traces[0].rgba,
+            crate::resolve_color_token("Theme.Colors.Nominal").expect("nominal rgba")
+        );
+
+        // NOMINAL = 7 glyphs is the widest en-US state label.
+        assert_eq!(bindings.statuses[0].capacity, 7);
+        assert_eq!(bindings.max_dynamic_quads(), 19 + 2 + 7);
+    }
+
+    #[test]
+    fn frame_inputs_validate_sources_and_ranges() {
+        let bindings = bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        inputs.set_number("SEDATION_INDEX", 47).expect("known source");
+        assert_eq!(inputs.number("SEDATION_INDEX"), Some(47));
+
+        let error = inputs
+            .set_number("UNKNOWN", 1)
+            .expect_err("unknown source rejected");
+        assert!(error.to_string().contains("unknown numeric source"));
+
+        inputs.set_status("MONITOR_STATUS", 2).expect("state 2 exists");
+        let error = inputs
+            .set_status("MONITOR_STATUS", 3)
+            .expect_err("state 3 out of range");
+        assert!(error.to_string().contains("out of range"));
+
+        let row = vec![0.5f32; DEFAULT_STREAM_BINS];
+        inputs.push_row("EEG_DSA", &row).expect("row of declared width");
+        let error = inputs
+            .push_row("EEG_DSA", &[0.0; 3])
+            .expect_err("wrong row width rejected");
+        assert!(error.to_string().contains("expects rows of"));
+
+        let (data, cursor) = inputs.stream("EEG_DSA").expect("stream exists");
+        assert_eq!(cursor, 1);
+        assert_eq!(data[0], 0.5);
+    }
+
+    #[test]
+    fn stream_ring_wraps_and_overwrites_oldest() {
+        let bindings = bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        for index in 0..(DEFAULT_STREAM_ROWS + 2) {
+            let row = vec![index as f32; DEFAULT_STREAM_BINS];
+            inputs.push_row("EEG_DSA", &row).expect("push");
+        }
+
+        let (data, cursor) = inputs.stream("EEG_DSA").expect("stream exists");
+        assert_eq!(cursor, 2); // wrapped past the end twice
+        assert_eq!(data[0], DEFAULT_STREAM_ROWS as f32); // physical row 0 overwritten
+        assert_eq!(data[DEFAULT_STREAM_BINS], (DEFAULT_STREAM_ROWS + 1) as f32);
+    }
+
+    #[test]
+    fn push_sample_writes_into_the_trace_ring_and_reports_the_cursor() {
+        let bindings = bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        inputs.push_sample("ECG_WAVEFORM", 0.75).expect("known trace source");
+        let (data, cursor) = inputs.trace("ECG_WAVEFORM").expect("trace exists");
+        assert_eq!(cursor, 1);
+        assert_eq!(data[0], 0.75);
+
+        let error = inputs
+            .push_sample("UNKNOWN", 0.0)
+            .expect_err("unknown trace source rejected");
+        assert!(error.to_string().contains("unknown trace source"));
+    }
+
+    #[test]
+    fn push_sample_updates_every_trace_bound_to_the_same_source() {
+        const TWO_TRACES_SAME_SOURCE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "TwoTracesSameSource",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[
+                CompiledNode {
+                    id: "trace-a",
+                    bounds: Rect { x: 0, y: 0, width: 640, height: 120 },
+                    kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                        stream_source: "SHARED_SOURCE",
+                        color_token: "Theme.Colors.Nominal",
+                    }),
+                },
+                CompiledNode {
+                    id: "trace-b",
+                    bounds: Rect { x: 0, y: 120, width: 640, height: 120 },
+                    kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                        stream_source: "SHARED_SOURCE",
+                        color_token: "Theme.Colors.Nominal",
+                    }),
+                },
+            ],
+            golden_references: &[],
+        };
+
+        let bindings = ScreenBindings::from_screen(
+            &TWO_TRACES_SAME_SOURCE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("bindings should resolve");
+        assert_eq!(bindings.traces.len(), 2, "one binding per SignalTrace node");
+
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+        inputs.push_sample("SHARED_SOURCE", 0.75).expect("known trace source");
+
+        // Both nodes' rings must advance -- push_sample must not silently update only the first
+        // match and leave the second one stale.
+        let (data_a, cursor_a) = inputs.trace("SHARED_SOURCE").expect("trace exists");
+        assert_eq!(cursor_a, 1);
+        assert_eq!(data_a[0], 0.75);
+        assert_eq!(inputs.traces.iter().filter(|t| t.cursor == 1).count(), 2);
+    }
+
+    #[test]
+    fn trace_ring_wraps_and_overwrites_the_oldest_sample() {
+        let bindings = bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        for index in 0..(DEFAULT_TRACE_SAMPLES + 3) {
+            inputs
+                .push_sample("ECG_WAVEFORM", index as f32)
+                .expect("push");
+        }
+
+        let (data, cursor) = inputs.trace("ECG_WAVEFORM").expect("trace exists");
+        assert_eq!(cursor, 3); // wrapped past the end once
+        assert_eq!(data[0], DEFAULT_TRACE_SAMPLES as f32); // physical slot 0 overwritten
+        assert_eq!(data[1], (DEFAULT_TRACE_SAMPLES + 1) as f32);
+    }
+
+    #[test]
+    fn from_screen_rejects_a_signal_trace_with_an_unknown_theme_color_token() {
+        const BROKEN_TRACE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenTrace",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "ecg-trace",
+                bounds: Rect { x: 0, y: 0, width: 1248, height: 240 },
+                kind: CompiledNodeKind::SignalTrace(SignalTraceSpec {
+                    stream_source: "ECG_WAVEFORM",
+                    color_token: "Theme.Colors.Nope",
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_TRACE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("unknown theme color token should be rejected");
+        assert!(error.to_string().contains("unknown theme color token"), "{error}");
+    }
+
+    #[test]
+    fn numeric_templates_resolve_to_the_right_display_package_index() {
+        // TPL-SEDATION-INDEX lives in the 48px package (index 0); TPL-SEDATION-INDEX-160 in the
+        // 160px package (index 1) — unique-match across the real baked packages.
+        const TWO_SIZE_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "TwoSizes",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[
+                CompiledNode {
+                    id: "small-index",
+                    bounds: Rect { x: 16, y: 16, width: 400, height: 120 },
+                    kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                        requirement_id: "REQ-NS-001",
+                        template_id: "TPL-SEDATION-INDEX",
+                        source: "SMALL",
+                        color_token: "Theme.Colors.ScoreDigits",
+                    }),
+                },
+                CompiledNode {
+                    id: "large-index",
+                    bounds: Rect { x: 16, y: 200, width: 512, height: 512 },
+                    kind: CompiledNodeKind::NumericDisplay(NumericDisplaySpec {
+                        requirement_id: "REQ-NS-001",
+                        template_id: "TPL-SEDATION-INDEX-160",
+                        source: "LARGE",
+                        color_token: "Theme.Colors.ScoreDigits",
+                    }),
+                },
+            ],
+            golden_references: &[],
+        };
+
+        let bindings = ScreenBindings::from_screen(
+            &TWO_SIZE_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("both sizes should resolve");
+
+        assert_eq!(bindings.numbers.len(), 2);
+        let small = bindings.numbers.iter().find(|n| n.source == "SMALL").expect("small");
+        let large = bindings.numbers.iter().find(|n| n.source == "LARGE").expect("large");
+        assert_eq!(small.display_index, 0);
+        assert_eq!(large.display_index, 1);
+        // Both are 2-digit affixless templates.
+        assert_eq!(small.capacity, 2);
+        assert_eq!(large.capacity, 2);
+
+        // An unknown template names the search width in its error.
+        let error = ScreenBindings::from_screen(
+            &TWO_SIZE_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            vec![],
+            &[],
+            "en-US",
+        )
+        .expect_err("no display packages should fail");
+        assert!(error.to_string().contains("searched 0 display packages"), "{error}");
+    }
+
+    #[test]
+    fn from_screen_rejects_a_status_indicator_with_mismatched_state_and_color_arrays() {
+        const BROKEN_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenStatus",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "system-status",
+                bounds: Rect { x: 0, y: 0, width: 200, height: 48 },
+                kind: CompiledNodeKind::StatusIndicator(StatusIndicatorSpec {
+                    requirement_id: "REQ-NS-003",
+                    source: "MONITOR_STATUS",
+                    state_text_keys: &["STR-NS-NOMINAL", "STR-NS-ALERT"],
+                    color_tokens: &["Theme.Colors.A"],
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("mismatched state/color arrays should be rejected before indexing them");
+
+        assert!(error.to_string().contains("same length"), "{error}");
+    }
+
+    fn sample_image_package() -> trustsc_image_schema::ImagePackage {
+        trustsc_image_schema::ImagePackage {
+            id: "LOGO-TEST".to_string(),
+            width: 144,
+            height: 48,
+            pixels: vec![0u8; 144 * 48 * 4],
+            evidence: trustsc_image_schema::ImageEvidence {
+                package_sha256: "0".repeat(64),
+                source_sha256: "1".repeat(64),
+                toolchain_id: "test".to_string(),
+                build_recipe_sha256: "2".repeat(64),
+            },
+        }
+    }
+
+    #[test]
+    fn from_screen_rejects_a_panel_with_an_unknown_theme_color_token() {
+        const BROKEN_PANEL: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenPanel",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "topbar-background",
+                bounds: Rect { x: 0, y: 0, width: 1920, height: 64 },
+                kind: CompiledNodeKind::Panel(trustsc_ui::PanelSpec {
+                    color_token: "Theme.Colors.Nope",
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_PANEL,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("unknown theme color token should be rejected");
+        assert!(error.to_string().contains("unknown theme color token"), "{error}");
+    }
+
+    #[test]
+    fn from_screen_rejects_an_image_referencing_an_unknown_package() {
+        const BROKEN_IMAGE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenImage",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "acme-logo",
+                bounds: Rect { x: 0, y: 0, width: 144, height: 48 },
+                kind: CompiledNodeKind::Image(trustsc_ui::ImageSpec { image_id: "LOGO-NOPE" }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &BROKEN_IMAGE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[sample_image_package()],
+            "en-US",
+        )
+        .expect_err("unknown image package should be rejected");
+        assert!(error.to_string().contains("unknown image package"), "{error}");
+    }
+
+    const INTERACTIVE_SCREEN: CompiledScreenPackage = CompiledScreenPackage {
+        screen_id: "InteractiveBindings",
+        layout: LayoutSpec {
+            kind: LayoutKind::Vertical,
+            spacing: 8,
+            padding: 16,
+        },
+        nodes: &[
+            CompiledNode {
+                id: "ack-button",
+                bounds: Rect { x: 1392, y: 720, width: 240, height: 64 },
+                kind: CompiledNodeKind::Button(trustsc_ui::ButtonSpec {
+                    text_key: "STR-NS-ACK",
+                    color_token: "Theme.Colors.PrimaryAction",
+                    source: "ACK_BUTTON",
+                    requirement_id: Some("REQ-NS-004"),
+                }),
+            },
+            CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 1392, y: 640, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(trustsc_ui::TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 16,
+                    glyph_set_id: "SET-ASCII-TEXT",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: Some("REQ-NS-005"),
+                }),
+            },
+        ],
+        golden_references: &[],
+    };
+
+    fn interactive_bindings() -> ScreenBindings {
+        ScreenBindings::from_screen(
+            &INTERACTIVE_SCREEN,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect("interactive screen should bind")
+    }
+
+    #[test]
+    fn from_screen_resolves_button_and_text_input_bindings() {
+        let bindings = interactive_bindings();
+
+        assert_eq!(bindings.buttons.len(), 1);
+        let button = &bindings.buttons[0];
+        assert_eq!(button.node_id, "ack-button");
+        assert_eq!(button.source, "ACK_BUTTON");
+        let face = crate::resolve_color_token("Theme.Colors.PrimaryAction").expect("face rgba");
+        assert_eq!(button.rgba, face);
+        // Pressed tint is derived once at binding time: darker face, same alpha.
+        assert_eq!(
+            button.pressed_rgba,
+            [face[0] * 0.8, face[1] * 0.8, face[2] * 0.8, face[3]]
+        );
+
+        assert_eq!(bindings.text_inputs.len(), 1);
+        let input = &bindings.text_inputs[0];
+        assert_eq!(input.node_id, "patient-id-input");
+        assert_eq!(input.source, "PATIENT_ID");
+        assert_eq!(input.glyph_set_id, "SET-ASCII-TEXT");
+        assert_eq!(input.max_length, 16);
+        assert_eq!(input.capacity, 16);
+        assert_eq!(input.origin_x, 1392);
+        assert!(input.origin_y >= input.bounds.y);
+
+        // The text input's capacity joins the dynamic quad budget; the button's label is
+        // static text and contributes nothing here.
+        assert_eq!(bindings.max_dynamic_quads(), 16);
+    }
+
+    #[test]
+    fn from_screen_rejects_a_text_input_whose_glyph_set_is_not_baked() {
+        const UNBAKED_CHARSET: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "UnbakedCharset",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 16, y: 16, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(trustsc_ui::TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 16,
+                    glyph_set_id: "SET-DOES-NOT-EXIST",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: None,
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &UNBAKED_CHARSET,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("an unbaked glyph set should be rejected");
+        assert!(
+            error.to_string().contains("requires glyph set SET-DOES-NOT-EXIST"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn from_bindings_fails_fast_on_inconsistent_text_input_bindings() {
+        // ScreenBindings::from_screen guarantees the glyph set exists, but the fields are
+        // public: a hand-mutated value must fail here, not as misleading set_text charset
+        // errors later.
+        let mut bindings = interactive_bindings();
+        bindings.text_inputs[0].glyph_set_id = "SET-GONE".to_string();
+
+        let error = FrameInputs::from_bindings(&bindings)
+            .expect_err("a text input referencing a missing glyph set must fail fast");
+        assert!(
+            error.to_string().contains("glyph set SET-GONE missing from the standard package"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn set_text_enforces_source_length_and_charset() {
+        let bindings = interactive_bindings();
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        // Empty until the application echoes something.
+        assert_eq!(inputs.text("PATIENT_ID"), Some(""));
+
+        inputs.set_text("PATIENT_ID", "PID-2026 #47").expect("printable ASCII fits");
+        assert_eq!(inputs.text("PATIENT_ID"), Some("PID-2026 #47"));
+
+        let error = inputs
+            .set_text("UNKNOWN", "X")
+            .expect_err("unknown sources are rejected");
+        assert!(error.to_string().contains("unknown text source UNKNOWN"), "{error}");
+
+        let error = inputs
+            .set_text("PATIENT_ID", "ABCDEFGHIJKLMNOPQ")
+            .expect_err("17 characters exceed max_length 16");
+        assert!(
+            error.to_string().contains("accepts at most 16 characters, got 17"),
+            "{error}"
+        );
+
+        let error = inputs
+            .set_text("PATIENT_ID", "CAFÉ")
+            .expect_err("a character outside printable ASCII is rejected");
+        assert!(
+            error.to_string().contains("rejects character 'É'"),
+            "{error}"
+        );
+
+        // Failed writes never corrupt the echoed value.
+        assert_eq!(inputs.text("PATIENT_ID"), Some("PID-2026 #47"));
+    }
+
+    #[test]
+    fn from_screen_rejects_invalid_interactive_specs_at_binding_time() {
+        const ZERO_CAPACITY_INPUT: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenTextInput",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "patient-id-input",
+                bounds: Rect { x: 16, y: 16, width: 512, height: 48 },
+                kind: CompiledNodeKind::TextInput(trustsc_ui::TextInputSpec {
+                    source: "PATIENT_ID",
+                    max_length: 0,
+                    glyph_set_id: "SET-ASCII-TEXT",
+                    color_token: "Theme.Colors.Title",
+                    requirement_id: None,
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &ZERO_CAPACITY_INPUT,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("zero-capacity text input should be rejected at binding time");
+        assert!(
+            error.to_string().contains("max_length must be greater than zero"),
+            "{error}"
+        );
+
+        const EMPTY_SOURCE_BUTTON: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "BrokenButton",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "ack-button",
+                bounds: Rect { x: 16, y: 16, width: 240, height: 64 },
+                kind: CompiledNodeKind::Button(trustsc_ui::ButtonSpec {
+                    text_key: "STR-NS-ACK",
+                    color_token: "Theme.Colors.PrimaryAction",
+                    source: "",
+                    requirement_id: None,
+                }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &EMPTY_SOURCE_BUTTON,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[],
+            "en-US",
+        )
+        .expect_err("empty button source should be rejected at binding time");
+        assert!(error.to_string().contains("button source must not be empty"), "{error}");
+    }
+
+    #[test]
+    fn from_screen_rejects_an_image_whose_bounds_do_not_match_the_package_intrinsic_size() {
+        const MISSIZED_IMAGE: CompiledScreenPackage = CompiledScreenPackage {
+            screen_id: "MissizedImage",
+            layout: LayoutSpec {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 16,
+            },
+            nodes: &[CompiledNode {
+                id: "acme-logo",
+                // Declares 144x40, but sample_image_package() is 144x48.
+                bounds: Rect { x: 0, y: 0, width: 144, height: 40 },
+                kind: CompiledNodeKind::Image(trustsc_ui::ImageSpec { image_id: "LOGO-TEST" }),
+            }],
+            golden_references: &[],
+        };
+
+        let error = ScreenBindings::from_screen(
+            &MISSIZED_IMAGE,
+            default_standard_text_package().expect("standard package"),
+            default_display_text_packages().expect("display packages"),
+            &[sample_image_package()],
+            "en-US",
+        )
+        .expect_err("bounds/intrinsic-size mismatch should be rejected");
+        assert!(
+            error.to_string().contains("do not match package LOGO-TEST intrinsic size 144x48"),
+            "{error}"
+        );
+    }
+}

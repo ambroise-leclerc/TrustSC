@@ -72,7 +72,7 @@ with a human-readable rationale and pointers to the evidence (an ADR, a source f
   "rationale": "mdux-governance::Hazard requires >=1 controlling Requirement, and ComplianceProgram::validate() rejects a Class C device with zero recorded hazards, giving §7.1's hazard analysis a machine-checked minimum rather than a paper-only record.",
   "requirement_id": "REQ-EEG-ALERT-LATENCY",
   "evidence_refs": [
-    "crates/mdux-governance/src/lib.rs",
+    "crates/trustsc-governance/src/lib.rs",
     "docs/adr/ADR-011-medui-safety-monitor-and-vulkan-viewport-contract.md",
     "examples/class_c_monitor"
   ]
@@ -88,7 +88,7 @@ Field notes:
   restatement of the clause itself.
 - `requirement_id` *(optional)* — cross-references a real `mdux-governance::RequirementId` when the
   justification backs a specific tracked requirement rather than a general design property.
-  `crates/mdux-governance/src/lib.rs` defines this type; that crate has no `serde` support yet, so this
+  `crates/trustsc-governance/src/lib.rs` defines this type; that crate has no `serde` support yet, so this
   is a documentation-level cross-reference today, not a live join — see `docs/adr/ADR-019-regulatory-standards-reference-corpus.md`
   for why wiring a real JSON export is left as future work rather than built here.
 - `evidence_refs` — file paths, ADR filenames, or example directory names substantiating the rationale.

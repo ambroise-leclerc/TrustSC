@@ -1,0 +1,9 @@
+[package]
+name = "trustsc-text-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrayvec = "0.7"
+trustsc-core = { path = "../trustsc-core" }
+trustsc-text-schema = { path = "../trustsc-text-schema" }

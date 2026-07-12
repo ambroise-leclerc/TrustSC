@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [build-dependencies]
-mdux-build = { path = "../../crates/mdux-build" }
+trustsc-build = { path = "../../crates/trustsc-build" }
 
 [dependencies]
-mdux = { path = "../../crates/mdux" }
-mdux-vulkan-winit = { path = "../../adapters/mdux-vulkan-winit" }
+trustsc = { path = "../../crates/trustsc" }
+trustsc-vulkan-winit = { path = "../../adapters/trustsc-vulkan-winit" }

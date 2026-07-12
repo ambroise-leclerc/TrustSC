@@ -6,13 +6,13 @@
 //! This is the flagship demonstration of the "weights are data" story (ADR-017 §2): `MODEL` is
 //! whatever `generated/models/eeg-demo/package.json` the build compiled in. Swap that one
 //! committed file for a manufacturer's own clinically-qualified weights — baked by the exact same
-//! `tools/mdux-ml-baker` pipeline — and every line below is unchanged.
+//! `tools/trustsc-ml-baker` pipeline — and every line below is unchanged.
 
 use std::sync::LazyLock;
 use std::{cell::Cell, rc::Rc};
 
-use mdux::realtime::FrameInputs;
-use mdux::{Classifier1D, FrameEvents, TextInputModel, WidgetEvent};
+use trustsc::realtime::FrameInputs;
+use trustsc::{Classifier1D, FrameEvents, TextInputModel, WidgetEvent};
 
 /// Sized from the baked `eeg-demo` model's `max_layer_units()` (its widest activation is the
 /// flattened 64-bin input) with headroom; `MAX_OUT` covers the three labels (AWAKE, ADEQUATE,
@@ -22,7 +22,7 @@ const CLASSIFIER_MAX_UNITS: usize = 128;
 const CLASSIFIER_MAX_OUT: usize = 4;
 
 /// `AWAKE`/`ADEQUATE`/`BURST_SUPPRESSION` class indices, matching
-/// `tools/mdux-ml-baker/fixtures/eeg-demo.toml`'s `output.labels` order exactly.
+/// `tools/trustsc-ml-baker/fixtures/eeg-demo.toml`'s `output.labels` order exactly.
 const CLASS_AWAKE: u8 = 0;
 const CLASS_ADEQUATE: usize = 1;
 const CLASS_BURST_SUPPRESSION: u8 = 2;
@@ -36,7 +36,7 @@ const ENERGY_SCALE: f32 = 2.4;
 /// The committed model package, loaded once for the process (ADR-013: no per-frame allocation
 /// or object construction — this `LazyLock` initializes on first use, well before the render
 /// loop starts, not per frame).
-static MODEL: LazyLock<mdux::ModelPackage> = LazyLock::new(crate::medui_model::model);
+static MODEL: LazyLock<trustsc::ModelPackage> = LazyLock::new(crate::medui_model::model);
 
 /// Synthetic EEG: two drifting spectral peaks over pseudo-noise feed both the 3D waterfall
 /// (`EEG_DSA`) and, scaled by [`ENERGY_SCALE`] into the baked model's threshold bands, the real
@@ -109,8 +109,8 @@ impl AppLogic {
         }
     }
 
-    /// Builds the two closures `main` registers via `mdux_vulkan_winit::App::with_input` /
-    /// `with_realtime` — and the scenario test registers with `mdux::verify_scenario::run_scenario`
+    /// Builds the two closures `main` registers via `trustsc_vulkan_winit::App::with_input` /
+    /// `with_realtime` — and the scenario test registers with `trustsc::verify_scenario::run_scenario`
     /// instead. Consumes `self`: both closures move their share of its state, so callers construct
     /// a fresh `AppLogic` per run (per windowed session, or per scenario in the test).
     pub fn into_closures(

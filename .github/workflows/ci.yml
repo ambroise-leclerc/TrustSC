@@ -37,25 +37,25 @@ jobs:
         run: cargo test --locked --quiet
 
       - name: Lint regulatory citations and Justification blocks (ADR-020)
-        run: cargo run --locked -q -p mdux-docs-lint -- check
+        run: cargo run --locked -q -p trustsc-docs-lint -- check
 
       - name: Verify generated Roboto artifacts
-        run: cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
+        run: cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
 
       - name: Verify generated Roboto display (48px) artifacts
-        run: cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
+        run: cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
 
       - name: Verify generated Roboto display (160px) artifacts
-        run: cargo run --locked -q -p mdux-font-baker -- verify tools/mdux-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
+        run: cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
 
       - name: Verify generated Acme logo image artifacts
-        run: cargo run --locked -q -p mdux-image-baker -- verify tools/mdux-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
+        run: cargo run --locked -q -p trustsc-image-baker -- verify tools/trustsc-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
 
       - name: Verify committed SPIR-V shader artifacts
-        run: cargo run --locked -q -p mdux-shader-baker -- verify tools/mdux-shader-baker/fixtures/text-shaders.toml adapters/mdux-vulkan-winit/shaders/generated adapters/mdux-vulkan-winit/shaders/generated/report.json
+        run: cargo run --locked -q -p trustsc-shader-baker -- verify tools/trustsc-shader-baker/fixtures/text-shaders.toml adapters/trustsc-vulkan-winit/shaders/generated adapters/trustsc-vulkan-winit/shaders/generated/report.json
 
       - name: Verify generated eeg-demo ML model artifacts
-        run: cargo run --locked -q -p mdux-ml-baker -- verify tools/mdux-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
+        run: cargo run --locked -q -p trustsc-ml-baker -- verify tools/trustsc-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
 
       - name: Run headless hello world smoke test
         run: cargo run --locked -q -p hello_world -- --headless-smoke

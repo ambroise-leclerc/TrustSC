@@ -16,7 +16,7 @@ of §4-§8 remain entirely the manufacturer's own responsibility — echoing the
 > `ISO 13485:2016 §4.2 Documentation requirements`, `§7.3 Design and development`
 
 - **Design and development traceability** — `mdux_governance::ComplianceProgram::trace_rows()`/
-  `trace_matrix_export()` (`crates/mdux-governance/src/lib.rs`) generate a requirement → verification
+  `trace_matrix_export()` (`crates/trustsc-governance/src/lib.rs`) generate a requirement → verification
   → hazard matrix directly from typed data, mapping onto §7.3's design-input/output/verification/
   validation traceability expectations.
 - **Document/record control for generated evidence** — every baked asset (fonts, shaders, ML model
@@ -52,7 +52,7 @@ of §4-§8 remain entirely the manufacturer's own responsibility — echoing the
   "clause_ref": "ISO 13485:2016 §7.3 Design and development",
   "rationale": "ComplianceProgram::trace_rows() generates a requirement-to-verification-to-hazard matrix from typed data populated during development, giving a manufacturer's §7.3 traceability records a machine-derived source rather than a hand-maintained spreadsheet that can drift from the code.",
   "evidence_refs": [
-    "crates/mdux-governance/src/lib.rs",
+    "crates/trustsc-governance/src/lib.rs",
     "docs/regulatory-compliance.md"
   ]
 }

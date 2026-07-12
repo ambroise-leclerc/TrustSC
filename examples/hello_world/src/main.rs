@@ -1,6 +1,6 @@
-mdux::include_medui_screen!();
+trustsc::include_medui_screen!();
 
-use mdux::{
+use trustsc::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Requirement, RequirementId, SafetyClass,
     UiSdkConfig, VerificationCase, VerificationMethod,
 };
@@ -37,5 +37,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_screen(screen)
         .build()?;
 
-    mdux_vulkan_winit::App::new(framework, screen).run_from_env()
+    trustsc_vulkan_winit::App::new(framework, screen).run_from_env()
 }

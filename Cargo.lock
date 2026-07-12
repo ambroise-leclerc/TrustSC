@@ -232,23 +232,23 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 name = "class_b_device"
 version = "0.1.0"
 dependencies = [
- "mdux",
+ "trustsc",
 ]
 
 [[package]]
 name = "class_c_monitor"
 version = "0.1.0"
 dependencies = [
- "mdux",
- "mdux-build",
- "mdux-vulkan-winit",
+ "trustsc",
+ "trustsc-build",
+ "trustsc-vulkan-winit",
 ]
 
 [[package]]
 name = "class_c_vulkansc_device"
 version = "0.1.0"
 dependencies = [
- "mdux",
+ "trustsc",
 ]
 
 [[package]]
@@ -553,9 +553,9 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 name = "hello_world"
 version = "0.1.0"
 dependencies = [
- "mdux",
- "mdux-build",
- "mdux-vulkan-winit",
+ "trustsc",
+ "trustsc-build",
+ "trustsc-vulkan-winit",
 ]
 
 [[package]]
@@ -719,200 +719,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "mdux"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-governance",
- "mdux-image-schema",
- "mdux-ml-authoring",
- "mdux-ml-runtime",
- "mdux-ml-schema",
- "mdux-text-authoring",
- "mdux-text-runtime",
- "mdux-text-schema",
- "mdux-ui",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "mdux-build"
-version = "0.1.0"
-dependencies = [
- "mdux",
- "mdux-ui-dsl-authoring",
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "mdux-core"
-version = "0.1.0"
-
-[[package]]
-name = "mdux-docs-lint"
-version = "0.1.0"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
-name = "mdux-font-baker"
-version = "0.1.0"
-dependencies = [
- "fontdue",
- "mdux-core",
- "mdux-text-authoring",
- "mdux-text-schema",
- "serde",
- "serde_json",
- "sha2",
- "toml",
-]
-
-[[package]]
-name = "mdux-governance"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
-]
-
-[[package]]
-name = "mdux-image-baker"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-image-schema",
- "serde",
- "serde_json",
- "sha2",
- "toml",
-]
-
-[[package]]
-name = "mdux-image-schema"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
-]
-
-[[package]]
-name = "mdux-ml-authoring"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-ml-runtime",
- "mdux-ml-schema",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "mdux-ml-baker"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-ml-authoring",
- "mdux-ml-runtime",
- "mdux-ml-schema",
- "serde",
- "serde_json",
- "sha2",
- "toml",
-]
-
-[[package]]
-name = "mdux-ml-runtime"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-ml-schema",
-]
-
-[[package]]
-name = "mdux-ml-schema"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
-]
-
-[[package]]
-name = "mdux-shader-baker"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "serde",
- "serde_json",
- "sha2",
- "shaderc",
- "toml",
-]
-
-[[package]]
-name = "mdux-text-authoring"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-text-schema",
- "sha2",
-]
-
-[[package]]
-name = "mdux-text-runtime"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "mdux-core",
- "mdux-text-schema",
-]
-
-[[package]]
-name = "mdux-text-schema"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
-]
-
-[[package]]
-name = "mdux-ui"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-governance",
-]
-
-[[package]]
-name = "mdux-ui-dsl-authoring"
-version = "0.1.0"
-dependencies = [
- "mdux-core",
- "mdux-image-schema",
- "mdux-text-schema",
- "mdux-ui",
-]
-
-[[package]]
-name = "mdux-ui-verify"
-version = "0.1.0"
-dependencies = [
- "mdux-ui",
-]
-
-[[package]]
-name = "mdux-vulkan-winit"
-version = "0.1.0"
-dependencies = [
- "ash",
- "ash-window",
- "mdux",
- "mdux-ui-verify",
- "raw-window-handle",
- "winit",
 ]
 
 [[package]]
@@ -1470,6 +1276,200 @@ name = "toml_writer"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
+
+[[package]]
+name = "trustsc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "trustsc-core",
+ "trustsc-governance",
+ "trustsc-image-schema",
+ "trustsc-ml-authoring",
+ "trustsc-ml-runtime",
+ "trustsc-ml-schema",
+ "trustsc-text-authoring",
+ "trustsc-text-runtime",
+ "trustsc-text-schema",
+ "trustsc-ui",
+]
+
+[[package]]
+name = "trustsc-build"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+ "trustsc",
+ "trustsc-ui-dsl-authoring",
+]
+
+[[package]]
+name = "trustsc-core"
+version = "0.1.0"
+
+[[package]]
+name = "trustsc-docs-lint"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "trustsc-font-baker"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "trustsc-core",
+ "trustsc-text-authoring",
+ "trustsc-text-schema",
+]
+
+[[package]]
+name = "trustsc-governance"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+]
+
+[[package]]
+name = "trustsc-image-baker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "trustsc-core",
+ "trustsc-image-schema",
+]
+
+[[package]]
+name = "trustsc-image-schema"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+]
+
+[[package]]
+name = "trustsc-ml-authoring"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "trustsc-core",
+ "trustsc-ml-runtime",
+ "trustsc-ml-schema",
+]
+
+[[package]]
+name = "trustsc-ml-baker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "trustsc-core",
+ "trustsc-ml-authoring",
+ "trustsc-ml-runtime",
+ "trustsc-ml-schema",
+]
+
+[[package]]
+name = "trustsc-ml-runtime"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+ "trustsc-ml-schema",
+]
+
+[[package]]
+name = "trustsc-ml-schema"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+]
+
+[[package]]
+name = "trustsc-shader-baker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "shaderc",
+ "toml",
+ "trustsc-core",
+]
+
+[[package]]
+name = "trustsc-text-authoring"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+ "trustsc-core",
+ "trustsc-text-schema",
+]
+
+[[package]]
+name = "trustsc-text-runtime"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "trustsc-core",
+ "trustsc-text-schema",
+]
+
+[[package]]
+name = "trustsc-text-schema"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+]
+
+[[package]]
+name = "trustsc-ui"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+ "trustsc-governance",
+]
+
+[[package]]
+name = "trustsc-ui-dsl-authoring"
+version = "0.1.0"
+dependencies = [
+ "trustsc-core",
+ "trustsc-image-schema",
+ "trustsc-text-schema",
+ "trustsc-ui",
+]
+
+[[package]]
+name = "trustsc-ui-verify"
+version = "0.1.0"
+dependencies = [
+ "trustsc-ui",
+]
+
+[[package]]
+name = "trustsc-vulkan-winit"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "ash-window",
+ "raw-window-handle",
+ "trustsc",
+ "trustsc-ui-verify",
+ "winit",
+]
 
 [[package]]
 name = "ttf-parser"
