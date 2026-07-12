@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::{fs, path::PathBuf};
 
-use trustsc_core::{MduxResult, Validates, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, Validates, ValidationError, validate_non_empty};
 use trustsc_ml_runtime::Classifier1D;
 use trustsc_ml_schema::{
     DeterminismEvidence, Dtype, GoldenVector, InputSpec, Layer, ModelPackage, OutputSpec, Tensor,
@@ -29,7 +29,7 @@ pub struct WeightsFingerprint {
     pub byte_len: u64,
 }
 
-pub fn fingerprint_weights_file(path: impl AsRef<Path>) -> MduxResult<WeightsFingerprint> {
+pub fn fingerprint_weights_file(path: impl AsRef<Path>) -> TrustScResult<WeightsFingerprint> {
     let path = path.as_ref();
     let contents = fs::read(path).map_err(|error| {
         ValidationError::new(format!(
@@ -67,7 +67,7 @@ pub struct ImportedWeights {
 pub fn import_safetensors(
     bytes: &[u8],
     manifest: &ArchitectureManifest,
-) -> MduxResult<ImportedWeights> {
+) -> TrustScResult<ImportedWeights> {
     if bytes.len() < 8 {
         return Err(ValidationError::new(
             "safetensors file is too short to contain an 8-byte header length",
@@ -122,7 +122,7 @@ fn parse_safetensors_entry(
     entry: &serde_json::Value,
     bytes: &[u8],
     data_start: usize,
-) -> MduxResult<Tensor> {
+) -> TrustScResult<Tensor> {
     let object = entry.as_object().ok_or_else(|| {
         ValidationError::new(format!(
             "safetensors entry {safetensors_name} is not a JSON object"
@@ -160,7 +160,7 @@ fn parse_safetensors_entry(
                     ))
                 })
         })
-        .collect::<MduxResult<_>>()?;
+        .collect::<TrustScResult<_>>()?;
     if shape.is_empty() {
         return Err(ValidationError::new(format!(
             "safetensors entry {safetensors_name} shape must not be empty"
@@ -288,7 +288,7 @@ pub struct ModelCompilationInput {
 /// `trustsc-ml-runtime`'s own kernels (so host and device arithmetic can never drift apart), and
 /// computes the package's `DeterminismEvidence` digest over every field. Reordering the input
 /// `tensors` before calling this function produces a byte-identical `package_sha256`.
-pub fn compile_model_package(input: ModelCompilationInput) -> MduxResult<ModelPackage> {
+pub fn compile_model_package(input: ModelCompilationInput) -> TrustScResult<ModelPackage> {
     let ModelCompilationInput {
         model_id,
         input_spec,
@@ -380,7 +380,7 @@ pub fn generate_golden_vectors(
     package: &ModelPackage,
     seed: u64,
     count: usize,
-) -> MduxResult<Vec<GoldenVector>> {
+) -> TrustScResult<Vec<GoldenVector>> {
     let required_units = package.max_layer_units()?;
     if required_units > HOST_MAX_UNITS {
         return Err(ValidationError::new(format!(

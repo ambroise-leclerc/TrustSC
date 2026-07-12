@@ -4,14 +4,14 @@ use std::collections::HashSet;
 use std::fmt::{self, Display};
 
 use trustsc_core::{
-    DeviceContext, MduxResult, SafetyClass, Validates, ValidationError, validate_non_empty,
+    DeviceContext, TrustScResult, SafetyClass, Validates, ValidationError, validate_non_empty,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RequirementId(String);
 
 impl RequirementId {
-    pub fn new(value: impl Into<String>) -> MduxResult<Self> {
+    pub fn new(value: impl Into<String>) -> TrustScResult<Self> {
         let value = value.into();
         validate_non_empty("requirement id", &value)?;
         Ok(Self(value))
@@ -42,7 +42,7 @@ impl Requirement {
         title: impl Into<String>,
         source_clause: impl Into<String>,
         verification_intent: impl Into<String>,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let requirement = Self {
             id,
             title: title.into(),
@@ -56,7 +56,7 @@ impl Requirement {
 }
 
 impl Validates for Requirement {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("requirement title", &self.title)?;
         validate_non_empty("source clause", &self.source_clause)?;
         validate_non_empty("verification intent", &self.verification_intent)?;
@@ -76,7 +76,7 @@ impl Hazard {
         id: impl Into<String>,
         description: impl Into<String>,
         controlled_by: Vec<RequirementId>,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let hazard = Self {
             id: id.into(),
             description: description.into(),
@@ -89,7 +89,7 @@ impl Hazard {
 }
 
 impl Validates for Hazard {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("hazard id", &self.id)?;
         validate_non_empty("hazard description", &self.description)?;
         if self.controlled_by.is_empty() {
@@ -134,7 +134,7 @@ impl VerificationCase {
         requirement: RequirementId,
         method: VerificationMethod,
         evidence: impl Into<String>,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let case = Self {
             id: id.into(),
             requirement,
@@ -148,7 +148,7 @@ impl VerificationCase {
 }
 
 impl Validates for VerificationCase {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("verification id", &self.id)?;
         validate_non_empty("verification evidence", &self.evidence)?;
         Ok(())
@@ -167,7 +167,7 @@ impl ProblemReport {
         id: impl Into<String>,
         summary: impl Into<String>,
         closed: bool,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let report = Self {
             id: id.into(),
             summary: summary.into(),
@@ -180,7 +180,7 @@ impl ProblemReport {
 }
 
 impl Validates for ProblemReport {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("problem report id", &self.id)?;
         validate_non_empty("problem report summary", &self.summary)?;
         Ok(())
@@ -345,7 +345,7 @@ impl ComplianceProgram {
         self.audit_sink.write_event(category, message.into());
     }
 
-    pub fn validate(&self) -> MduxResult<()> {
+    pub fn validate(&self) -> TrustScResult<()> {
         self.device.validate()?;
 
         if self.requirements.is_empty() {

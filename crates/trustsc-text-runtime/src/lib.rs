@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use arrayvec::ArrayVec;
-use trustsc_core::{MduxResult, Validates, ValidationError};
+use trustsc_core::{TrustScResult, Validates, ValidationError};
 use trustsc_text_schema::{CompiledTextRun, NumericGlyphSet, NumericTemplate, TextPackage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,7 +19,7 @@ pub struct TextRuntime<'a, const MAX_COMMANDS: usize> {
 }
 
 impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
-    pub fn new(package: &'a TextPackage) -> MduxResult<Self> {
+    pub fn new(package: &'a TextPackage) -> TrustScResult<Self> {
         package.validate()?;
         Ok(Self { package })
     }
@@ -39,7 +39,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         run_id: &str,
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+    ) -> TrustScResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
         let run = self
             .package
             .find_run(run_id)
@@ -56,7 +56,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         value: i64,
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+    ) -> TrustScResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
         let template = self
             .package
             .find_template(template_id)
@@ -116,7 +116,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         seconds: u8,
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+    ) -> TrustScResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
         if hours > 23 {
             return Err(ValidationError::new("clock hours must be in 0..=23"));
         }
@@ -152,7 +152,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         day: u8,
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+    ) -> TrustScResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
         if year > 9999 {
             return Err(ValidationError::new("date year must be in 0..=9999"));
         }
@@ -191,7 +191,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         text: &str,
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+    ) -> TrustScResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
         let glyph_set = self
             .package
             .find_numeric_glyph_set(glyph_set_id)
@@ -217,7 +217,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         characters: &[char],
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
+    ) -> TrustScResult<ArrayVec<GlyphDrawCommand, MAX_COMMANDS>> {
         let glyph_set = self
             .package
             .find_numeric_glyph_set(glyph_set_id)
@@ -234,7 +234,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         run: &CompiledTextRun,
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<i32> {
+    ) -> TrustScResult<i32> {
         for glyph in &run.glyphs {
             let atlas_glyph = self
                 .package
@@ -265,7 +265,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
         characters: &[char],
         origin_x: i32,
         origin_y: i32,
-    ) -> MduxResult<i32> {
+    ) -> TrustScResult<i32> {
         let mut cursor_x = origin_x;
 
         // Baseline alignment: `origin_y` is the top of the set's tallest ascender, and every
@@ -321,7 +321,7 @@ impl<'a, const MAX_COMMANDS: usize> TextRuntime<'a, MAX_COMMANDS> {
     }
 }
 
-fn format_numeric_value(value: i64, template: &NumericTemplate) -> MduxResult<ArrayVec<char, 32>> {
+fn format_numeric_value(value: i64, template: &NumericTemplate) -> TrustScResult<ArrayVec<char, 32>> {
     if value < 0 && !template.allow_negative {
         return Err(ValidationError::new(
             "numeric template does not allow negative values",

@@ -5,7 +5,7 @@
 
 #![forbid(unsafe_code)]
 
-use trustsc_core::{MduxResult, Validates, ValidationError, validate_non_empty};
+use trustsc_core::{TrustScResult, Validates, ValidationError, validate_non_empty};
 
 /// A governed raster image: straight-alpha RGBA8, row-major, top-left origin. Rendered at its
 /// intrinsic size only — consumers verify declared bounds equal `width`×`height` exactly, so
@@ -30,7 +30,7 @@ pub struct ImageEvidence {
 }
 
 impl Validates for ImageEvidence {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("image package_sha256", &self.package_sha256)?;
         validate_non_empty("image source_sha256", &self.source_sha256)?;
         validate_non_empty("image toolchain_id", &self.toolchain_id)?;
@@ -49,7 +49,7 @@ impl Validates for ImageEvidence {
 }
 
 impl Validates for ImagePackage {
-    fn validate(&self) -> MduxResult<()> {
+    fn validate(&self) -> TrustScResult<()> {
         validate_non_empty("image package id", &self.id)?;
         if self.width == 0 || self.height == 0 {
             return Err(ValidationError::new(

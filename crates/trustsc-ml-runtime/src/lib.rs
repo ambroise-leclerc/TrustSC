@@ -7,7 +7,7 @@
 //! arithmetic a Dense/Conv1D/pooling/activation network needs, written and reviewed as
 //! ordinary Rust under design control.
 
-use trustsc_core::{MduxResult, Validates, ValidationError};
+use trustsc_core::{TrustScResult, Validates, ValidationError};
 use trustsc_ml_schema::{Layer, ModelPackage};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,7 +55,7 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
     /// closed (returns an error) if the runtime's bit-exact output diverges from the
     /// host-recorded expectation (ADR-017 §4). This is the ML analogue of
     /// `TextRuntime::new()` validating a text package once at startup.
-    pub fn new(package: &'a ModelPackage) -> MduxResult<Self> {
+    pub fn new(package: &'a ModelPackage) -> TrustScResult<Self> {
         package.validate()?;
 
         let required_units = package.max_layer_units()?;
@@ -85,7 +85,7 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
         Self { package }
     }
 
-    fn run_golden_self_test(&self) -> MduxResult<()> {
+    fn run_golden_self_test(&self) -> TrustScResult<()> {
         for (index, vector) in self.package.golden_vectors.iter().enumerate() {
             let prediction = self.predict(&vector.input)?;
             for (class, expected) in vector.expected.iter().enumerate() {
@@ -102,7 +102,7 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
 
     /// Runs one forward pass over `input` (length must equal `input_spec.sample_count()`).
     /// Uses two fixed-size ping-pong scratch buffers on the stack — no heap allocation.
-    pub fn predict(&self, input: &[f32]) -> MduxResult<Prediction<MAX_OUT>> {
+    pub fn predict(&self, input: &[f32]) -> TrustScResult<Prediction<MAX_OUT>> {
         let expected_len = self.package.input_spec.sample_count();
         if input.len() != expected_len {
             return Err(ValidationError::new(format!(
@@ -183,7 +183,7 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
         src: &[f32],
         dst: &mut [f32; MAX_UNITS],
         shape: Shape,
-    ) -> MduxResult<Shape> {
+    ) -> TrustScResult<Shape> {
         match layer {
             Layer::Conv1D {
                 weights_id,
@@ -334,7 +334,7 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
         window: u16,
         stride: u16,
         kind: PoolKind,
-    ) -> MduxResult<Shape> {
+    ) -> TrustScResult<Shape> {
         let Shape::Sequence { channels, length } = shape else {
             return Err(ValidationError::new("pooling layer requires a sequence activation"));
         };
@@ -375,13 +375,13 @@ impl<'a, const MAX_UNITS: usize, const MAX_OUT: usize> Classifier1D<'a, MAX_UNIT
         })
     }
 
-    fn find_tensor(&self, id: &str) -> MduxResult<&'a trustsc_ml_schema::Tensor> {
+    fn find_tensor(&self, id: &str) -> TrustScResult<&'a trustsc_ml_schema::Tensor> {
         self.package
             .find_tensor(id)
             .ok_or_else(|| ValidationError::new(format!("unknown tensor {id}")))
     }
 
-    fn check_capacity(&self, units: usize) -> MduxResult<()> {
+    fn check_capacity(&self, units: usize) -> TrustScResult<()> {
         if units > MAX_UNITS {
             return Err(ValidationError::new(format!(
                 "activation buffer capacity exceeded ({units} units, MAX_UNITS is {MAX_UNITS})"

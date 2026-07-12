@@ -8,7 +8,7 @@ mod standard_text;
 pub mod verify_scenario;
 
 pub use trustsc_core::{
-    DeterminismPolicy, DeviceContext, FrameworkIdentity, MduxResult, SafetyClass, ValidationError,
+    DeterminismPolicy, DeviceContext, FrameworkIdentity, TrustScResult, SafetyClass, ValidationError,
 };
 pub use trustsc_governance::{
     AuditCategory, AuditEvent, ComplianceProgram, Hazard, ProblemReport, Requirement,
@@ -157,7 +157,7 @@ impl FrameworkBuilder {
         self
     }
 
-    pub fn build(mut self) -> MduxResult<Framework> {
+    pub fn build(mut self) -> TrustScResult<Framework> {
         let device = self
             .device
             .ok_or_else(|| ValidationError::new("framework builder requires a device context"))?;

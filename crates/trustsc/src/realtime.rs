@@ -7,7 +7,7 @@
 //!
 //! Everything is sized at construction: the per-frame API ([`FrameInputs`]) allocates nothing.
 
-use trustsc_core::{MduxResult, ValidationError};
+use trustsc_core::{TrustScResult, ValidationError};
 use trustsc_text_schema::TextPackage;
 use trustsc_image_schema::ImagePackage;
 use trustsc_ui::{ClockFormat, CompiledNodeKind, CompiledScreenPackage, Rect, resolve_color_token};
@@ -175,7 +175,7 @@ impl ScreenBindings {
         displays: Vec<TextPackage>,
         image_packages: &[ImagePackage],
         locale: &str,
-    ) -> MduxResult<Self> {
+    ) -> TrustScResult<Self> {
         let mut clocks = Vec::new();
         let mut numbers = Vec::new();
         let mut statuses = Vec::new();
@@ -491,7 +491,7 @@ fn centered_origin_y(bounds: Rect, glyph_height: u32) -> i32 {
     bounds.y + (bounds.height.saturating_sub(glyph_height) / 2) as i32
 }
 
-fn max_glyph_height(package: &TextPackage, glyph_set_id: &str) -> MduxResult<u32> {
+fn max_glyph_height(package: &TextPackage, glyph_set_id: &str) -> TrustScResult<u32> {
     let glyph_set = package.find_numeric_glyph_set(glyph_set_id).ok_or_else(|| {
         ValidationError::new(format!("unknown numeric glyph set {glyph_set_id}"))
     })?;
@@ -556,7 +556,7 @@ impl FrameInputs {
     /// glyph set absent from the standard package). `ScreenBindings::from_screen` already
     /// guarantees the invariant, but the fields are public, so a hand-built or mutated value
     /// must fail fast here rather than surface later as misleading `set_text` charset errors.
-    pub fn from_bindings(bindings: &ScreenBindings) -> MduxResult<Self> {
+    pub fn from_bindings(bindings: &ScreenBindings) -> TrustScResult<Self> {
         let mut texts = Vec::with_capacity(bindings.text_inputs.len());
         for binding in &bindings.text_inputs {
             let glyph_set = bindings
@@ -616,7 +616,7 @@ impl FrameInputs {
 
     /// Sets the current value of a `NumericDisplay` source. The value is range-checked at render
     /// time against the template (`max_chars`, `allow_negative`).
-    pub fn set_number(&mut self, source: &str, value: i64) -> MduxResult<()> {
+    pub fn set_number(&mut self, source: &str, value: i64) -> TrustScResult<()> {
         let slot = self
             .numbers
             .iter_mut()
@@ -629,7 +629,7 @@ impl FrameInputs {
     }
 
     /// Selects the active state of a `StatusIndicator` source by index.
-    pub fn set_status(&mut self, source: &str, state_index: u8) -> MduxResult<()> {
+    pub fn set_status(&mut self, source: &str, state_index: u8) -> TrustScResult<()> {
         let slot = self
             .statuses
             .iter_mut()
@@ -649,7 +649,7 @@ impl FrameInputs {
 
     /// Pushes one spectrum row into a stream's ring buffer, overwriting the oldest row once the
     /// ring is full. `row.len()` must equal the stream's declared `bins`.
-    pub fn push_row(&mut self, source: &str, row: &[f32]) -> MduxResult<()> {
+    pub fn push_row(&mut self, source: &str, row: &[f32]) -> TrustScResult<()> {
         let stream = self
             .streams
             .iter_mut()
@@ -676,7 +676,7 @@ impl FrameInputs {
     /// first: two `SignalTrace` nodes could legitimately share one `stream_source` (e.g. the same
     /// signal rendered twice at different sizes), and only advancing one would leave the other
     /// silently stale.
-    pub fn push_sample(&mut self, source: &str, sample: f32) -> MduxResult<()> {
+    pub fn push_sample(&mut self, source: &str, sample: f32) -> TrustScResult<()> {
         let mut matched = false;
         for trace in self.traces.iter_mut().filter(|trace| trace.source == source) {
             matched = true;
@@ -694,7 +694,7 @@ impl FrameInputs {
     /// Rejects unknown sources, content longer than the declared `max_length`, and characters
     /// outside the binding's baked glyph set — the charset boundary is enforced here, not in
     /// the renderer.
-    pub fn set_text(&mut self, source: &str, value: &str) -> MduxResult<()> {
+    pub fn set_text(&mut self, source: &str, value: &str) -> TrustScResult<()> {
         let slot = self
             .texts
             .iter_mut()
