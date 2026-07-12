@@ -3,7 +3,7 @@
 > Template — ISO 13485:2016. See
 > [`docs/iso13485/README.md`](../../../docs/iso13485/README.md) for the underlying clause-by-clause
 > guidance. See
-> [`software_development_file/regulatory/ISO_13485/README.md`](../../regulatory/ISO_13485/README.md)
+> `software_development_file/regulatory/ISO_13485/README.md` (added in a later PR in this stack)
 > for how MduX-rust states this same scope note for itself.
 
 A single markdown file cannot substitute for a manufacturer's actual ISO 13485 quality management
@@ -15,7 +15,7 @@ own QMS must still supply.**
 
 ## What this product's engineering artifacts can feed into your QMS
 
-> `ISO 13485:2016 §4.2 Documentation requirements` and `§7.3 Design and development`
+> `ISO 13485:2016 §4.2 Documentation requirements` and `ISO 13485:2016 §7.3 Design and development`
 
 [ List: e.g. requirement/verification traceability records, generated build evidence, ADR trail —
 whichever of these your own build actually produces, with file paths. ]

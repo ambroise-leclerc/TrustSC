@@ -4,7 +4,7 @@
 > §8.3.2 (SOUP anomaly list, AMD1:2015). See
 > [`docs/iec62304/03-development-design.md`](../../../docs/iec62304/03-development-design.md) and
 > [`docs/iec62304/07-configuration-management-process.md`](../../../docs/iec62304/07-configuration-management-process.md).
-> See [`software_development_file/regulatory/IEC_62304/SOUP.md`](../../regulatory/IEC_62304/SOUP.md)
+> See `software_development_file/regulatory/IEC_62304/SOUP.md` (added in a later PR in this stack)
 > for MduX-rust's own filled-in example, which derives from
 > [`docs/governance/soup-register.toml`](../../../docs/governance/soup-register.toml).
 

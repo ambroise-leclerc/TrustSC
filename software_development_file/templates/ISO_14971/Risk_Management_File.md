@@ -4,7 +4,7 @@
 > [`docs/iso14971/README.md`](../../../docs/iso14971/README.md) for the underlying clause-by-clause
 > guidance, and [`docs/iec62304/06-risk-management-process.md`](../../../docs/iec62304/06-risk-management-process.md)
 > for the software-specific slice of this process. See
-> [`software_development_file/regulatory/ISO_14971/Risk_Management_File.md`](../../regulatory/ISO_14971/Risk_Management_File.md)
+> `software_development_file/regulatory/ISO_14971/Risk_Management_File.md` (added in a later PR in this stack)
 > for MduX-rust's own filled-in example.
 
 ## Document control
@@ -17,13 +17,13 @@
 
 ## 1. Risk management plan summary
 
-> `§4 General requirements for risk management system`
+> `ISO 14971:2019 §4 General requirements for risk management system`
 
 [ Scope, criteria for risk acceptability, who's responsible. ]
 
 ## 2. Risk analysis
 
-> `§5`
+> `ISO 14971:2019 §5 Risk analysis`
 
 [ Intended use/misuse, identified hazards and hazardous situations, estimated risk per hazard —
 reference individual risk records, e.g. using
@@ -31,33 +31,33 @@ reference individual risk records, e.g. using
 
 ## 3. Risk evaluation
 
-> `§6`
+> `ISO 14971:2019 §6 Risk evaluation`
 
 [ Which estimated risks are acceptable as-is, and which require control. ]
 
 ## 4. Risk control
 
-> `§7`
+> `ISO 14971:2019 §7 Risk control`
 
 [ Risk control measures selected, implemented (cross-reference software Requirements where the
 control is a software measure), and verified. ]
 
 ## 5. Overall residual risk evaluation
 
-> `§8`
+> `ISO 14971:2019 §8 Evaluation of overall residual risk`
 
 [ Is overall residual risk acceptable, considering all controls together? ]
 
 ## 6. Risk management review
 
-> `§9`
+> `ISO 14971:2019 §9 Risk management review`
 
 [ Confirms the plan was executed, residual risks are acceptable, and monitoring for production/
 post-production information is in place. ]
 
 ## 7. Production and post-production activities
 
-> `§10`
+> `ISO 14971:2019 §10 Production and post-production activities`
 
 [ How field information (complaints, incidents, near-misses) feeds back into this file. ]
 

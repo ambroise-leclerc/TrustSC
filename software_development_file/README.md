@@ -6,8 +6,10 @@ This tree is the `software_development_file/` scaffold named in the root `README
 ```
 software_development_file/
 ├── templates/    # blank, fillable by any manufacturer building on MduX-rust
-└── regulatory/   # the same tree, filled in for MduX-rust itself
+└── regulatory/   # the same tree, filled in for MduX-rust itself (added in the next PR in this stack)
 ```
+
+Only `templates/` exists as of this PR — `regulatory/` is added in the PR immediately after it.
 
 | Standard | Documents |
 |---|---|
@@ -25,6 +27,8 @@ manufacturer building a device on MduX-rust copies these into their own document
 in — they contain no MduX-rust-specific content.
 
 ## `regulatory/`
+
+*(Added in the PR immediately after this one — not present yet as of this PR.)*
 
 The same documents, filled in for MduX-rust itself: real architecture description, real SOUP
 entries (derived from `docs/governance/soup-register.toml`), real citations into `docs/<standard>/`

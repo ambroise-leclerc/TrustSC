@@ -5,7 +5,7 @@
 > for the underlying clause-by-clause guidance and
 > [`docs/governance/citation-convention.md`](../../../docs/governance/citation-convention.md) for the
 > citation format used below. This template does not contain MduX-rust-specific content — see
-> [`software_development_file/regulatory/IEC_62304/SAD.md`](../../regulatory/IEC_62304/SAD.md) for
+> `software_development_file/regulatory/IEC_62304/SAD.md` (added in a later PR in this stack) for
 > MduX-rust's own filled-in example.
 
 ## Document control

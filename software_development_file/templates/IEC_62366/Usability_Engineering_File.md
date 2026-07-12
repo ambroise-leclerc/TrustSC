@@ -3,7 +3,7 @@
 > Template — IEC 62366-1:2015+AMD1:2020. Fill in every `[ ... ]` placeholder. See
 > [`docs/iec62366/README.md`](../../../docs/iec62366/README.md) for the underlying clause-by-clause
 > guidance. See
-> [`software_development_file/regulatory/IEC_62366/Usability_Engineering_File.md`](../../regulatory/IEC_62366/Usability_Engineering_File.md)
+> `software_development_file/regulatory/IEC_62366/Usability_Engineering_File.md` (added in a later PR in this stack)
 > for MduX-rust's own filled-in example.
 
 ## Document control
@@ -16,45 +16,45 @@
 
 ## 1. Use specification
 
-> `§5.1`
+> `IEC 62366-1:2015 §5.1 Use specification`
 
 [ Intended medical indication, patient population, intended user profile(s), intended use
 environment, operating principle. ]
 
 ## 2. Frequently used functions and hazard-related use scenarios
 
-> `§5.2`
+> `IEC 62366-1:2015 §5.2 Identify frequently used functions and hazard-related use scenarios`
 
 [ List of use scenarios, marking which are hazard-related. ]
 
 ## 3. User interface specification
 
-> `§5.3`
+> `IEC 62366-1:2015 §5.3 User interface specification`
 
 [ How the UI is specified — reference screen designs, DSL source files, or a design system if one is
 used. ]
 
 ## 4. User interface evaluation plan
 
-> `§5.4`
+> `IEC 62366-1:2015 §5.4 User interface evaluation plan`
 
 [ Plan for formative and summative evaluation — methods, participants, acceptance criteria. ]
 
 ## 5. User interface design and implementation
 
-> `§5.5`
+> `IEC 62366-1:2015 §5.5 User interface design and implementation`
 
 [ Reference to the actual implementation. ]
 
 ## 6. Formative evaluation
 
-> `§5.6`
+> `IEC 62366-1:2015 §5.6 Formative evaluation`
 
 [ Results of formative (iterative, developmental) evaluation activities. ]
 
 ## 7. Summative evaluation
 
-> `§5.7`
+> `IEC 62366-1:2015 §5.7 Summative evaluation`
 
 [ Results of summative (validation) evaluation — required for hazard-related use scenarios. ]
 
