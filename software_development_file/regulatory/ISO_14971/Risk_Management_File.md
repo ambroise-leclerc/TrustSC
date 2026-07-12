@@ -17,7 +17,7 @@
 
 ## 1. Risk management plan summary
 
-> `§4 General requirements for risk management system`
+> `ISO 14971:2019 §4 General requirements for risk management system`
 
 `mdux_core::DeviceContext.safety_class` (`Class B`/`Class C`) is the top-level classification driving
 how much of `mdux-governance`'s enforcement applies: a `Class C` device's `ComplianceProgram` must
@@ -25,7 +25,7 @@ record at least one `Hazard`, per `ComplianceProgram::validate()`.
 
 ## 2. Risk analysis
 
-> `§5`
+> `ISO 14971:2019 §5 Risk analysis`
 
 `mdux_governance::Hazard { id, description, controlled_by }` records the outcome of a manufacturer's
 hazard analysis — `Hazard::validate()` rejects a hazard with an empty `controlled_by` list, so a
@@ -37,7 +37,7 @@ deterministic, allocation-free inference latency and the fail-closed self-test a
 
 ## 3. Risk evaluation
 
-> `§6`
+> `ISO 14971:2019 §6 Risk evaluation`
 
 Not automated by `mdux-governance` — deciding whether an estimated risk is acceptable as-is is the
 manufacturer's clinical/regulatory judgment. `mdux-governance` records the *outcome* of that judgment
@@ -45,7 +45,7 @@ manufacturer's clinical/regulatory judgment. `mdux-governance` records the *outc
 
 ## 4. Risk control
 
-> `§7`
+> `ISO 14971:2019 §7 Risk control`
 
 Every risk control measure is required to exist as an actual `Requirement`
 (`crates/mdux-governance/src/lib.rs`), not a free-floating note — `Hazard.controlled_by` is a list of
@@ -55,7 +55,7 @@ without also being verified.
 
 ## 5. Overall residual risk evaluation
 
-> `§8`
+> `ISO 14971:2019 §8 Evaluation of overall residual risk`
 
 Not automated — `ComplianceProgram::release_evidence_summary()` gives a release-time snapshot
 (`hazards=`, `verifications=` counts) useful as an input to this judgment, but the judgment itself —
@@ -63,7 +63,7 @@ whether overall residual risk is acceptable — remains the manufacturer's.
 
 ## 6. Risk management review
 
-> `§9`
+> `ISO 14971:2019 §9 Risk management review`
 
 The `mdux_governance::AuditEvent` trail (`Lifecycle`/`Verification` categories, sequenced) gives a
 reviewer a chronological record of when each hazard, requirement, and verification was added,
@@ -71,7 +71,7 @@ usable as supporting evidence that the plan in §1 was actually executed in the 
 
 ## 7. Production and post-production activities
 
-> `§10`
+> `ISO 14971:2019 §10 Production and post-production activities`
 
 `mdux_governance::ProblemReport { id, summary, closed }` is where field information (via a
 manufacturer's own complaint/incident intake) would be recorded once triaged into MduX-rust's

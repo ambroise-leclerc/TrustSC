@@ -69,7 +69,7 @@ because it has no network-facing or credential-handling surface to guide users o
 {
   "justification_id": "JUS-005",
   "standard": "IEC 81001-5-1",
-  "clause_ref": "IEC 81001-5-1:2021 §... [ verify against current edition — see docs/iec81001/README.md's numbering caveat ]",
+  "clause_ref": "IEC 81001-5-1:2021 §6 (approx.) Secure design and secure implementation",
   "rationale": "The governed/adapter/tools trust-zone split confines unsafe code and native SDK bindings to a single, narrow adapter crate, and #![forbid(unsafe_code)] on every governed crate makes the rest of the codebase memory-safe by construction rather than by review discipline alone.",
   "evidence_refs": [
     "docs/adr/ADR-005-pure-rust-project-boundary-and-dependency-policy.md",

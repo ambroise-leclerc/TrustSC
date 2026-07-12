@@ -33,7 +33,7 @@ recipe parsing), `shaderc` (GLSL→SPIR-V compilation in `tools/mdux-shader-bake
 **Presentation adapter (`runtime_deployment = true`)** — deployed as part of
 `adapters/mdux-vulkan-winit` only: `ash` + `ash-window` (Vulkan bindings), `raw-window-handle`
 (windowing-handle trait), `winit` (window/event-loop). Every entry's `boundary_rationale` states the
-same governed/adapter confinement: "no `&lt;crate&gt;` type crosses into a governed crate's public API."
+same governed/adapter confinement: "no `<crate>` type crosses into a governed crate's public API."
 
 ## 3. Known anomalies (§8.3.2)
 
