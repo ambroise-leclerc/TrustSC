@@ -4,7 +4,7 @@
 > [`docs/iec62304/03-development-design.md`](../../../docs/iec62304/03-development-design.md) for the
 > underlying clause-by-clause guidance. See
 > `software_development_file/regulatory/IEC_62304/SDD.md` (added in a later PR in this stack) for
-> MduX-rust's own filled-in example.
+> TrustSC's own filled-in example.
 
 ## Document control
 

@@ -12,7 +12,7 @@ waterfall fed by streaming data. Two structural gaps block it.
 
 First, a Class C application cannot open a window today. `FrameworkBuilder::build` enforces
 `SafetyClass::C ⇒ GraphicsProfile::VulkanSc` (an ADR-006 rule the project does not want to relax),
-while the only presentation adapter, `adapters/mdux-vulkan-winit`, drives standard Vulkan 1.x and
+while the only presentation adapter, `adapters/trustsc-vulkan-winit`, drives standard Vulkan 1.x and
 never inspects the framework's profile. Real Vulkan SC drivers do not exist on developer
 workstations, yet a Class C UI still has to be *seen* during development. Running SC-profile
 content on the standard adapter must therefore become an explicit, documented, audited
@@ -27,7 +27,7 @@ retrofitted.
 
 ## Decision
 
-1. **`adapters/mdux-vulkan-winit` MAY run a framework whose `graphics_profile` is `VulkanSc`, as
+1. **`adapters/trustsc-vulkan-winit` MAY run a framework whose `graphics_profile` is `VulkanSc`, as
    a host development preview only.** The governed validation chain is not relaxed anywhere:
    Class C still requires the `VulkanSc` profile, offline-compiled pipelines, the
    zero-runtime-allocation determinism policy, non-zero reserved budgets, and at least one
@@ -38,7 +38,7 @@ retrofitted.
    - record a `Runtime`-category audit event with the exact message
      `vulkan sc host preview: rendering on standard Vulkan for development only` on the
      framework's compliance trail, so every preview execution is visible in the exported audit
-     log. To allow this, the `mdux` facade gains
+     log. To allow this, the `trustsc` facade gains
      `Framework::record_runtime_event(&mut self, message)` — the only post-`build()` mutation the
      facade exposes, restricted to the `Runtime` audit category.
    A framework with the `Vulkan` profile behaves exactly as before; no banner, no event.
@@ -54,7 +54,7 @@ retrofitted.
    the certified path rather than a divergent branch.
 
 3. **The monitor widget set.** MedUI gains four widgets and one container, specified here so the
-   model (`mdux-ui`), the compiler (`mdux-ui-dsl-authoring`), the facade bindings and the adapter
+   model (`trustsc-ui`), the compiler (`trustsc-ui-dsl-authoring`), the facade bindings and the adapter
    implement one vocabulary:
    - `Row { … }` — a horizontal container nested exactly one level inside the screen's vertical
      layout. It exists **at compile time only**: the DSL compiler resolves its children to

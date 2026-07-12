@@ -116,7 +116,7 @@ pub(crate) fn run_verify(
 
     // ADR-016 §5 documents evidence under generated/verification/<app>/<locale>/, keyed by the
     // device's software item, not the screen id (two different applications could compile the
-    // same screen id) and not framework.identity(), which is a fixed "MduX-rust" + crate version
+    // same screen id) and not framework.identity(), which is a fixed "TrustSC" + crate version
     // shared by every application, never per-app.
     let screen_dir = dir.join(&device.software_item);
     let mut any_failure = false;

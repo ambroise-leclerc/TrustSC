@@ -6,7 +6,7 @@
 
 ## Context
 
-`MduX-rust` needs a declarative UI authoring language for safety-critical medical screens without introducing runtime interpretation, dynamic layout solving, or uncontrolled text rendering into the regulated runtime path.
+`TrustSC` needs a declarative UI authoring language for safety-critical medical screens without introducing runtime interpretation, dynamic layout solving, or uncontrolled text rendering into the regulated runtime path.
 
 ## Decision
 

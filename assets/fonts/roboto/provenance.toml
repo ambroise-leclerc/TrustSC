@@ -7,7 +7,7 @@ selected_face = "Roboto Regular"
 selected_weight = 400
 selected_style = "normal"
 selection_scope = "Roboto Regular 400 only"
-selection_reason = "Selected for the Rust MdUX text system vendoring task; runtime integration intentionally deferred."
+selection_reason = "Selected for the Rust TrustSC text system vendoring task; runtime integration intentionally deferred."
 
 [upstream]
 repository = "https://github.com/googlefonts/roboto-2"

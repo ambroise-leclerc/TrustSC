@@ -7,13 +7,13 @@ design and implementation decisions actually hold) and management of security-re
 security update management (finding out about a vulnerability in fielded software and getting a fix
 out). It also covers security guidelines — documentation a manufacturer provides to users/operators
 about the security aspects of using the product safely. The honest center of this module is that
-MduX-rust today has **no network stack anywhere in the workspace**, which makes several sub-activities
+TrustSC today has **no network stack anywhere in the workspace**, which makes several sub-activities
 of "security update management" as commonly understood (remote vulnerability disclosure intake at
 scale, over-the-air patch delivery, field telemetry) not yet applicable — this module says so
 explicitly rather than describing a mechanism that does not exist.
 
 **Key areas covered:**
-- Security verification activities and how they fit MduX-rust's existing test/evidence machinery
+- Security verification activities and how they fit TrustSC's existing test/evidence machinery
 - Management of security-related issues: how a found vulnerability would flow through existing types
 - Security update management: what exists today, and what is explicitly the manufacturer's
   responsibility because no network stack exists
@@ -29,7 +29,7 @@ analysis, and dependency/SOUP vulnerability scanning. IEC 81001-5-1's integratio
 treats these as additional test cases inside the same verification program IEC 62304 §5.5-§5.7
 already requires, not a separate security test suite with its own release gate.
 
-`mdux_governance::VerificationCase` (see
+`trustsc_governance::VerificationCase` (see
 [`../iec62304/02-development-planning-and-requirements.md §5.2.4`](../iec62304/02-development-planning-and-requirements.md#524-verify-software-requirements))
 has no dedicated "security" category today, but nothing prevents a manufacturer from recording a
 security-motivated verification case through the same type — a `VerificationCase` whose
@@ -37,7 +37,7 @@ security-motivated verification case through the same type — a `VerificationCa
 machinery as one tracing to a safety risk control, and `ComplianceProgram::validate()`'s "every
 requirement needs ≥1 verification" rule applies uniformly regardless of why the requirement exists.
 
-Two existing MduX-rust mechanisms already function as security-relevant verification even though they
+Two existing TrustSC mechanisms already function as security-relevant verification even though they
 were built for other stated purposes, and a manufacturer's security verification plan can cite them
 directly:
 
@@ -61,10 +61,10 @@ flags SOUP anomaly tracking as a gap rather than an implemented feature.
 ## §7 (approx.) Management of security-related issues
 
 A discovered vulnerability — whether found internally, reported by a user, or disclosed by a
-dependency's maintainers — needs an intake, triage, and resolution path. `mdux_governance::ProblemReport`
+dependency's maintainers — needs an intake, triage, and resolution path. `trustsc_governance::ProblemReport`
 (see
 [`../iec62304/08-problem-resolution-process.md §9.1`](../iec62304/08-problem-resolution-process.md#91-establish-problem-resolution-process))
-is the existing MduX-rust type for recording a problem and its resolution, and its `closed` field
+is the existing TrustSC type for recording a problem and its resolution, and its `closed` field
 gates `ComplianceProgram::validate()` in the same way a functional defect report does. Nothing in its
 current shape distinguishes "this problem report exists because of a security vulnerability" from any
 other problem report — a manufacturer wanting that distinction tracked explicitly would extend the
@@ -82,10 +82,10 @@ today; that join is a process a manufacturer runs, not a feature the register au
 
 ## §7 (approx.) Security update management
 
-This is the sub-activity where MduX-rust's current scope boundary matters most. Security update
+This is the sub-activity where TrustSC's current scope boundary matters most. Security update
 management, as commonly understood for a fielded networked product, includes: a mechanism to detect
 that an update is available, a mechanism to deliver it to the device, a mechanism to authenticate and
-apply it safely, and a mechanism to roll back a failed update. **None of these exist in MduX-rust
+apply it safely, and a mechanism to roll back a failed update. **None of these exist in TrustSC
 today, because no crate in `crates/`, `adapters/`, or `tools/` performs networking of any kind** —
 `docs/governance/soup-register.toml` has no HTTP client, TLS library, or update-protocol dependency
 listed, and `../architecture.md`'s crate map has no networked adapter. This is not an oversight to be
@@ -96,10 +96,10 @@ implying a broader claim.
 Concretely, this means:
 
 - **Update delivery, authentication, and rollback are entirely the manufacturer's responsibility.**
-  MduX-rust's `bake`/`verify` evidence pattern (ADR-007) gives a manufacturer a byte-verified way to
+  TrustSC's `bake`/`verify` evidence pattern (ADR-007) gives a manufacturer a byte-verified way to
   know exactly what a given generated artifact (a font, shader, or ML model package) *is*, which is
   useful raw material for a manufacturer's own update-authentication scheme (e.g. signing a
-  `report.json` digest before shipping it as part of an update), but MduX-rust does not implement
+  `report.json` digest before shipping it as part of an update), but TrustSC does not implement
   signing, transport, or a device-side update agent itself.
 - **`Classifier1D::new()`'s fail-closed self-test (ADR-017) is the closest thing to an update-safety
   control that exists today** — if a manufacturer's own update mechanism ever delivered a corrupted or
@@ -115,7 +115,7 @@ Concretely, this means:
 
 IEC 81001-5-1 also expects a manufacturer to provide security-relevant guidance to the people who
 operate the product — secure configuration steps, what to do if a compromise is suspected, and the
-security implications of any user-facing configuration choices. MduX-rust does not ship an end-user
+security implications of any user-facing configuration choices. TrustSC does not ship an end-user
 product, so it has no operator-facing documentation of this kind itself; what it can meaningfully
 provide is developer-facing guidance about which of its own mechanisms have security implications a
 manufacturer's own user documentation should reflect — for example, that a device's `.medui` screen
@@ -124,7 +124,7 @@ files and compiled text/ML packages are build-time, trusted inputs (see
 and should be treated as part of the manufacturer's controlled configuration, not as something an
 operator should be able to substitute at runtime.
 [`software_development_file/regulatory/IEC_81001/Cybersecurity_SAD.md`](../../software_development_file/regulatory/IEC_81001/Cybersecurity_SAD.md)
-is MduX-rust's own filled-in cybersecurity SAD document, carrying this guidance in a form closer to a
+is TrustSC's own filled-in cybersecurity SAD document, carrying this guidance in a form closer to a
 technical file than this corpus's own developer-facing prose; see
 [`software_development_file/templates/IEC_81001/Cybersecurity_SAD.md`](../../software_development_file/templates/IEC_81001/Cybersecurity_SAD.md)
 for the blank template a manufacturer starts from.

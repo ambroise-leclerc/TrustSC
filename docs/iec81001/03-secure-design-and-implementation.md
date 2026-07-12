@@ -7,7 +7,7 @@ decisions made to reduce and contain the consequences of a security compromise) 
 implementation (coding practices that avoid introducing exploitable defects). Both activity groups
 are, in IEC 81001-5-1's integration model described in module 01, additional constraints layered onto
 the same design and implementation activities IEC 62304 §5.3-§5.5 already require — not a separate
-design or coding pass. MduX-rust's trust-zone architecture and its `#![forbid(unsafe_code)]` policy
+design or coding pass. TrustSC's trust-zone architecture and its `#![forbid(unsafe_code)]` policy
 are the two mechanisms this module leans on most heavily, because they are genuinely, verifiably true
 of the repository today rather than aspirational.
 
@@ -27,7 +27,7 @@ surface (expose as little as possible to untrusted input), defense in depth (no 
 only thing standing between an attacker and harm), least privilege (a component gets only the access
 it needs to do its job), and secure defaults (a misconfiguration should fail toward the safer state,
 not the more permissive one). These are general principles, not clause text specific to IEC 81001-5-1
-or IEC 62443-4-1, and this module applies them to MduX-rust's actual architecture rather than
+or IEC 62443-4-1, and this module applies them to TrustSC's actual architecture rather than
 restating them abstractly.
 
 ### Attack surface minimization via the trust-zone boundary
@@ -35,9 +35,9 @@ restating them abstractly.
 ADR-005's governed/adapter/tools split (see
 [`../architecture.md`](../architecture.md) and
 [`ADR-005`](../adr/ADR-005-pure-rust-project-boundary-and-dependency-policy.md)) is, read as a
-security control, an attack-surface-minimization design: the governed crates (`mdux-core`,
-`mdux-governance`, `mdux-ui`, `mdux`, `mdux-text-schema`, `mdux-text-authoring`, `mdux-text-runtime`,
-`mdux-ml-schema`, `mdux-ml-authoring`, `mdux-ml-runtime`, `mdux-ui-dsl-authoring`) may depend only on
+security control, an attack-surface-minimization design: the governed crates (`trustsc-core`,
+`trustsc-governance`, `trustsc-ui`, `trustsc`, `trustsc-text-schema`, `trustsc-text-authoring`, `trustsc-text-runtime`,
+`trustsc-ml-schema`, `trustsc-ml-authoring`, `trustsc-ml-runtime`, `trustsc-ui-dsl-authoring`) may depend only on
 each other or on version-pinned, reviewable Rust crates, and their public APIs may never expose an FFI
 type, a native SDK handle, or bindgen output. Concretely, this means the code that is reachable from
 any untrusted or semi-trusted input the SDK processes — a `.medui` screen file, a compiled text
@@ -45,7 +45,7 @@ package, an ML model package — is confined to a deliberately narrow, `unsafe`-
 reviewer (human or automated) can examine in full, rather than an entire transitive dependency graph
 including native windowing and graphics bindings.
 
-`adapters/mdux-vulkan-winit`, by contrast, is where `unsafe`, `ash`/`ash-window`/`raw-window-handle`/
+`adapters/trustsc-vulkan-winit`, by contrast, is where `unsafe`, `ash`/`ash-window`/`raw-window-handle`/
 `winit`, and all native Vulkan/OS interaction is permitted — but ADR-012's boundary rule constrains
 even this: every public function on that crate's `App` type must take or return owned Rust data
 already defined by a governed crate, so a foreign handle or FFI type can never leak back across the
@@ -55,7 +55,7 @@ the adapter chooses to expose as plain data.
 
 ### Defense in depth: multiple independent controls, not one
 
-No single mechanism in MduX-rust is asked to carry the whole secure-design burden by itself.
+No single mechanism in TrustSC is asked to carry the whole secure-design burden by itself.
 `#![forbid(unsafe_code)]` (below) rules out a whole defect class in the governed crates; the trust-
 zone boundary confines the remaining `unsafe` surface to a small, adapter-only area; the SOUP register
 (module 02) tracks what third-party code exists in each zone; and byte-verified evidence generation
@@ -66,11 +66,11 @@ others.
 ## §6 (approx.) `#![forbid(unsafe_code)]` as a secure implementation control
 
 Every governed crate in the workspace carries `#![forbid(unsafe_code)]` as its first line
-(`crates/mdux-core/src/lib.rs`, `crates/mdux-governance/src/lib.rs`, `crates/mdux-ui/src/lib.rs`,
-`crates/mdux/src/lib.rs`, `crates/mdux-text-schema/src/lib.rs`, `crates/mdux-text-authoring/src/lib.rs`,
-`crates/mdux-text-runtime/src/lib.rs`, `crates/mdux-ml-schema/src/lib.rs`,
-`crates/mdux-ml-authoring/src/lib.rs`, `crates/mdux-ml-runtime/src/lib.rs`,
-`crates/mdux-ui-dsl-authoring/src/lib.rs`, `crates/mdux-ui-verify/src/lib.rs`). This is a compiler-
+(`crates/trustsc-core/src/lib.rs`, `crates/trustsc-governance/src/lib.rs`, `crates/trustsc-ui/src/lib.rs`,
+`crates/trustsc/src/lib.rs`, `crates/trustsc-text-schema/src/lib.rs`, `crates/trustsc-text-authoring/src/lib.rs`,
+`crates/trustsc-text-runtime/src/lib.rs`, `crates/trustsc-ml-schema/src/lib.rs`,
+`crates/trustsc-ml-authoring/src/lib.rs`, `crates/trustsc-ml-runtime/src/lib.rs`,
+`crates/trustsc-ui-dsl-authoring/src/lib.rs`, `crates/trustsc-ui-verify/src/lib.rs`). This is a compiler-
 enforced, not merely a documented, guarantee: Rust's `unsafe` keyword is the mechanism through which a
 whole class of memory-safety defects (buffer overruns, use-after-free, data races on shared mutable
 state) become possible, and forbidding it means the compiler itself rejects a change that would
@@ -82,15 +82,15 @@ externally-influenced input passes through.
 This guarantee is real but scoped: it says nothing about logic errors, panics on malformed input, or
 `unsafe` code in the adapter/tools zones (which is exactly why those zones exist as a separate,
 smaller review surface rather than being treated as equally safe). A manufacturer's secure
-implementation review of code built on MduX-rust should treat the `#![forbid(unsafe_code)]` boundary
-as a strong floor for the governed crates, not as a claim that covers `adapters/mdux-vulkan-winit` or
+implementation review of code built on TrustSC should treat the `#![forbid(unsafe_code)]` boundary
+as a strong floor for the governed crates, not as a claim that covers `adapters/trustsc-vulkan-winit` or
 `tools/`.
 
 ## §6 (approx.) Secure implementation practices beyond memory safety
 
 ### Input validation at package/model boundaries
 
-`mdux-text-runtime::TextRuntime::new()` and `mdux-ml-runtime::Classifier1D::new()` both validate the
+`trustsc-text-runtime::TextRuntime::new()` and `trustsc-ml-runtime::Classifier1D::new()` both validate the
 compiled package they are given once at construction — a text package's structural invariants, and an
 ML package's golden self-test vectors respectively — and refuse to proceed on failure (see
 `../architecture.md` and the ADR-017 summary in `../adr/README.md`). Read as a secure implementation
@@ -101,7 +101,7 @@ came from a `bake` step.
 
 ### Deterministic, strictly-ordered arithmetic
 
-`mdux-ml-runtime`'s kernels are deliberately plain, strictly-ordered scalar loops — no SIMD, no
+`trustsc-ml-runtime`'s kernels are deliberately plain, strictly-ordered scalar loops — no SIMD, no
 `f32::mul_add`/FMA — specifically so host-computed golden vectors reproduce bit-for-bit on-device
 (ADR-017). This is primarily a safety/correctness property, but it has a secure-implementation
 dimension too: it removes a class of platform- or compiler-version-dependent floating-point behavior
@@ -116,22 +116,22 @@ ADR-007's `bake`/`verify` pattern — a host-only `tools/*-baker` binary produce
 digest and fails on mismatch — is a supply-chain integrity control on the build pipeline itself: it
 does not merely document what was built, it makes an unreviewed or accidental change to a generated
 evidence artifact (a font atlas, a shader, an ML model package) fail CI rather than silently ship. For
-secure implementation purposes this is the closest existing MduX-rust mechanism to a build-
+secure implementation purposes this is the closest existing TrustSC mechanism to a build-
 reproducibility / tamper-evidence control, applied uniformly across every asset pipeline in the repo
-(`tools/mdux-font-baker`, `tools/mdux-image-baker`, `tools/mdux-shader-baker`, `tools/mdux-ml-baker`).
+(`tools/trustsc-font-baker`, `tools/trustsc-image-baker`, `tools/trustsc-shader-baker`, `tools/trustsc-ml-baker`).
 
 ## §6 (approx.) Honest limits
 
-None of the above should be read as "MduX-rust is secure by construction." `#![forbid(unsafe_code)]`
+None of the above should be read as "TrustSC is secure by construction." `#![forbid(unsafe_code)]`
 does not prevent logic errors, denial-of-service via malformed input causing a panic, or resource
 exhaustion; the trust-zone boundary narrows the *review surface*, it does not eliminate the need to
-review `adapters/mdux-vulkan-winit` and `tools/` — it only makes clear which zone a given piece of code
+review `adapters/trustsc-vulkan-winit` and `tools/` — it only makes clear which zone a given piece of code
 lives in and what obligations attach to that zone; and byte-verified evidence detects that a build
 *matches a committed artifact*, it cannot by itself detect that the committed artifact was correct in
 the first place (a compromised source asset baked correctly still produces a byte-identical, compromised
 result). A manufacturer's secure design review should treat these mechanisms as real, load-bearing
 controls, not as a substitute for their own threat modeling, code review, and penetration testing of
-the device built on top of MduX-rust.
+the device built on top of TrustSC.
 
 ---
 

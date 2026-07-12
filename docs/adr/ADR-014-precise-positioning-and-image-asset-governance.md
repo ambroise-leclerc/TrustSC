@@ -85,7 +85,7 @@ no requirement and no text, and are exempt from the overlap rule.
 
 ### 4. Governed theme colors
 
-`mdux-ui` owns `THEME_COLORS: &[(&str, [f32; 4])]`, the single approved token → RGBA table
+`trustsc-ui` owns `THEME_COLORS: &[(&str, [f32; 4])]`, the single approved token → RGBA table
 (`Theme.Colors.TopbarBackground` light gray, `Title`, `ScoreDigits`, `Nominal`, `Alert`,
 `Fault`, `Neutral`, `PrimaryAction`), with `resolve_color_token()`. The compiler validates every
 color-bearing property (`color`, `colors`, `background`) against the table; an unknown token is
@@ -100,20 +100,20 @@ this table makes possible later without new policy.
 Images become the second governed asset class, mirroring fonts end to end:
 
 - **Vendored source** under `assets/images/<asset-id>/`: the image file plus an
-  `image-manifest.toml` (`manifest_kind = "mdux-image-asset"`, dimensions, `source_sha256`,
+  `image-manifest.toml` (`manifest_kind = "trustsc-image-asset"`, dimensions, `source_sha256`,
   license, provenance). The source format is **binary PPM (P6)** — parsed by ~30 lines of
   hand-rolled code in the host tool, so no image-decoding dependency enters the ADR-005
   dependency budget.
-- **Host baker** `tools/mdux-image-baker` with the same `bake`/`verify` CLI contract as the font
+- **Host baker** `tools/trustsc-image-baker` with the same `bake`/`verify` CLI contract as the font
   baker: PPM → raw RGBA8, dimensions cross-checked against the manifest, deterministic
   `package.json` + `report.json` evidence committed under `generated/images/<asset-id>/`,
   re-bake-and-byte-compare verification in CI. The first asset (the Acme placeholder logo) is
   produced by a deterministic generator function inside the baker itself, with a self-verifying
   test asserting sha256 equality against the vendored file.
-- **Schema** in a new governed crate `crates/mdux-image-schema` (`#![forbid(unsafe_code)]`,
-  depends on mdux-core only): `ImagePackage { id, width, height, pixels /* RGBA8 */, evidence }`
-  with full validation. It is deliberately not in `mdux-ui` (a const-constructible `'static`
-  screen model must not carry pixel payloads) nor in `mdux-text-schema` (wrong domain).
+- **Schema** in a new governed crate `crates/trustsc-image-schema` (`#![forbid(unsafe_code)]`,
+  depends on trustsc-core only): `ImagePackage { id, width, height, pixels /* RGBA8 */, evidence }`
+  with full validation. It is deliberately not in `trustsc-ui` (a const-constructible `'static`
+  screen model must not carry pixel payloads) nor in `trustsc-text-schema` (wrong domain).
 - **`Image` widget**: `Image { id; width; height; position; source: img("IMAGE-ID"); }`. The
   declared size must equal the baked image's intrinsic dimensions **exactly** — there is no
   runtime scaling, for the same determinism reasons text has no runtime shaping.

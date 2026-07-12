@@ -1,6 +1,6 @@
 # ISO 14971:2019 — Application of risk management to medical devices
 
-This folder is an LLM- and human-navigable breakdown of ISO 14971, MduX-rust's general risk
+This folder is an LLM- and human-navigable breakdown of ISO 14971, TrustSC's general risk
 management standard, written as original explanatory prose against the standard's real clause
 structure — see [`../governance/citation-convention.md`](../governance/citation-convention.md) for
 why no normative standard text is reproduced here, and for the citation-key format used throughout
@@ -25,7 +25,7 @@ surveillance. Every module here cites into the IEC 62304 module rather than dupl
 
 ## Safety/risk record quick reference
 
-`mdux_governance::Hazard` (`crates/mdux-governance/src/lib.rs`) models a hazard's identity and its
+`trustsc_governance::Hazard` (`crates/trustsc-governance/src/lib.rs`) models a hazard's identity and its
 controlling requirement(s); [`schemas/risk-record.schema.json`](schemas/risk-record.schema.json)
 adds the per-hazardous-situation detail (severity, probability, residual-risk acceptance) ISO 14971
 distinguishes but `Hazard` alone does not model — see
@@ -41,13 +41,13 @@ distinguishes but `Hazard` alone does not model — see
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
 - `software_development_file/regulatory/ISO_14971/Risk_Management_File.md` (added in a later PR in
-  this stack) — MduX-rust's own filled-in risk management file, which cites into this corpus.
+  this stack) — TrustSC's own filled-in risk management file, which cites into this corpus.
 
 ## For AI agents
 
 When generating or reviewing code, an ADR, or an SDF document that claims ISO 14971 alignment: find
 the relevant module above by clause range, cite the clause using the exact citation-key format, and
-be explicit that MduX-rust performs no part of hazard identification, risk estimation, or
+be explicit that TrustSC performs no part of hazard identification, risk estimation, or
 risk-acceptability judgment itself — it supplies typed places (`Hazard`, the risk-record schema) to
 *record* the outcome of a manufacturer's own analysis and clinical/engineering judgment, not the
 analysis itself. Every module in this folder draws that line explicitly and is the pattern to follow.

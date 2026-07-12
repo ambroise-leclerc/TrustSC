@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`MduX-rust` needs a text-rendering subsystem that can serve Class B and Class C medical-device use cases without letting Unicode shaping, bidi resolution, font parsing, and atlas generation leak into the safety-critical runtime.
+`TrustSC` needs a text-rendering subsystem that can serve Class B and Class C medical-device use cases without letting Unicode shaping, bidi resolution, font parsing, and atlas generation leak into the safety-critical runtime.
 
 The guiding principle is the same as the reference UI-rendering ADR used for this work: keep high-variability authoring logic outside the safety-critical boundary and keep the runtime boundary narrow, deterministic, and auditable.
 

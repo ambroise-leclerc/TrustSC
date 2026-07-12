@@ -1,4 +1,4 @@
-# MduX-rust
+# TrustSC
 
 🇬🇧 [English version](README.en.md)
 
@@ -19,15 +19,15 @@ auditeur ne peut pas reproduire facilement ; et des éléments d'IHM critiques d
 est difficile à garantir dès que la pile de rendu alloue de la mémoire ou met en forme du texte à
 l'exécution.
 
-## Ce que fournit MduX-rust aujourd'hui
+## Ce que fournit TrustSC aujourd'hui
 
-MduX-rust découpe le workspace en trois zones de confiance — un cœur gouverné et sans `unsafe`
+TrustSC découpe le workspace en trois zones de confiance — un cœur gouverné et sans `unsafe`
 (`crates/`), des adaptateurs qui isolent les liaisons Vulkan/fenêtrage natives (`adapters/`), et
 un outillage host-only qui ne part jamais dans un artefact runtime (`tools/`) — pour que l'effort
 de revue se concentre là où il compte. Chaque pipeline d'asset (polices, images, shaders, et
 désormais poids ML) compile une source en preuve committée et vérifiée par empreinte
 (`package.json` + `report.json`), re-contrôlée automatiquement en CI plutôt qu'affirmée à la main.
-En complément, `mdux-governance` fournit de vrais types `Requirement`/`Hazard`/
+En complément, `trustsc-governance` fournit de vrais types `Requirement`/`Hazard`/
 `VerificationCase`/`AuditEvent`, avec export structuré de la matrice de traçabilité et de la
 piste d'audit.
 
@@ -74,7 +74,7 @@ Les deux chantiers autrefois listés ici comme feuille de route sont désormais 
 - **Des templates de dossier de développement logiciel réglementaire** —
   [`software_development_file/`](software_development_file/README.md) fournit une arborescence
   `templates/` que tout fabricant peut compléter, et une arborescence `regulatory/` avec les mêmes
-  documents remplis pour MduX-rust lui-même, citant ADR, types `mdux-governance` et exemples réels.
+  documents remplis pour TrustSC lui-même, citant ADR, types `trustsc-governance` et exemples réels.
 
 Détails et suivi : **[Conformité réglementaire](docs/regulatory-compliance.md)** (en anglais).
 
@@ -97,8 +97,8 @@ Référence complète des commandes et installation de Vulkan (en anglais) :
 
 | Répertoire | Contenu |
 |---|---|
-| `crates/` | Cœur gouverné : modèle device/conformité, politique UI, pipelines texte et ML, la façade `mdux`. |
-| `adapters/mdux-vulkan-winit` | L'adaptateur de présentation Vulkan + winit — le seul crate touchant aux liaisons natives de fenêtrage/graphisme. |
+| `crates/` | Cœur gouverné : modèle device/conformité, politique UI, pipelines texte et ML, la façade `trustsc`. |
+| `adapters/trustsc-vulkan-winit` | L'adaptateur de présentation Vulkan + winit — le seul crate touchant aux liaisons natives de fenêtrage/graphisme. |
 | `tools/` | Outillage host-only de bake/verify pour les preuves de polices, images, shaders et modèles ML. |
 | `examples/` | `hello_world` (plus petite démo de fumée), `class_b_device`, `class_c_monitor` (NeuroSense 500), `class_c_vulkansc_device`. |
 

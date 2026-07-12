@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://mdux.dev/schemas/iec62304/hazard.schema.json",
+  "$id": "https://trustsc.dev/schemas/iec62304/hazard.schema.json",
   "title": "IEC 62304 / ISO 14971 Hazard",
-  "description": "Field-aligned with crates/mdux-governance/src/lib.rs::Hazard. Relevant to IEC 62304 §7 (Software risk management process) and ISO 14971 §5.4 (Identification of hazards and hazardous situations) — see docs/iec62304/06-risk-management-process.md and docs/iso14971/02-risk-analysis-and-evaluation.md.",
+  "description": "Field-aligned with crates/trustsc-governance/src/lib.rs::Hazard. Relevant to IEC 62304 §7 (Software risk management process) and ISO 14971 §5.4 (Identification of hazards and hazardous situations) — see docs/iec62304/06-risk-management-process.md and docs/iso14971/02-risk-analysis-and-evaluation.md.",
   "$comment": "Schema version 1.0.0.",
   "type": "object",
   "required": ["id", "description", "controlled_by"],
@@ -19,7 +19,7 @@
       "type": "array",
       "minItems": 1,
       "items": { "type": "string" },
-      "description": "One or more Requirement ids whose satisfaction controls this hazard. mdux_governance::Hazard::validate() rejects an empty list — every hazard must trace to at least one controlling requirement."
+      "description": "One or more Requirement ids whose satisfaction controls this hazard. trustsc_governance::Hazard::validate() rejects an empty list — every hazard must trace to at least one controlling requirement."
     }
   },
   "additionalProperties": false

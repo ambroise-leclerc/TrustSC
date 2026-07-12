@@ -1,17 +1,17 @@
-# Cybersecurity Software Architecture Design — MduX-rust
+# Cybersecurity Software Architecture Design — TrustSC
 
-> Filled-in example for MduX-rust itself. See
+> Filled-in example for TrustSC itself. See
 > [`software_development_file/templates/IEC_81001/Cybersecurity_SAD.md`](../../templates/IEC_81001/Cybersecurity_SAD.md)
 > for the blank template, and [`docs/iec81001/README.md`](../../../docs/iec81001/README.md) — note
 > that document's caveat about clause-numbering uncertainty for this newer standard.
 
 ## Document control
 
-- **Product / software item:** MduX-rust
-- **Scope note:** MduX-rust has no network stack anywhere in the workspace today — no crate performs
+- **Product / software item:** TrustSC
+- **Scope note:** TrustSC has no network stack anywhere in the workspace today — no crate performs
   network I/O. Several activity groups below (security update delivery in particular) are therefore
   stated as not-yet-applicable rather than described, and a manufacturer adding connectivity on top
-  of MduX-rust takes on that scope entirely themselves.
+  of TrustSC takes on that scope entirely themselves.
 
 ## 1. Scope and relationship to the IEC 62304 lifecycle
 
@@ -25,7 +25,7 @@ UI/ML behavior a device relies on.
 The trust-zone boundary that separates `crates/` (governed), `adapters/` (edge), and `tools/`
 (host-only) — see
 [`software_development_file/regulatory/IEC_62304/SAD.md §2-4`](../IEC_62304/SAD.md) — is also
-MduX-rust's primary security control: it minimizes the amount of code capable of memory-unsafety or
+TrustSC's primary security control: it minimizes the amount of code capable of memory-unsafety or
 native-handle misuse to a single, narrow, reviewable adapter crate, rather than spreading `unsafe`
 surface area across the whole UI/ML stack.
 [`docs/governance/soup-register.toml`](../../../docs/governance/soup-register.toml) is this
@@ -53,14 +53,14 @@ manufacturer should close in their own security verification plan rather than as
 
 ## 5. Security update management
 
-Not applicable in the current architecture: MduX-rust has no runtime network connectivity, no update
+Not applicable in the current architecture: TrustSC has no runtime network connectivity, no update
 mechanism, and no fielded-device communication path. A manufacturer who adds any of these on top of
-MduX-rust owns the entire security-update-management activity group themselves; nothing in this
+TrustSC owns the entire security-update-management activity group themselves; nothing in this
 project provides scaffolding for it today.
 
 ## 6. Security guidelines for users
 
-Not applicable for the same reason as §5 — MduX-rust ships no operator-facing security guidance
+Not applicable for the same reason as §5 — TrustSC ships no operator-facing security guidance
 because it has no network-facing or credential-handling surface to guide users on.
 
 ## Justification records

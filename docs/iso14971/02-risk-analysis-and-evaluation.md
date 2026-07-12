@@ -24,11 +24,11 @@ rather than re-explaining its content.
 ## §5.1 Risk analysis process
 
 A manufacturer documents a risk analysis for a specific device, covering its intended use and
-identifiable misuse, and updates it as the device or the understanding of its use evolves. MduX-rust
+identifiable misuse, and updates it as the device or the understanding of its use evolves. TrustSC
 does not prescribe or automate a hazard-identification methodology (structured brainstorming, FMEA,
 fault tree analysis, or otherwise) — that methodology choice, and its execution, are engineering
-judgment calls made by the manufacturer's own risk analysis team. What MduX-rust provides is a place
-to record the analysis's *outputs* once produced: `mdux_governance::Hazard` for the hazard itself, and
+judgment calls made by the manufacturer's own risk analysis team. What TrustSC provides is a place
+to record the analysis's *outputs* once produced: `trustsc_governance::Hazard` for the hazard itself, and
 `docs/iso14971/schemas/risk-record.schema.json` for the more detailed per-hazardous-situation record
 described in §5.4-§5.5 below.
 
@@ -37,12 +37,12 @@ described in §5.4-§5.5 below.
 Establishing who will use a device, in what clinical environment, for what purpose, and what a user
 might plausibly do with it outside its intended use is a clinical and human-factors analysis —
 squarely the domain of usability engineering (IEC 62366-1) rather than of a UI/ML rendering SDK.
-MduX-rust provides no scaffolding for this subclause: it cannot infer a device's intended users or
-foreseeable misuse from its own types, and nothing in `mdux-governance` or `mdux-ui` represents an
+TrustSC provides no scaffolding for this subclause: it cannot infer a device's intended users or
+foreseeable misuse from its own types, and nothing in `trustsc-governance` or `trustsc-ui` represents an
 intended-use statement. `docs/iec62366/` is reserved for a future usability-engineering corpus module
 covering this ground properly; it is not yet populated in this repository.
 
-It is worth noting what MduX-rust *presupposes* here without performing the analysis itself: the
+It is worth noting what TrustSC *presupposes* here without performing the analysis itself: the
 MedUI DSL's compile-time text-budget checking (ADR-010, `docs/dsl/`) requires a build to declare which
 locales are approved and verifies every `t("key")` reference fits its allocated bounds in all of
 them — but the decision of *which* locales a device's intended users actually need is an input to
@@ -54,10 +54,10 @@ behalf.
 Before hazards can be identified, a manufacturer characterizes the qualitative and quantitative
 properties of the device that could bear on safety — how it interacts with its environment, what
 performance and interoperability properties it depends on, and what limits its safe operation.
-Several MduX-rust mechanisms produce exactly this kind of characteristic, even though none of them
+Several TrustSC mechanisms produce exactly this kind of characteristic, even though none of them
 constitute the analysis itself:
 
-- `mdux_core::SafetyClass` and `DeterminismPolicy` (`crates/mdux-core/src/lib.rs`) characterize a
+- `trustsc_core::SafetyClass` and `DeterminismPolicy` (`crates/trustsc-core/src/lib.rs`) characterize a
   software item's worst-case severity contribution and its runtime behavior (bounded frame time,
   whether runtime allocation or object creation is permitted) — properties directly relevant to
   whether a UI or inference component can miss a real-time deadline.
@@ -65,23 +65,23 @@ constitute the analysis itself:
   (which trust zone confines it) and `risk_controls` — a structured characterization of a specific
   kind of safety-relevant property (third-party dependency exposure) that grows fastest in a device's
   UI and ML layers, per `docs/regulatory-compliance.md`.
-- ADR-017's strictly-ordered scalar arithmetic in `mdux-ml-runtime` (no SIMD, no FMA) is itself a
+- ADR-017's strictly-ordered scalar arithmetic in `trustsc-ml-runtime` (no SIMD, no FMA) is itself a
   documented safety-relevant characteristic of the ML inference software item: it is what makes
   host-computed golden vectors reproducible bit-for-bit on-device, and its absence would be a
   characteristic a risk analysis would need to flag.
 
 ## §5.4 Identification of hazards and hazardous situations
 
-This is the clause `mdux_governance::Hazard` is built around. `Hazard { id, description,
+This is the clause `trustsc_governance::Hazard` is built around. `Hazard { id, description,
 controlled_by }` records a hazard's identity and description; `Hazard::validate()`
-(`crates/mdux-governance/src/lib.rs`) rejects a hazard with an empty `controlled_by` list, so a hazard
+(`crates/trustsc-governance/src/lib.rs`) rejects a hazard with an empty `controlled_by` list, so a hazard
 cannot be recorded without at least one requirement that controls it — see
 [`docs/iec62304/06-risk-management-process.md` §7.1](../iec62304/06-risk-management-process.md#71-analysis-of-software-contributing-to-hazardous-situations)
 for how this same type and rule serve IEC 62304's software-contribution analysis; the two clauses
 are read together rather than duplicated here.
 
 `docs/iso14971/schemas/risk-record.schema.json` adds the layer ISO 14971 distinguishes but
-`mdux_governance::Hazard` does not model on its own: a `hazard_ref` (cross-referencing a
+`trustsc_governance::Hazard` does not model on its own: a `hazard_ref` (cross-referencing a
 `docs/iec62304/schemas/hazard.schema.json` id) paired with a free-text `hazardous_situation` field —
 the specific circumstance in which that hazard's potential is actually realized. A single hazard can
 give rise to more than one hazardous situation (the same delayed-update hazard could matter
@@ -91,7 +91,7 @@ rather than folding hazardous-situation detail into `Hazard.description` itself.
 
 `examples/class_c_monitor` (NeuroSense 500) is a concrete worked instance: a delayed or missed
 sedation-index alert is the hazardous situation that motivates `Classifier1D::predict()`'s
-deterministic, allocation-free inference path and `mdux-ml-runtime`'s fail-closed startup self-test
+deterministic, allocation-free inference path and `trustsc-ml-runtime`'s fail-closed startup self-test
 (ADR-017) as risk control measures — see module 03 §7.3 for the control side of this example.
 
 ## §5.5 Estimation of the risk(s) for each hazardous situation
@@ -104,7 +104,7 @@ available. `docs/iso14971/schemas/risk-record.schema.json`'s `severity` and `pro
 `Frequent`/`Probable`/`Occasional`/`Remote`/`Improbable`) are the structured place a manufacturer
 records the outcome of this estimation per risk record.
 
-MduX-rust performs no part of the estimation itself — there is no failure-rate database, no
+TrustSC performs no part of the estimation itself — there is no failure-rate database, no
 probability model, and no severity-scoring logic anywhere in the governed crates. The values in a
 risk record reflect the manufacturer's own engineering and clinical judgment, informed by field data,
 literature, or expert elicitation, exactly as the standard requires; the schema exists only so that
@@ -122,7 +122,7 @@ schema is deliberately generic about *when* in the process that field is set: a 
 choose to instantiate one risk record per hazardous situation and update `residual_risk_acceptable`
 in place as risk control measures are added, or to keep separate pre- and post-control records. Either
 approach is a modeling choice left to the manufacturer's own risk management file structure, not
-something this schema or `mdux-governance` prescribes.
+something this schema or `trustsc-governance` prescribes.
 
 `ComplianceProgram` itself encodes no risk-acceptability gate — it has no notion of "acceptable" or
 "unacceptable" risk, only that a `Hazard` exists and is controlled by at least one `Requirement`

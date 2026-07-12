@@ -6,7 +6,7 @@ This module covers ISO 14971:2019's front matter — scope, normative references
 definitions — and its cross-cutting §4 clause: the organizational and process obligations a
 manufacturer must have in place before any device-specific risk analysis (module 02) can begin.
 Everything in modules 02-04 assumes a risk management process, a plan, and a file already exist per
-this clause; MduX-rust does not create any of those three for a manufacturer, but several of its
+this clause; TrustSC does not create any of those three for a manufacturer, but several of its
 governed types are natural places to record the outputs a manufacturer's process produces.
 
 This whole `docs/iso14971/` folder is the sister document to
@@ -33,11 +33,11 @@ technology. It does not specify what level of risk is acceptable for a given dev
 the manufacturer, informed by applicable regulation and the state of the art), nor does it prescribe
 a software development process (that is IEC 62304's role for the software slice).
 
-MduX-rust is a software development kit, not a finished medical device, and this scope clause
-applies to a manufacturer's *use* of MduX-rust inside a device's own risk management file, not to
-MduX-rust as a shrink-wrapped product with its own risk file. `docs/regulatory-compliance.md` is
-explicit about this boundary: MduX-rust supplies "engineering scaffolding," and nothing in this
-corpus should be read as MduX-rust itself having undergone, or needing, a device-level risk
+TrustSC is a software development kit, not a finished medical device, and this scope clause
+applies to a manufacturer's *use* of TrustSC inside a device's own risk management file, not to
+TrustSC as a shrink-wrapped product with its own risk file. `docs/regulatory-compliance.md` is
+explicit about this boundary: TrustSC supplies "engineering scaffolding," and nothing in this
+corpus should be read as TrustSC itself having undergone, or needing, a device-level risk
 management process.
 
 ## §2 Normative references
@@ -47,18 +47,18 @@ operates inside) and, for medical device software specifically, IEC 62304 (which
 software-specific risk analysis into its own §7 rather than treating risk management as a
 freestanding activity for software). See [`docs/iso13485/README.md`](../iso13485/README.md) and
 [`docs/iec62304/06-risk-management-process.md`](../iec62304/06-risk-management-process.md) — the
-latter is the authoritative MduX-rust reference for how software-level hazard analysis connects to
-`mdux-governance`'s types; this corpus does not duplicate it.
+latter is the authoritative TrustSC reference for how software-level hazard analysis connects to
+`trustsc-governance`'s types; this corpus does not duplicate it.
 
 ## §3 Terms and definitions
 
-Two distinctions matter most for how `mdux-governance` and this corpus are structured:
+Two distinctions matter most for how `trustsc-governance` and this corpus are structured:
 
 - **Hazard vs. hazardous situation** — a hazard is a potential source of harm in the abstract (for
   example, a UI update that could in principle be delayed); a hazardous situation is a circumstance
   in which a person, property, or the environment is actually exposed to that hazard (for example, a
   clinician relying on a sedation-index display during the specific window that a delayed update
-  would matter). `mdux_governance::Hazard` (`crates/mdux-governance/src/lib.rs`) models the hazard
+  would matter). `trustsc_governance::Hazard` (`crates/trustsc-governance/src/lib.rs`) models the hazard
   side of this pair; `docs/iso14971/schemas/risk-record.schema.json`'s `hazardous_situation` field is
   where the more specific, situational half is recorded per risk record — see module 02 §5.4.
 - **Risk vs. residual risk** — risk is the combination of the probability of harm and its severity,
@@ -73,8 +73,8 @@ Two distinctions matter most for how `mdux-governance` and this corpus are struc
 ### §4.1 Risk management process
 
 A manufacturer establishes, documents, and maintains a risk management process that runs for the
-device's entire lifecycle, not just its initial development. `mdux_governance::ComplianceProgram`
-(`crates/mdux-governance/src/lib.rs`) gives an application a running, sequenced record of that
+device's entire lifecycle, not just its initial development. `trustsc_governance::ComplianceProgram`
+(`crates/trustsc-governance/src/lib.rs`) gives an application a running, sequenced record of that
 process's outputs — every `add_hazard`, `add_requirement`, and `add_verification` call appends an
 `AuditEvent` — but a `ComplianceProgram` instance as constructed in the example applications
 (`examples/hello_world`, `examples/class_c_monitor`) is populated once at startup for a given build,
@@ -87,7 +87,7 @@ the process itself.
 
 Assigning authority for risk management decisions, defining the organization's risk acceptability
 policy, and providing adequate resources for the process are organizational obligations that sit
-entirely inside a manufacturer's quality management system. MduX-rust provides no scaffolding here —
+entirely inside a manufacturer's quality management system. TrustSC provides no scaffolding here —
 `SafetyClass::{B,C}` and `DeviceContext` record a technical classification decision, not who is
 accountable for making it or what policy governs it, and nothing in this repository can substitute
 for the accountable-person sign-off this subclause requires.
@@ -96,18 +96,18 @@ for the accountable-person sign-off this subclause requires.
 
 Ensuring that everyone performing risk management tasks is competent for the assigned role — through
 qualification, training, and experience — is a personnel and QMS record-keeping matter with no
-software-engineering component MduX-rust could plausibly automate. This is entirely the
-manufacturer's responsibility; no type in `mdux-governance` records who performed an analysis or what
+software-engineering component TrustSC could plausibly automate. This is entirely the
+manufacturer's responsibility; no type in `trustsc-governance` records who performed an analysis or what
 qualified them to do so.
 
 ### §4.4 Risk management plan
 
 The risk management plan defines, for a specific device, the scope of the risk management activities
 to be performed, assigns responsibilities, sets the criteria for risk acceptability, and describes
-verification and review activities. `mdux_governance::ComplianceProgram::new(device: DeviceContext)`
-(`crates/mdux-governance/src/lib.rs`) gives a scope-bearing anchor — a `DeviceContext` names the
+verification and review activities. `trustsc_governance::ComplianceProgram::new(device: DeviceContext)`
+(`crates/trustsc-governance/src/lib.rs`) gives a scope-bearing anchor — a `DeviceContext` names the
 product, the software item, and its safety class — but the plan's substantive content (acceptability
-criteria, review cadence, assigned responsibilities) is not represented by any MduX-rust type today.
+criteria, review cadence, assigned responsibilities) is not represented by any TrustSC type today.
 `docs/iso14971/schemas/risk-record.schema.json`'s `residual_risk_acceptable` boolean is only
 meaningful once such criteria exist somewhere in the manufacturer's own plan; the schema records the
 *outcome* of applying the criteria, not the criteria themselves.
@@ -123,7 +123,7 @@ candidates for feeding such a file, and a collection of
 `docs/iso14971/schemas/risk-record.schema.json` instances would be another. Neither constitutes the
 file itself: `software_development_file/regulatory/ISO_14971/` is where a manufacturer's own
 filled-in risk management file belongs (see the [README](README.md)), and it is currently unpopulated
-in this repository — MduX-rust supplies inputs a file could draw on, not a completed file.
+in this repository — TrustSC supplies inputs a file could draw on, not a completed file.
 
 ---
 

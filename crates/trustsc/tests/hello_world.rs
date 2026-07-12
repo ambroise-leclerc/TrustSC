@@ -34,7 +34,7 @@ const SCREEN: CompiledScreenPackage = CompiledScreenPackage {
 fn builds_framework_from_screen_through_public_api() {
     let device = DeviceContext::new(
         "Acme Medical",
-        "MduX-rust Hello World",
+        "TrustSC Hello World",
         "hello-world-ui",
         "0.1.0",
         SafetyClass::B,
@@ -95,7 +95,7 @@ fn builds_framework_from_screen_through_public_api() {
 fn hello_world_builder() -> FrameworkBuilder {
     let device = DeviceContext::new(
         "Acme Medical",
-        "MduX-rust Hello World",
+        "TrustSC Hello World",
         "hello-world-ui",
         "0.1.0",
         SafetyClass::B,
@@ -360,7 +360,7 @@ fn build_traces_requirement_bearing_button_and_text_input() {
 fn record_runtime_event_lands_in_the_audit_export() {
     let device = DeviceContext::new(
         "Acme Medical",
-        "MduX-rust Hello World",
+        "TrustSC Hello World",
         "hello-world-ui",
         "0.1.0",
         SafetyClass::B,

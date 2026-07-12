@@ -13,7 +13,7 @@ treating them as the same analysis under two names is a common and consequential
 - Identifying threats and vulnerabilities (as distinct from hazards)
 - Why security risk and safety risk are not the same analysis, and where they connect
 - Security risk assessment and acceptance
-- Mapping security risk controls back to MduX-rust's own architecture
+- Mapping security risk controls back to TrustSC's own architecture
 
 ---
 
@@ -27,9 +27,9 @@ deliberately cause the software to malfunction, disclose data it shouldn't, or b
 state its designers never intended? The inputs to this analysis are threats (an actor and a
 capability) and vulnerabilities (a weakness the threat could exploit), not failure modes.
 
-For MduX-rust, this analysis is scoped by what actually exists to attack. The governed crates
+For TrustSC, this analysis is scoped by what actually exists to attack. The governed crates
 (`crates/`) are `#![forbid(unsafe_code)]` and take no untrusted network input; the presentation
-adapter (`adapters/mdux-vulkan-winit`) reads local, committed shader/glyph-atlas evidence and local
+adapter (`adapters/trustsc-vulkan-winit`) reads local, committed shader/glyph-atlas evidence and local
 window-system events, not remote input; the host tooling (`tools/`) runs offline against
 manufacturer-controlled inputs. This is a materially smaller and more static attack surface than a
 networked device, and a manufacturer's threat identification exercise should reflect that rather than
@@ -46,7 +46,7 @@ potentially unsafe code). But most security risks have no safety-risk analogue a
 confidentiality breach that discloses patient data without ever affecting device function is a
 security risk with essentially zero safety-risk weight, and a safety hazard like a rendering
 race condition that never involves an adversary is a safety risk with no security dimension.
-`mdux_governance::Hazard` (module 06 of `../iec62304/`) models the safety side of this — a hazard with
+`trustsc_governance::Hazard` (module 06 of `../iec62304/`) models the safety side of this — a hazard with
 at least one controlling requirement — and is not a security risk record by another name; it has no
 field for a threat actor, an attack vector, or a confidentiality/integrity/availability impact
 classification, which is exactly why this corpus introduces a separate schema
@@ -72,9 +72,9 @@ gives a manufacturer a machine-checkable place to record the acceptance decision
 `docs/iec62304/schemas/safety-classification.schema.json`'s `approval` object records a safety
 classification's sign-off.
 
-## §5 (approx.) Where MduX-rust's architecture already functions as a control
+## §5 (approx.) Where TrustSC's architecture already functions as a control
 
-Several MduX-rust mechanisms documented elsewhere in this corpus for other reasons double as security
+Several TrustSC mechanisms documented elsewhere in this corpus for other reasons double as security
 risk controls, and a manufacturer's security risk record can cite them directly rather than
 re-justifying the same property from scratch:
 

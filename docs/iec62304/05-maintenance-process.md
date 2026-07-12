@@ -16,7 +16,7 @@ same rigor as original development rather than a shortcut path.
 ## §6.1 Establish software maintenance plan
 
 A maintenance plan states how problem reports and change requests are received, evaluated, and
-released post-market. MduX-rust's own maintenance-relevant mechanisms — CI running on every push
+released post-market. TrustSC's own maintenance-relevant mechanisms — CI running on every push
 (`.github/workflows/ci.yml`), the `Cargo.lock`-pinned, `--locked`-built dependency set (ADR-005),
 and the bake/`verify` pattern that re-derives evidence on demand (ADR-007) — are the scaffolding a
 manufacturer's maintenance plan can build its own process on top of, not a substitute for one.
@@ -25,7 +25,7 @@ manufacturer's maintenance plan can build its own process on top of, not a subst
 
 ### §6.2.1 Analyze problem reports and modification requests
 
-Every `mdux_governance::ProblemReport` (`id`, `summary`, `closed`) is a discrete, trackable analysis
+Every `trustsc_governance::ProblemReport` (`id`, `summary`, `closed`) is a discrete, trackable analysis
 unit; `ComplianceProgram::add_problem_report()` records a `Lifecycle` audit event so the analysis
 step itself is timestamped-by-sequence in the audit trail (`AuditEvent`), not just its resolution.
 

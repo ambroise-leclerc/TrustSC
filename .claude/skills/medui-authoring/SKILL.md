@@ -16,12 +16,12 @@ parsed, laid out, or shaped on-device (ADR-008/009). The full reference lives in
 1. Author `<app>/<name>.medui`.
 2. In the app's `build.rs`:
    ```rust
-   mdux_build::MeduiScreen::new("path/to/name.medui")
+   trustsc_build::MeduiScreen::new("path/to/name.medui")
        .surface(width, height)
        .compile();
    ```
-   (`mdux-build` handles `OUT_DIR` and `rerun-if-changed`.)
-3. In the app: `mdux::include_medui_screen!();` — exposes the generated module as `medui_screen`;
+   (`trustsc-build` handles `OUT_DIR` and `rerun-if-changed`.)
+3. In the app: `trustsc::include_medui_screen!();` — exposes the generated module as `medui_screen`;
    `medui_screen::screen()` returns the `&'static CompiledScreenPackage`.
 4. `FrameworkBuilder::with_screen(screen)` auto-derives a `UiComponent` per requirement-bearing
    node — don't hand-write `UiComponent`s for screen nodes.

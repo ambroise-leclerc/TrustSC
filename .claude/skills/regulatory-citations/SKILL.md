@@ -6,7 +6,7 @@ description: Cite regulatory standards (IEC 62304, ISO 13485, ISO 14971, IEC 623
 # Regulatory citations
 
 The authoritative convention is `docs/governance/citation-convention.md`; this skill is the
-operational recipe. The linter (`cargo run --locked -q -p mdux-docs-lint -- check`) enforces it in
+operational recipe. The linter (`cargo run --locked -q -p trustsc-docs-lint -- check`) enforces it in
 CI — run it after any edit under `docs/` or `software_development_file/`.
 
 ## Navigation recipe
@@ -16,7 +16,7 @@ CI — run it after any edit under `docs/` or `software_development_file/`.
    `docs/iec81001/`.
 2. Open that folder's `README.md` — its Modules table maps clause ranges to `NN-*.md` files.
 3. Use the folder's `AI-Reference.md` for fast one-row-per-clause lookup, then open the linked
-   module for the explanatory prose and MduX-rust cross-references.
+   module for the explanatory prose and TrustSC cross-references.
 
 ## Citation key format
 
@@ -47,9 +47,9 @@ When a design decision needs a formal link to a clause, emit a fenced `json` blo
   "justification_id": "JUS-NNN",
   "standard": "IEC 62304",
   "clause_ref": "IEC 62304:2006 §5.3.3 Identify segregation necessary for risk control",
-  "rationale": "Original prose: why/how MduX-rust's design addresses this clause.",
-  "requirement_id": "REQ-... (optional, a real mdux-governance RequirementId)",
-  "evidence_refs": ["docs/adr/ADR-005-....md", "crates/mdux-core/src/lib.rs"]
+  "rationale": "Original prose: why/how TrustSC's design addresses this clause.",
+  "requirement_id": "REQ-... (optional, a real trustsc-governance RequirementId)",
+  "evidence_refs": ["docs/adr/ADR-005-....md", "crates/trustsc-core/src/lib.rs"]
 }
 ```
 
@@ -71,5 +71,5 @@ Worked examples: `software_development_file/regulatory/IEC_62304/SAD.md`.
   reader to consult their licensed copy.
 - Verify clause numbers against the standard's `AI-Reference.md`, never assume them from memory
   or other sources.
-- Point rationales at concrete MduX-rust mechanisms (a governance type, an ADR, a validation in
+- Point rationales at concrete TrustSC mechanisms (a governance type, an ADR, a validation in
   `ComplianceProgram::validate()`), not at generic compliance language.

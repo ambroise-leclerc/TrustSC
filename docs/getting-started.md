@@ -1,7 +1,7 @@
 # Getting started
 
 This page walks through two complete example applications end to end — the smallest possible
-MduX-rust app and a fuller Class C monitor — plus the Vulkan prerequisites and full command
+TrustSC app and a fuller Class C monitor — plus the Vulkan prerequisites and full command
 reference. For the high-level pitch and a condensed quickstart, see the
 [README](../README.en.md). For how the pieces fit together architecturally, see
 [Architecture](architecture.md).
@@ -43,7 +43,7 @@ Screen HelloWorld {
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    mdux_build::MeduiScreen::new("hello_world.medui")
+    trustsc_build::MeduiScreen::new("hello_world.medui")
         .surface(800, 480)
         .compile()
 }
@@ -52,9 +52,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 `src/main.rs`:
 
 ```rust
-mdux::include_medui_screen!();
+trustsc::include_medui_screen!();
 
-use mdux::{
+use trustsc::{
     ComplianceProgram, DeviceContext, FrameworkBuilder, Requirement, RequirementId, SafetyClass,
     UiSdkConfig, VerificationCase, VerificationMethod,
 };
@@ -62,7 +62,7 @@ use mdux::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = DeviceContext::new(
         "Acme Medical",
-        "MduX-rust Hello World",
+        "TrustSC Hello World",
         "hello-world-ui",
         "0.1.0",
         SafetyClass::B,
@@ -90,17 +90,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_screen(medui_screen::screen())
         .build()?;
 
-    mdux_vulkan_winit::App::new(framework, medui_screen::screen()).run_from_env()
+    trustsc_vulkan_winit::App::new(framework, medui_screen::screen()).run_from_env()
 }
 ```
 
-`Cargo.toml` needs only `mdux` + `mdux-vulkan-winit` as dependencies and `mdux-build` as a
+`Cargo.toml` needs only `trustsc` + `trustsc-vulkan-winit` as dependencies and `trustsc-build` as a
 build-dependency — see `examples/hello_world/Cargo.toml`. Run it with `cargo run -p hello_world`
 (opens a window), `-- --auto-close-ms=1000` (closes itself, useful for manual smoke checks), or
 `-- --headless-smoke` (no window, no Vulkan at all — for CI).
 
 Everything generic — the Vulkan instance/device/swapchain/pipeline, the winit event loop, the
-glyph-atlas upload, and the CLI flags — lives in `adapters/mdux-vulkan-winit`, reused by every
+glyph-atlas upload, and the CLI flags — lives in `adapters/trustsc-vulkan-winit`, reused by every
 application; see [Hello World Vulkan text path](#hello-world-vulkan-text-path) below.
 
 ## A complete Class C monitor: 3D UI + zero-SOUP ML in ~400 lines
@@ -215,25 +215,25 @@ the entire cost of embedding the classifier:
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    mdux_build::MeduiScreen::new("neurosense.medui")
+    trustsc_build::MeduiScreen::new("neurosense.medui")
         .surface(1920, 1080)
         .compile()?;
     // Phase 1 (Hugging Face-style demonstrator) points this at generated/models/eeg-demo/package.json;
     // Phase 2 (production) repoints it at a manufacturer's own clinically-qualified weights baked
-    // by the same tools/mdux-ml-baker pipeline — zero change below this line (ADR-017 §2).
-    mdux_build::ModelPackage::new("../../generated/models/eeg-demo/package.json").compile()?;
-    mdux_build::ScenarioSet::new("verify/scenarios").compile()
+    // by the same tools/trustsc-ml-baker pipeline — zero change below this line (ADR-017 §2).
+    trustsc_build::ModelPackage::new("../../generated/models/eeg-demo/package.json").compile()?;
+    trustsc_build::ScenarioSet::new("verify/scenarios").compile()
 }
 ```
 
 **`src/app_logic.rs`** (188 lines total; the realtime closure below is the flagship
 demonstration of the "weights are data" story) — `MODEL` is whatever
 `generated/models/eeg-demo/package.json` the build compiled in. Swap that one committed file for
-a manufacturer's own clinically-qualified weights, baked by the exact same `tools/mdux-ml-baker`
+a manufacturer's own clinically-qualified weights, baked by the exact same `tools/trustsc-ml-baker`
 pipeline, and every line of application code stays unchanged:
 
 ```rust
-static MODEL: LazyLock<mdux::ModelPackage> = LazyLock::new(crate::medui_model::model);
+static MODEL: LazyLock<trustsc::ModelPackage> = LazyLock::new(crate::medui_model::model);
 
 // ... inside AppLogic::into_closures(), built once (not per frame):
 let classifier = Classifier1D::<CLASSIFIER_MAX_UNITS, CLASSIFIER_MAX_OUT>::new(&MODEL)
@@ -270,7 +270,7 @@ let realtime = move |frame: &mut FrameInputs| {
 ```
 
 `src/main.rs` (92 lines) wires the `DeviceContext`/`ComplianceProgram`/`UiSdkConfig` and
-registers the closures above with `mdux_vulkan_winit::App` — the same boilerplate every
+registers the closures above with `trustsc_vulkan_winit::App` — the same boilerplate every
 `FrameworkBuilder`-based example needs, unrelated to the ML story; see the file directly if
 you're after the compliance plumbing rather than the classifier.
 
@@ -284,7 +284,7 @@ the diagnostics), or `-- --headless-smoke` for the CI path — the smoke output 
 
 ## Vulkan prerequisites
 
-The primary development path for MduX is Vulkan-based medical UI work. Install a system Vulkan
+The primary development path for TrustSC is Vulkan-based medical UI work. Install a system Vulkan
 loader before running the windowed examples.
 
 ### macOS
@@ -325,7 +325,7 @@ works without the windowed Vulkan path.
 
 ```bash
 source $HOME/.cargo/env
-cd MduX-rust
+cd TrustSC
 
 # build everything
 cargo build
@@ -354,7 +354,7 @@ cargo run -p class_b_device
 cargo run -p class_c_vulkansc_device
 
 # inspect the text-asset pipeline tooling
-cargo run -p mdux-text-authoring --bin mdux-textc -- describe-pipeline
+cargo run -p trustsc-text-authoring --bin trustsc-textc -- describe-pipeline
 ```
 
 The default `hello_world` example opens a real Vulkan window and requires a system Vulkan loader.
@@ -369,13 +369,13 @@ and compile-time rejection when an approved translation would overflow the alloc
 ## Hello World Vulkan text path
 
 - `examples/hello_world/hello_world.medui` is the entire application-specific content;
-  `examples/hello_world/build.rs` compiles it via `mdux-build`'s `MeduiScreen` into generated
-  screen metadata, brought into scope with `mdux::include_medui_screen!()`.
-- `mdux::screen_text::ScreenTextLayout` (in `crates/mdux`) resolves the screen's approved text
+  `examples/hello_world/build.rs` compiles it via `trustsc-build`'s `MeduiScreen` into generated
+  screen metadata, brought into scope with `trustsc::include_medui_screen!()`.
+- `trustsc::screen_text::ScreenTextLayout` (in `crates/trustsc`) resolves the screen's approved text
   into glyph draw commands — this is generic, screen-agnostic logic reused by every application.
-- `adapters/mdux-vulkan-winit` owns everything platform-specific: it uploads the glyph atlas and
+- `adapters/trustsc-vulkan-winit` owns everything platform-specific: it uploads the glyph atlas and
   renders textured quads using shaders precompiled to SPIR-V and committed under
-  `adapters/mdux-vulkan-winit/shaders/generated/` (see `tools/mdux-shader-baker`), so
+  `adapters/trustsc-vulkan-winit/shaders/generated/` (see `tools/trustsc-shader-baker`), so
   applications need no `ash`/`winit`/`shaderc` dependency of their own.
 - Use `cargo run -p hello_world -- --auto-close-ms=1000` to smoke-test the actual Vulkan text
   overlay path when a system Vulkan loader is available.

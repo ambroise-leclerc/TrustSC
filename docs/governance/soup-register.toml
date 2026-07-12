@@ -1,7 +1,7 @@
 schema_version = 1
-register_kind = "mdux-soup-register"
+register_kind = "trustsc-soup-register"
 scope = "host-tooling-and-presentation-adapters"
-owner = "MduX-rust text authoring maintainers"
+owner = "TrustSC text authoring maintainers"
 yocto_policy = "Future Yocto integration consumes approved font assets, notices, manifest metadata, and generated package outputs; it does not install host baker/shader-baker tooling or their third-party crates into the target image. Presentation-adapter dependencies (ash, ash-window, raw-window-handle, winit) are Class B host-bring-up dependencies reviewed per ADR-012; see each entry's runtime_deployment and integration_path fields."
 
 [[entries]]
@@ -53,7 +53,7 @@ classification = "SOUP"
 supplier = "crates.io / serde-rs maintainers"
 repository = "https://github.com/serde-rs/json"
 license = "MIT OR Apache-2.0"
-usage = "Emits deterministic host-side package.json and report.json artifacts for review and reproducibility checks, and parses approved package.json inputs into generated Rust source during mdux builds. Also parses the safetensors container header in crates/trustsc-ml-authoring (ADR-017 §6, avoiding a dedicated safetensors crate dependency), and parses/emits ML model package.json/report.json evidence in tools/trustsc-ml-baker and crates/trustsc-build model codegen, and shader package.json/report.json evidence in tools/trustsc-shader-baker (ADR-012)."
+usage = "Emits deterministic host-side package.json and report.json artifacts for review and reproducibility checks, and parses approved package.json inputs into generated Rust source during trustsc builds. Also parses the safetensors container header in crates/trustsc-ml-authoring (ADR-017 §6, avoiding a dedicated safetensors crate dependency), and parses/emits ML model package.json/report.json evidence in tools/trustsc-ml-baker and crates/trustsc-build model codegen, and shader package.json/report.json evidence in tools/trustsc-shader-baker (ADR-012)."
 integration_path = "tools/trustsc-font-baker, crates/trustsc/build.rs, crates/trustsc-ml-authoring, tools/trustsc-ml-baker, crates/trustsc-build (model codegen), tools/trustsc-shader-baker"
 pinned_by = ["tools/trustsc-font-baker/Cargo.toml", "crates/trustsc/Cargo.toml", "crates/trustsc-ml-authoring/Cargo.toml", "tools/trustsc-ml-baker/Cargo.toml", "crates/trustsc-build/Cargo.toml", "tools/trustsc-shader-baker/Cargo.toml", "Cargo.lock"]
 runtime_deployment = false
@@ -113,16 +113,16 @@ classification = "SOUP"
 supplier = "crates.io / ash maintainers"
 repository = "https://github.com/ash-rs/ash"
 license = "MIT OR Apache-2.0"
-usage = "Vulkan 1.x bindings for instance/device/swapchain setup, pipeline creation, and frame submission, confined to the mdux-vulkan-winit presentation adapter (ADR-012) and used transitively by every example that depends on it (hello_world, class_c_monitor)."
+usage = "Vulkan 1.x bindings for instance/device/swapchain setup, pipeline creation, and frame submission, confined to the trustsc-vulkan-winit presentation adapter (ADR-012) and used transitively by every example that depends on it (hello_world, class_c_monitor)."
 integration_path = "adapters/trustsc-vulkan-winit"
 pinned_by = ["adapters/trustsc-vulkan-winit/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter (ADR-012). No ash::vk type crosses into a governed crate's public API."
+boundary_rationale = "Confined to the trustsc-vulkan-winit edge adapter (ADR-012). No ash::vk type crosses into a governed crate's public API."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
-    "The adapter only accepts owned mdux types (Framework, CompiledScreenPackage, ScreenTextLayout) at its public boundary.",
+    "The adapter only accepts owned trustsc types (Framework, CompiledScreenPackage, ScreenTextLayout) at its public boundary.",
 ]
 
 [[entries]]
@@ -133,13 +133,13 @@ classification = "SOUP"
 supplier = "crates.io / ash maintainers"
 repository = "https://github.com/ash-rs/ash"
 license = "MIT OR Apache-2.0"
-usage = "Creates a Vulkan surface from a winit window handle, confined to the mdux-vulkan-winit presentation adapter (ADR-012)."
+usage = "Creates a Vulkan surface from a winit window handle, confined to the trustsc-vulkan-winit presentation adapter (ADR-012)."
 integration_path = "adapters/trustsc-vulkan-winit"
 pinned_by = ["adapters/trustsc-vulkan-winit/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter (ADR-012)."
+boundary_rationale = "Confined to the trustsc-vulkan-winit edge adapter (ADR-012)."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
 ]
@@ -152,13 +152,13 @@ classification = "SOUP"
 supplier = "crates.io / rust-windowing maintainers"
 repository = "https://github.com/rust-windowing/raw-window-handle"
 license = "MIT OR Apache-2.0"
-usage = "Shared windowing-handle trait used to bridge winit windows into ash-window surface creation, confined to the mdux-vulkan-winit presentation adapter (ADR-012)."
+usage = "Shared windowing-handle trait used to bridge winit windows into ash-window surface creation, confined to the trustsc-vulkan-winit presentation adapter (ADR-012)."
 integration_path = "adapters/trustsc-vulkan-winit"
 pinned_by = ["adapters/trustsc-vulkan-winit/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter (ADR-012). Handle types never cross into governed crates."
+boundary_rationale = "Confined to the trustsc-vulkan-winit edge adapter (ADR-012). Handle types never cross into governed crates."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
 ]
@@ -171,13 +171,13 @@ classification = "SOUP"
 supplier = "crates.io / rust-windowing maintainers"
 repository = "https://github.com/rust-windowing/winit"
 license = "MIT OR Apache-2.0"
-usage = "Cross-platform window creation and event-loop pump, confined to the mdux-vulkan-winit presentation adapter's App runner (ADR-012)."
+usage = "Cross-platform window creation and event-loop pump, confined to the trustsc-vulkan-winit presentation adapter's App runner (ADR-012)."
 integration_path = "adapters/trustsc-vulkan-winit"
 pinned_by = ["adapters/trustsc-vulkan-winit/Cargo.toml", "Cargo.lock"]
 runtime_deployment = true
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
-boundary_rationale = "Confined to the mdux-vulkan-winit edge adapter (ADR-012). No winit type crosses into a governed crate's public API."
+boundary_rationale = "Confined to the trustsc-vulkan-winit edge adapter (ADR-012). No winit type crosses into a governed crate's public API."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
     "App::run_from_env keeps CLI/CI entry points (--headless-smoke) independent of window-system availability.",
@@ -197,7 +197,7 @@ pinned_by = ["tools/trustsc-shader-baker/Cargo.toml", "Cargo.lock"]
 runtime_deployment = false
 yocto_target_dependency = false
 support_model = "Community-maintained crate wrapping the Google shaderc C++ library; no medical-device qualification or vendor support agreement."
-boundary_rationale = "A build-only dependency of tools/trustsc-shader-baker (ADR-007/ADR-012); no application or the mdux-vulkan-winit adapter depends on shaderc directly — both consume only the committed .spv + report.json evidence."
+boundary_rationale = "A build-only dependency of tools/trustsc-shader-baker (ADR-007/ADR-012); no application or the trustsc-vulkan-winit adapter depends on shaderc directly — both consume only the committed .spv + report.json evidence."
 risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
     "The shaderc version and compile options are recorded in report.json so verify can detect toolchain drift.",

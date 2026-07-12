@@ -4,7 +4,7 @@
 > [`docs/iec62366/README.md`](../../../docs/iec62366/README.md) for the underlying clause-by-clause
 > guidance. See
 > `software_development_file/regulatory/IEC_62366/Usability_Engineering_File.md` (added in a later PR in this stack)
-> for MduX-rust's own filled-in example.
+> for TrustSC's own filled-in example.
 
 ## Document control
 

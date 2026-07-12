@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-MduX verifies a great deal at compile time: containment, no-overlap and per-locale text budgets
+TrustSC verifies a great deal at compile time: containment, no-overlap and per-locale text budgets
 (ADR-010, ADR-014) make an over-wide translation or a colliding component a build failure. But
 nothing in the project ever verifies **rendered truth** — that the pixels a device actually
 produces match what the compiled screen, the theme table and the approved text packages promise.
@@ -53,7 +53,7 @@ certified gate, exact hashes are backend-scoped regression evidence.
 
 ### 1. Offscreen render path — the same pixels, without a window
 
-`adapters/mdux-vulkan-winit` gains an `OffscreenRenderer` (new `src/offscreen.rs`):
+`adapters/trustsc-vulkan-winit` gains an `OffscreenRenderer` (new `src/offscreen.rs`):
 
 - A **headless instance** skips `ash_window::enumerate_required_extensions` (keeping the macOS
   portability-enumeration bits) and a headless device pick drops the present-support filter,
@@ -72,9 +72,9 @@ certified gate, exact hashes are backend-scoped regression evidence.
 
 All `unsafe`/ash stays in the adapter (ADR-005 intact).
 
-### 2. `mdux-ui-verify` — the pure check engine, first consumer of golden references
+### 2. `trustsc-ui-verify` — the pure check engine, first consumer of golden references
 
-A new governed crate, `crates/mdux-ui-verify`: pure Rust, `#![forbid(unsafe_code)]`, **zero
+A new governed crate, `crates/trustsc-ui-verify`: pure Rust, `#![forbid(unsafe_code)]`, **zero
 dependencies**. It takes `FramePixels { width, height, rgba }` plus the compiled screen (and
 per-locale expectations resolved by the caller) and returns typed `CheckResult`s. Being
 dependency-free keeps it fully unit-testable on synthetic pixel buffers without a GPU, and
@@ -125,11 +125,11 @@ so reports are byte-reproducible and no serde enters governed or adapter code.
 ### 4. Scenario scripts — authored TOML, compiled to static data
 
 Control behavior is verified by **scenario scripts**: authored TOML under
-`examples/<app>/verify/scenarios/*.toml`, compiled at build time by `mdux-build` into static
+`examples/<app>/verify/scenarios/*.toml`, compiled at build time by `trustsc-build` into static
 Rust data (`ScenarioScript { id, requirement_ids, clock, steps }`) — the ADR-008 doctrine
 applied again: authored source in, static data out, no runtime parsing. Steps are: inject a
 `WidgetEvent`; `expect_text` / `expect_status` / `expect_number` against `FrameInputs`;
-`capture` a named offscreen frame. The runner (in the `mdux` facade) replays events through
+`capture` a named offscreen frame. The runner (in the `trustsc` facade) replays events through
 `FrameEvents` into the application's registered `with_input` and `with_realtime` closures and
 asserts the echoed state — this half is GPU-free and doubles as plain `cargo test` coverage.
 `capture` steps render offscreen with an `InteractionSnapshot` synthesized from the scripted
@@ -169,7 +169,7 @@ the package carries, automatically including locales added later.
   `capture-index.json` (screen id, locale, node table with ids/bounds/resolved per-locale label
   text, capture list). Callout text is resolved from the approved strings — the manual can
   never disagree with what the device renders.
-- **Stage 2, host tool** `tools/mdux-manual-gen` (`generate <manual.toml> <capture-dir>
+- **Stage 2, host tool** `tools/trustsc-manual-gen` (`generate <manual.toml> <capture-dir>
   <out-dir>`, the house CLI shape): composites numbered callout markers at node bounds,
   encodes PNG with a **hand-rolled stored-deflate PNG encoder** (~200 lines — zero new SOUP
   dependencies, the PPM-parser precedent applied to output), and emits

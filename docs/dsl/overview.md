@@ -1,6 +1,6 @@
 # MedUI DSL overview
 
-The MedUI DSL is a deterministic build-time language for authored medical UI screens in `MduX-rust`.
+The MedUI DSL is a deterministic build-time language for authored medical UI screens in `TrustSC`.
 
 ## Goals
 

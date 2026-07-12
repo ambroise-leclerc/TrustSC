@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-`MduX-rust` needs one framework architecture that can support Class B devices on general Vulkan platforms and Class C devices on Vulkan SC-oriented targets. The workspace already exposes both profiles through `mdux-ui`, includes separate Class B and Class C examples, and enforces that Class C framework builds select the Vulkan SC profile.
+`TrustSC` needs one framework architecture that can support Class B devices on general Vulkan platforms and Class C devices on Vulkan SC-oriented targets. The workspace already exposes both profiles through `trustsc-ui`, includes separate Class B and Class C examples, and enforces that Class C framework builds select the Vulkan SC profile.
 
 The open question is whether Vulkan and Vulkan SC should become separate framework variants or remain two profiles within the same product architecture.
 
