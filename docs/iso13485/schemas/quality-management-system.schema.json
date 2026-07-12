@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mdux.dev/schemas/iso13485/quality-management-system.schema.json",
+  "title": "ISO 13485 Quality Management System Scope Record",
+  "description": "Records the scope of a manufacturer's QMS as it relates to a device built on MduX-rust — which device(s) the QMS covers and which ISO 13485 requirements apply. Not a substitute for the QMS itself, and not field-aligned with any crates/mdux-governance/src/lib.rs type (mdux-governance has no organizational/QMS concept). See docs/iso13485/01-foundations-and-qms.md §4.2.2 and docs/governance/citation-convention.md.",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["qms_id", "organisation_profile", "scope_definition"],
+  "properties": {
+    "qms_id": {
+      "type": "string",
+      "pattern": "^QMS-[0-9]{4}-[0-9]{3}$",
+      "description": "e.g. 'QMS-2026-001'."
+    },
+    "organisation_profile": {
+      "type": "object",
+      "required": ["name", "role"],
+      "properties": {
+        "name": { "type": "string" },
+        "role": {
+          "type": "string",
+          "description": "The organization's role in the medical device supply chain, e.g. 'Manufacturer', 'Authorized representative', 'Importer'."
+        },
+        "device_portfolio": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["device_name", "classification"],
+            "properties": {
+              "device_name": { "type": "string" },
+              "classification": {
+                "type": "string",
+                "description": "The organization's regulatory device classification (jurisdiction-specific, e.g. EU MDR Class IIb, FDA Class II) — distinct from mdux_core::SafetyClass, which is an IEC 62304 software safety classification, not a device classification."
+              },
+              "risk_class": {
+                "type": "string",
+                "description": "Free text: the organization's own risk classification terminology for this device, if distinct from `classification`."
+              }
+            }
+          }
+        }
+      }
+    },
+    "scope_definition": {
+      "type": "object",
+      "required": ["scope_statement"],
+      "properties": {
+        "scope_statement": { "type": "string" },
+        "applicable_requirements": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Clause references in the docs/governance/citation-convention.md format, e.g. 'ISO 13485:2016 §7.3 Design and development'."
+        },
+        "exclusions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Clauses excluded from scope, with justification, per ISO 13485:2016 §4.2.2's quality-manual requirement to state exclusions and their justification."
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
