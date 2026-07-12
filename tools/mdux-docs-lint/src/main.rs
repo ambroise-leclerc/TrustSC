@@ -366,6 +366,10 @@ fn json_blocks(text: &str) -> Vec<JsonBlock> {
             }
         }
     }
+    // A fence left unterminated at end-of-file still yields its block, so a
+    // malformed-but-present Justification object cannot escape validation by dropping the
+    // closing fence.
+    blocks.extend(current);
     blocks
 }
 
@@ -627,5 +631,15 @@ mod tests {
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].line, 2);
         assert!(blocks[0].body.contains("JUS-001"));
+    }
+
+    #[test]
+    fn unterminated_fence_still_yields_its_block() {
+        let text = "a\n```json\n{\"justification_id\": \"JUS-001\",\n";
+        let blocks = json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].body.contains("JUS-001"));
+        // The truncated body then fails JSON parsing in validation rather than being skipped.
+        assert!(serde_json::from_str::<serde_json::Value>(&blocks[0].body).is_err());
     }
 }
