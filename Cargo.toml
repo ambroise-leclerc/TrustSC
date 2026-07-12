@@ -19,6 +19,7 @@ members = [
     "examples/class_b_device",
     "examples/class_c_monitor",
     "examples/class_c_vulkansc_device",
+    "tools/mdux-docs-lint",
     "tools/mdux-font-baker",
     "tools/mdux-image-baker",
     "tools/mdux-ml-baker",
