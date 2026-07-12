@@ -1,141 +1,97 @@
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="TrustSC — Traceable, Reproducible, Unsafe-free, Safety-classified, Toolkit" width="720">
+</p>
+
+<p align="center">🇬🇧 <a href="README.en.md">English version</a></p>
+
 # TrustSC
 
-🇬🇧 [English version](README.en.md)
+**Le logiciel de dispositif médical Classe B/C, sans la conformité maintenue à la main.**
 
-**Un framework 100 % Rust pour produire des logiciels de dispositifs médicaux alignés sur les
-exigences des normes IEC 62304 (processus du cycle de vie logiciel), ISO 13485 (système de
-management de la qualité) et ISO 14971 (gestion des risques).** Il fournit des briques Classe B/C
-directement réutilisables — une IHM Vulkan (Classe B) et Vulkan SC (Classe C), une inférence IA
-embarquée sans SOUP — et, plus largement, une génération de preuves conçue pour alimenter le SMQ
-du fabricant et le dossier technique remis à l'organisme notifié.
+TrustSC est un framework 100 % Rust pour construire des logiciels alignés sur l'IEC 62304,
+l'ISO 13485 et l'ISO 14971. La traçabilité, les preuves et l'IHM critique n'y sont pas des
+documents rédigés après coup : elles sont générées par l'outillage, versionnées avec le code et
+revérifiées à chaque commit.
 
-## La difficulté du logiciel Classe B/C
+## La complexité réglementaire a une solution outillée
 
-Les équipes qui développent un logiciel Classe B ou Classe C selon l'IEC 62304 rencontrent
-toujours les mêmes frictions : une traçabilité exigence → vérification maintenue à la main, qui
-finit par diverger du code ; une surface de dépendances tierces (SOUP) qui croît le plus vite
-justement dans les couches UI et IA/ML les plus visibles pour l'opérateur ; des preuves qu'un
-auditeur ne peut pas reproduire facilement ; et des éléments d'IHM critiques dont le comportement
-est difficile à garantir dès que la pile de rendu alloue de la mémoire ou met en forme du texte à
-l'exécution.
+- **La traçabilité diverge du code ?** Les types `Requirement`, `Hazard`, `VerificationCase` et
+  `AuditEvent` de `trustsc-governance` vivent dans le code et exportent matrice de traçabilité
+  et piste d'audit.
+- **La liste SOUP explose dans l'UI et l'IA ?** IHM Vulkan (Classe B) / Vulkan SC (Classe C) et
+  inférence ML embarquée écrites en Rust sans dépendance tierce — zéro SOUP là où elle coûte le
+  plus cher.
+- **Des preuves qu'un auditeur ne peut pas reproduire ?** Chaque artefact généré porte son
+  empreinte SHA-256 et est revérifié octet par octet en CI.
+- **Un dossier technique à assembler ?** [`software_development_file/`](software_development_file/README.md)
+  fournit les templates — et leur version remplie pour TrustSC lui-même — plus un registre SOUP
+  au format attendu.
 
-## Ce que fournit TrustSC aujourd'hui
+## Le pipeline de preuves
 
-TrustSC découpe le workspace en trois zones de confiance — un cœur gouverné et sans `unsafe`
-(`crates/`), des adaptateurs qui isolent les liaisons Vulkan/fenêtrage natives (`adapters/`), et
-un outillage host-only qui ne part jamais dans un artefact runtime (`tools/`) — pour que l'effort
-de revue se concentre là où il compte. Chaque pipeline d'asset (polices, images, shaders, et
-désormais poids ML) compile une source en preuve committée et vérifiée par empreinte
-(`package.json` + `report.json`), re-contrôlée automatiquement en CI plutôt qu'affirmée à la main.
-En complément, `trustsc-governance` fournit de vrais types `Requirement`/`Hazard`/
-`VerificationCase`/`AuditEvent`, avec export structuré de la matrice de traçabilité et de la
-piste d'audit.
+```mermaid
+graph LR
+    A["Sources<br/>polices · images · shaders · poids ML"] --> B["Bake<br/>outillage host-only"]
+    B --> C["Preuve committée<br/>package.json + report.json, SHA-256"]
+    C --> D["Vérification CI<br/>octet par octet"]
+    D --> E["Dossier technique<br/>SMQ du fabricant"]
+```
 
-L'exemple phare de cette approche est le pipeline ML : un classifieur embarqué (`Classifier1D`)
-écrit entièrement en Rust `#![forbid(unsafe_code)]` — pas d'ONNX Runtime, pas de PyTorch — dont
-les poids sont des données versionnées et compilées à part. Remplacer un modèle de démonstration
-issu de Hugging Face par les propres poids cliniquement qualifiés d'un fabricant ne change aucune
-ligne de code d'inférence ou d'application, et le moteur échoue de façon contrôlée au démarrage si
-son propre auto-test de référence ne se reproduit pas bit à bit. Voir `examples/class_c_monitor`,
-le moniteur de profondeur d'anesthésie Acme NeuroSense 500, pour la démonstration complète et
-fonctionnelle.
-
-Ceci reste un framework et un ensemble d'API de conformité — pas un dispositif médical certifié,
-et pas un substitut au jugement d'ingénierie propre du fabricant.
-
-## Organismes notifiés et audits
-
-Pour un auditeur d'organisme notifié, le découpage en zones de confiance signifie que la revue de
-code approfondie peut se concentrer sur un cœur gouverné restreint plutôt que sur l'ensemble du
-graphe de dépendances ; les artefacts de preuve générés portent leur propre empreinte SHA-256 et
-sont vérifiés par octet en CI plutôt que ré-audités à la main à chaque version ; le registre SOUP
-(`docs/governance/soup-register.toml`) a déjà la forme — fournisseur, licence, chemin
-d'intégration, mesures de maîtrise du risque — attendue dans la section SOUP d'un dossier
-technique ; et 19 ADR acceptées documentent la logique de conception derrière chaque frontière.
-Rien de tout cela ne remplace le SMQ propre du fabricant, son dossier de gestion des risques, ou
-sa relation avec son organisme notifié — voir **[Conformité réglementaire](docs/regulatory-compliance.md)**
-(en anglais) pour le traitement complet, avec une liste explicite de ce que ce projet fournit et
-ne fournit pas.
-
-## Références normatives et dossier de développement logiciel
-
-Les deux chantiers autrefois listés ici comme feuille de route sont désormais livrés
-([ADR-019](docs/adr/ADR-019-regulatory-standards-reference-corpus.md)) :
-
-- **Des références normatives exploitables par les LLM des équipes de développement** —
-  `docs/iec62304/`, `docs/iso13485/`, `docs/iso14971/`, `docs/iec62366/` et `docs/iec81001/`
-  découpent chaque norme en modules par plage de clauses, avec un index compact
-  `AI-Reference.md` et des schémas JSON par norme. Contrairement au projet C++ historique du
-  framework (`MduX`), dont les documents « AI Reference » paraphrasaient le texte normatif d'assez
-  près pour poser un vrai problème de droit d'auteur, ce corpus ne contient que de la prose
-  explicative originale — chaque clause est citée par numéro et titre, jamais reproduite — et
-  abandonne le troisième palier « Framework » redondant de ce projet : cette page, le fil des ADR
-  et `software_development_file/regulatory/` jouent déjà ce rôle applicatif.
-- **Des templates de dossier de développement logiciel réglementaire** —
-  [`software_development_file/`](software_development_file/README.md) fournit une arborescence
-  `templates/` que tout fabricant peut compléter, et une arborescence `regulatory/` avec les mêmes
-  documents remplis pour TrustSC lui-même, citant ADR, types `trustsc-governance` et exemples réels.
-
-Détails et suivi : **[Conformité réglementaire](docs/regulatory-compliance.md)** (en anglais).
+Chaque asset est compilé en preuve committée, puis recontrôlé automatiquement — jamais affirmé à
+la main. Remplacer un modèle ML de démonstration par des poids cliniquement qualifiés ne change
+aucune ligne de code d'inférence, et le moteur refuse de démarrer si son auto-test de référence
+ne se reproduit pas bit à bit.
 
 ## Démarrage rapide
 
 ```bash
-source $HOME/.cargo/env
-
 cargo build                                  # tout compiler
 cargo test                                   # exécuter tous les tests
 cargo run -p hello_world                     # exemple le plus simple (ouvre une fenêtre Vulkan)
 cargo run -p hello_world -- --headless-smoke # sans fenêtre, sans Vulkan — pour la CI
-cargo run -p class_c_monitor                 # NeuroSense 500 : UI 3D + ML zero-SOUP
+cargo run -p class_c_monitor                 # NeuroSense 500 : UI 3D + ML zéro-SOUP
 ```
 
-Référence complète des commandes et installation de Vulkan (en anglais) :
-**[Getting started](docs/getting-started.md)**.
+`class_c_monitor` lance le **NeuroSense 500**, un moniteur de profondeur d'anesthésie fictif —
+la démonstration complète : IHM critique 3D et inférence ML zéro-SOUP. Installation de Vulkan et
+parcours détaillés : **[Getting started](docs/getting-started.md)** (en anglais).
 
-## Structure du workspace
+## Trois zones de confiance
 
-| Répertoire | Contenu |
-|---|---|
-| `crates/` | Cœur gouverné : modèle device/conformité, politique UI, pipelines texte et ML, la façade `trustsc`. |
-| `adapters/trustsc-vulkan-winit` | L'adaptateur de présentation Vulkan + winit — le seul crate touchant aux liaisons natives de fenêtrage/graphisme. |
-| `tools/` | Outillage host-only de bake/verify pour les preuves de polices, images, shaders et modèles ML. |
-| `examples/` | `hello_world` (plus petite démo de fumée), `class_b_device`, `class_c_monitor` (NeuroSense 500), `class_c_vulkansc_device`. |
-
-Cartographie complète des crates et logique des zones de confiance (en anglais) :
-**[Architecture](docs/architecture.md)**.
-
-## Prérequis Vulkan
-
-```bash
-# Ubuntu / Debian
-sudo apt-get install libvulkan1 libvulkan-dev vulkan-tools
-
-# macOS
-brew install vulkan-loader molten-vk vulkan-tools
+```mermaid
+graph TD
+    subgraph runtime ["Artefact runtime"]
+        A["adapters/ — Vulkan + winit<br/>seul crate à liaisons natives"] --> C["crates/ — cœur gouverné<br/>#![forbid(unsafe_code)]"]
+    end
+    T["tools/ — bake &amp; verify<br/>host-only, jamais embarqué"] -. "preuves committées" .-> C
+    E["examples/ — hello_world,<br/>class_b_device, class_c_monitor…"] --> C
 ```
 
-Nécessaire seulement pour le chemin avec fenêtre — `--headless-smoke` fonctionne sans loader
-Vulkan. Configuration complète par plateforme (en anglais) :
-**[Getting started](docs/getting-started.md#vulkan-prerequisites)**.
+L'effort de revue se concentre là où il compte : un cœur gouverné restreint et sans `unsafe`,
+des liaisons natives isolées dans un adaptateur unique, un outillage qui ne part jamais dans un
+artefact runtime.
 
-## Documentation complète
+## Pour les organismes notifiés
 
-La documentation approfondie est maintenue en anglais pour toucher le plus large public possible,
-y compris les évaluateurs techniques d'organismes notifiés :
+Un périmètre de revue restreint, des preuves reproductibles, un registre SOUP
+([`docs/governance/soup-register.toml`](docs/governance/soup-register.toml)) déjà au format d'un
+dossier technique, et 21 ADR documentant chaque frontière de conception. Ce que le projet fournit
+— et ne fournit pas — est énoncé explicitement dans
+**[Conformité réglementaire](docs/regulatory-compliance.md)** (en anglais).
+
+## Documentation
 
 - **[Accueil de la documentation](docs/README.md)**
 - **[Conformité réglementaire](docs/regulatory-compliance.md)** — IEC 62304, organismes notifiés,
-  le mécanisme de preuve, la feuille de route réglementaire, et les limites de portée assumées
-  honnêtement.
-- **[Architecture](docs/architecture.md)** — zones de confiance, cartographie des crates, CI,
-  gouvernance des assets.
-- **[Getting started](docs/getting-started.md)** — parcours complets des exemples et référence des
-  commandes.
-- **[Architecture decision records](docs/adr/README.md)** — les 19 ADR acceptées.
-- **[Référence du DSL MedUI](docs/dsl/overview.md)** — le langage `.medui` de description d'UI à la
-  compilation.
+  mécanisme de preuve, limites de portée assumées honnêtement.
+- **[Architecture](docs/architecture.md)** — zones de confiance, cartographie des crates, CI.
+- **[Getting started](docs/getting-started.md)** — installation, parcours des exemples.
+- **[Architecture decision records](docs/adr/README.md)** — les 21 ADR acceptées.
+- **[Référence du DSL MedUI](docs/dsl/overview.md)** — le langage `.medui` de description d'UI.
 
-## Licence
+---
 
-À finaliser.
+TrustSC est un framework et un ensemble d'API de conformité — pas un dispositif médical certifié,
+ni un substitut au SMQ et au jugement d'ingénierie du fabricant.
+
+**Licence** : à finaliser.
