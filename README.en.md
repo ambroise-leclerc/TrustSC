@@ -46,54 +46,31 @@ For a notified-body reviewer, the trust-zone split means deep code review can co
 small governed core instead of the entire dependency graph; generated evidence artifacts carry
 their own SHA-256 digest and are byte-verified in CI rather than re-audited by hand each release;
 the SOUP register (`docs/governance/soup-register.toml`) already has the shape — supplier,
-license, integration path, risk controls — a technical file's SOUP section asks for; and 18
+license, integration path, risk controls — a technical file's SOUP section asks for; and 19
 accepted ADRs document the design rationale behind every boundary. None of this replaces a
 manufacturer's own QMS, risk file, or notified-body engagement — see
 **[Regulatory compliance](docs/regulatory-compliance.md)** for the full treatment, including an
 explicit list of what this project does and does not provide.
 
-## Roadmap
+## Regulatory reference corpus and software development file
 
-MduX-rust provides runtime building blocks (UI, AI, governance) and automatically generated
-evidence today. To cover the needs common to the majority of Class B/C medical-device software,
-two efforts are prioritized next:
+The two efforts previously tracked here as a roadmap are now delivered
+([ADR-019](docs/adr/ADR-019-regulatory-standards-reference-corpus.md)):
 
-- **Standards references usable by developers' LLMs.** The framework's original C++ project
-  (`MduX`) already prototyped this approach: a markdown version of IEC 62304 broken into modules
-  by life-cycle process, an "AI Reference" document per standard, and JSON automation schemas
-  (safety classification, traceability matrix, risk management...) meant to be consumed by an AI
-  agent during development. MduX-rust will port and adapt this corpus — IEC 62304, ISO 13485,
-  ISO 14971, then IEC 62366-1 (usability engineering) and IEC 81001-5-1 (software life-cycle
-  cybersecurity) — so a developer's AI assistant can cite the exact text of a clause and generate
-  code or documentation aligned with the corresponding requirement, without replacing a
-  regulatory expert's judgment.
-- **Regulatory documentation templates.** A `software_development_file/regulatory/` tree will
-  provide, standard by standard, a document skeleton the manufacturer fills in and adapts to
-  their own product instead of starting from a blank page:
+- **Standards references usable by developers' LLMs** — `docs/iec62304/`, `docs/iso13485/`,
+  `docs/iso14971/`, `docs/iec62366/`, and `docs/iec81001/` each break their standard into modules
+  by clause range, with a compact `AI-Reference.md` index and JSON Schemas per standard. Unlike
+  the framework's original C++ project (`MduX`), whose "AI Reference" docs paraphrased the actual
+  standard text closely enough to raise a real copyright concern, this corpus contains **original
+  explanatory prose only** — every clause is cited by number and title, never quoted — and drops
+  that project's redundant third "Framework" tier: this page, the ADR trail, and
+  `software_development_file/regulatory/` already are the "applied to this project" layer.
+- **Regulatory documentation templates** — [`software_development_file/`](software_development_file/README.md)
+  has a `templates/` tree any manufacturer fills in, and a `regulatory/` tree with the same
+  documents filled in for MduX-rust itself, citing real ADRs, `mdux-governance` types, and
+  examples.
 
-  ```text
-  software_development_file/
-  └── regulatory
-      ├── IEC_62304
-      │   ├── SAD.md      # Software Architecture Design
-      │   ├── SDD.md      # Software Design Description
-      │   └── SOUP.md     # SOUP list and justification
-      ├── IEC_62366
-      │   └── Usability_Engineering_File.md
-      ├── IEC_81001
-      │   └── Cybersecurity_SAD.md
-      ├── ISO_13485
-      │   └── README.md
-      └── ISO_14971
-          └── Risk_Management_File.md
-  ```
-
-  Eventually, `ComplianceProgram`'s structured export (trace matrix, audit trail) should be able
-  to feed these documents directly instead of remaining an artifact copied in by hand.
-
-Neither of these is shipped in MduX-rust yet — they're listed here so the roadmap is visible from
-the project's front page. Details and tracking:
-**[Regulatory compliance](docs/regulatory-compliance.md)**.
+Details and tracking: **[Regulatory compliance](docs/regulatory-compliance.md)**.
 
 ## Quickstart
 
@@ -140,7 +117,7 @@ platform setup: **[Getting started](docs/getting-started.md#vulkan-prerequisites
   evidence pattern, the regulatory roadmap, and honest scope boundaries.
 - **[Architecture](docs/architecture.md)** — trust zones, crate map, CI, asset governance.
 - **[Getting started](docs/getting-started.md)** — full example walkthroughs and command reference.
-- **[Architecture decision records](docs/adr/README.md)** — all 18 accepted ADRs.
+- **[Architecture decision records](docs/adr/README.md)** — all 19 accepted ADRs.
 - **[MedUI DSL reference](docs/dsl/overview.md)** — the `.medui` build-time UI language.
 
 ## License

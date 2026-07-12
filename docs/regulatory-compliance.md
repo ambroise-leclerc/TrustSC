@@ -116,7 +116,7 @@ that drifts from the code it describes is worse than no register at all.
 
 ## ADRs as design-rationale input
 
-The [18 accepted ADRs](adr/README.md) are the project's design-history record: why the
+The [19 accepted ADRs](adr/README.md) are the project's design-history record: why the
 governed/adapter/tools boundary exists, why `.medui` is compile-time-only, why ML inference is
 built the way it is. Collectively they are the kind of rationale trail a technical file's
 design-and-development section draws on — read the index rather than this document re-deriving
@@ -132,52 +132,46 @@ manufacturer's QMS is responsible for. A manufacturer populates and operates the
 of their own process — MduX-rust supplies the data model and the export format, not the process
 itself.
 
-## Roadmap: standards references and regulatory document templates
+## Standards reference corpus and the software development file
 
-Two efforts are prioritized next, specifically to cover the needs common to the majority of
-Class B/C medical-device software rather than just the NeuroSense 500 demonstrator's own
-requirements. Neither is shipped yet.
+Both efforts previously tracked on this page's roadmap are now delivered
+([ADR-019](adr/ADR-019-regulatory-standards-reference-corpus.md)):
 
-- **Standards references usable by developers' LLMs.** The framework's original C++ project
-  (`MduX`) already prototyped this: a markdown version of IEC 62304 broken into modules by
-  life-cycle process (`docs/iec62304/`), an "AI Reference" document per standard
-  (`MduX-IEC-62304-AI-Reference.md`, `MduX-ISO-13485-AI-Reference.md`), and JSON automation
-  schemas for safety classification, traceability, and risk management, explicitly designed to be
-  consumed by an AI agent during development rather than only by a human reading the standard
-  end to end. MduX-rust will port and adapt this corpus — starting from the existing IEC 62304,
-  ISO 13485, and ISO 14971 material, then adding IEC 62366-1 (usability engineering) and
-  IEC 81001-5-1 (software life-cycle cybersecurity), neither of which the C++ project covered yet
-  — so a developer's AI assistant can cite the exact clause text and generate code or
-  documentation aligned with the corresponding requirement. This does not replace a regulatory
-  expert's judgment; it gives the assistant a grounded, structured reference instead of relying on
-  its own (unverifiable) recollection of a standard's contents.
-- **Regulatory documentation templates.** A `software_development_file/regulatory/` tree will
-  provide, standard by standard, a document skeleton a manufacturer fills in and adapts to their
-  own product instead of starting from a blank page:
+- **Standards references usable by developers' LLMs** — `docs/iec62304/`, `docs/iso13485/`,
+  `docs/iso14971/`, `docs/iec62366/`, and `docs/iec81001/` each break their standard into modules by
+  clause range, with a compact `AI-Reference.md` index and JSON Schemas per standard. Unlike the
+  framework's original C++ project (`MduX`), whose "AI Reference" docs paraphrased the actual
+  IEC/ISO standard text closely enough to raise a real copyright concern, this corpus contains
+  **original explanatory prose only** — every clause is cited by number and title, never quoted —
+  and drops that project's redundant third "Framework" tier: this page, the ADR trail, and
+  `software_development_file/regulatory/` already are the "applied to this project" layer. See
+  [`docs/governance/citation-convention.md`](governance/citation-convention.md) for the citation-key
+  format and the shared `Justification` object that ties a specific design decision to a specific
+  clause with evidence — the concrete mechanism for "a justification with a reference to the
+  original paragraph."
+- **Regulatory documentation templates** — [`software_development_file/`](../software_development_file/README.md)
+  has a `templates/` tree any manufacturer fills in, and a `regulatory/` tree with the same documents
+  filled in for MduX-rust itself, citing real ADRs, `mdux-governance` types, and examples.
 
   ```text
   software_development_file/
-  └── regulatory
-      ├── IEC_62304
-      │   ├── SAD.md      # Software Architecture Design
-      │   ├── SDD.md      # Software Design Description
-      │   └── SOUP.md     # SOUP list and justification
-      ├── IEC_62366
-      │   └── Usability_Engineering_File.md
-      ├── IEC_81001
-      │   └── Cybersecurity_SAD.md
-      ├── ISO_13485
-      │   └── README.md
-      └── ISO_14971
-          └── Risk_Management_File.md
+  ├── templates/    # blank, fillable by any manufacturer
+  │   ├── IEC_62304/{SAD,SDD,SOUP}.md
+  │   ├── IEC_62366/Usability_Engineering_File.md
+  │   ├── IEC_81001/Cybersecurity_SAD.md
+  │   ├── ISO_13485/README.md
+  │   └── ISO_14971/Risk_Management_File.md
+  └── regulatory/   # the same tree, filled in for MduX-rust
+      └── ...
   ```
 
-  Eventually, `ComplianceProgram`'s structured export (`trace_matrix_export`, `audit_export`)
-  should be able to feed these documents directly instead of remaining an artifact a manufacturer
-  copies in by hand — closing the loop between the governance types described above and the
-  paperwork a notified body actually reads.
+The JSON schemas are field-aligned with `crates/mdux-governance/src/lib.rs`'s existing types
+(`Requirement`, `Hazard`, `VerificationCase`) so a future `serde`-based export from
+`ComplianceProgram` — still not built, and not part of this change — can match them without a
+redesign, closing the loop between the governance types described above and the paperwork a
+notified body actually reads.
 
-These templates would still need a manufacturer's own content, review, and sign-off before they
+These documents still need a manufacturer's own content, review, and sign-off before they
 constitute part of a real technical file — see the scope boundary below.
 
 ## What this project does and does not provide
@@ -200,6 +194,8 @@ a bug worth reporting.
 ## Where to go next
 
 - [Architecture](architecture.md) — the trust-zone boundary and crate map in full detail.
-- [ADR index](adr/README.md) — all 18 accepted architecture decision records.
+- [ADR index](adr/README.md) — all 19 accepted architecture decision records.
 - [`docs/governance/soup-register.toml`](governance/soup-register.toml) — the SOUP register itself.
+- [`docs/README.md`](README.md) — the full regulatory standards reference corpus (IEC 62304,
+  ISO 13485, ISO 14971, IEC 62366-1, IEC 81001-5-1) and the software development file.
 - [Getting started](getting-started.md) — full walkthroughs of the example applications.
