@@ -109,10 +109,9 @@ reviewed for adequacy and approved.
 representation of exactly this: `source_clause` ties a requirement back to the standard, hazard, or
 customer need that generated it, and `verification_intent` forces a stated verification approach at
 the point a requirement is captured, rather than deferred until later. `Hazard.controlled_by`
-(non-empty by construction, `Hazard::validate()`) is the mechanism connecting risk management output
-— an ISO 14971 hazard, see `docs/iso14971/`, not built yet in this corpus but referenced from
-`docs/regulatory-compliance.md`'s roadmap — into a design input requirement, matching this
-sub-clause's explicit call for risk management output as a design input.
+(non-empty by construction, `Hazard::validate()`) is the mechanism connecting risk management
+output — an ISO 14971 hazard, see [`docs/iso14971/`](../iso14971/README.md) — into a design input
+requirement, matching this sub-clause's explicit call for risk management output as a design input.
 
 ### Design and development outputs
 

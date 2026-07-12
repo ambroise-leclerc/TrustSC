@@ -51,56 +51,32 @@ graphe de dépendances ; les artefacts de preuve générés portent leur propre 
 sont vérifiés par octet en CI plutôt que ré-audités à la main à chaque version ; le registre SOUP
 (`docs/governance/soup-register.toml`) a déjà la forme — fournisseur, licence, chemin
 d'intégration, mesures de maîtrise du risque — attendue dans la section SOUP d'un dossier
-technique ; et 18 ADR acceptées documentent la logique de conception derrière chaque frontière.
+technique ; et 19 ADR acceptées documentent la logique de conception derrière chaque frontière.
 Rien de tout cela ne remplace le SMQ propre du fabricant, son dossier de gestion des risques, ou
 sa relation avec son organisme notifié — voir **[Conformité réglementaire](docs/regulatory-compliance.md)**
 (en anglais) pour le traitement complet, avec une liste explicite de ce que ce projet fournit et
 ne fournit pas.
 
-## Feuille de route
+## Références normatives et dossier de développement logiciel
 
-MduX-rust fournit aujourd'hui des briques d'exécution (IHM, IA, gouvernance) et des preuves
-générées automatiquement. Pour couvrir les besoins communs à la majorité des logiciels de
-dispositifs médicaux Classe B et Classe C, deux chantiers sont priorisés ensuite :
+Les deux chantiers autrefois listés ici comme feuille de route sont désormais livrés
+([ADR-019](docs/adr/ADR-019-regulatory-standards-reference-corpus.md)) :
 
-- **Des références normatives exploitables par les LLM des équipes de développement.** Le projet
-  C++ historique du framework (`MduX`) a déjà défriché cette approche : une version markdown
-  d'IEC 62304 découpée en modules par processus du cycle de vie, un document « AI Reference » par
-  norme, et des schémas JSON d'automatisation (classification de sécurité, matrice de
-  traçabilité, gestion des risques...) pensés pour être consommés par un agent IA pendant le
-  développement. MduX-rust va porter et adapter ce corpus — IEC 62304, ISO 13485, ISO 14971, puis
-  IEC 62366-1 (aptitude à l'utilisation) et IEC 81001-5-1 (cybersécurité du cycle de vie
-  logiciel) — pour que l'assistant IA d'un développeur puisse citer le texte exact d'une clause et
-  générer du code ou de la documentation alignés sur l'exigence correspondante, sans remplacer le
-  jugement d'un expert réglementaire.
-- **Des templates de dossier de développement logiciel réglementaire.** Une arborescence
-  `software_development_file/regulatory/` fournira, norme par norme, un squelette de document que
-  le fabricant complète et adapte à son propre produit plutôt que de partir d'une page blanche :
+- **Des références normatives exploitables par les LLM des équipes de développement** —
+  `docs/iec62304/`, `docs/iso13485/`, `docs/iso14971/`, `docs/iec62366/` et `docs/iec81001/`
+  découpent chaque norme en modules par plage de clauses, avec un index compact
+  `AI-Reference.md` et des schémas JSON par norme. Contrairement au projet C++ historique du
+  framework (`MduX`), dont les documents « AI Reference » paraphrasaient le texte normatif d'assez
+  près pour poser un vrai problème de droit d'auteur, ce corpus ne contient que de la prose
+  explicative originale — chaque clause est citée par numéro et titre, jamais reproduite — et
+  abandonne le troisième palier « Framework » redondant de ce projet : cette page, le fil des ADR
+  et `software_development_file/regulatory/` jouent déjà ce rôle applicatif.
+- **Des templates de dossier de développement logiciel réglementaire** —
+  [`software_development_file/`](software_development_file/README.md) fournit une arborescence
+  `templates/` que tout fabricant peut compléter, et une arborescence `regulatory/` avec les mêmes
+  documents remplis pour MduX-rust lui-même, citant ADR, types `mdux-governance` et exemples réels.
 
-  ```text
-  software_development_file/
-  └── regulatory
-      ├── IEC_62304
-      │   ├── SAD.md      # Software Architecture Design
-      │   ├── SDD.md      # Software Design Description
-      │   └── SOUP.md     # Liste et justification des SOUP
-      ├── IEC_62366
-      │   └── Usability_Engineering_File.md
-      ├── IEC_81001
-      │   └── Cybersecurity_SAD.md
-      ├── ISO_13485
-      │   └── README.md
-      └── ISO_14971
-          └── Risk_Management_File.md
-  ```
-
-  À terme, l'export structuré de `ComplianceProgram` (matrice de traçabilité, piste d'audit)
-  devrait pouvoir alimenter directement ces documents plutôt que rester un artefact à recopier à
-  la main.
-
-Ces deux chantiers ne sont pas encore livrés dans MduX-rust — ils figurent ici pour que la feuille
-de route soit visible dès la page d'accueil du projet. Détails et suivi :
-**[Conformité réglementaire](docs/regulatory-compliance.md)** (en anglais).
+Détails et suivi : **[Conformité réglementaire](docs/regulatory-compliance.md)** (en anglais).
 
 ## Démarrage rapide
 
@@ -156,7 +132,7 @@ y compris les évaluateurs techniques d'organismes notifiés :
   gouvernance des assets.
 - **[Getting started](docs/getting-started.md)** — parcours complets des exemples et référence des
   commandes.
-- **[Architecture decision records](docs/adr/README.md)** — les 18 ADR acceptées.
+- **[Architecture decision records](docs/adr/README.md)** — les 19 ADR acceptées.
 - **[Référence du DSL MedUI](docs/dsl/overview.md)** — le langage `.medui` de description d'UI à la
   compilation.
 

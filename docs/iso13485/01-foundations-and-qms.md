@@ -114,9 +114,12 @@ The quality manual describes (or references procedures describing) the scope of 
 any exclusions and their justification, the documented procedures or references to them, and a
 description of the interaction between QMS processes. This is squarely a manufacturer-authored
 document — MduX-rust has no analogue to a quality manual, and nothing in this corpus should be read
-as implying otherwise. `software_development_file/templates/ISO_13485/` is reserved for a future
-manufacturer-facing template skeleton (see `docs/regulatory-compliance.md`'s roadmap section); it is
-currently empty, and this corpus does not claim it is populated.
+as implying otherwise.
+[`software_development_file/templates/ISO_13485/README.md`](../../software_development_file/templates/ISO_13485/README.md)
+is the closest thing to a starting skeleton this project provides — a scope note a manufacturer fills
+in, not a quality manual in its own right; see
+[`software_development_file/regulatory/ISO_13485/README.md`](../../software_development_file/regulatory/ISO_13485/README.md)
+for how MduX-rust states the same scope note for itself.
 
 #### §4.2.3 Medical device file
 
