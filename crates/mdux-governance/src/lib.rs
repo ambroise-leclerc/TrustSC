@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::collections::HashSet;
 use std::fmt::{self, Display};
 
 use mdux_core::{
@@ -359,6 +360,30 @@ impl ComplianceProgram {
             ));
         }
 
+        let requirement_ids: HashSet<&RequirementId> =
+            self.requirements.iter().map(|requirement| &requirement.id).collect();
+
+        for case in &self.verifications {
+            if !requirement_ids.contains(&case.requirement) {
+                return Err(ValidationError::new(format!(
+                    "verification {} references unknown requirement {}",
+                    case.id, case.requirement
+                )));
+            }
+        }
+
+        let verified_requirement_ids: HashSet<&RequirementId> =
+            self.verifications.iter().map(|case| &case.requirement).collect();
+
+        for requirement in &self.requirements {
+            if !verified_requirement_ids.contains(&requirement.id) {
+                return Err(ValidationError::new(format!(
+                    "requirement {} has no verification case",
+                    requirement.id
+                )));
+            }
+        }
+
         if self.device.safety_class == SafetyClass::C && self.hazards.is_empty() {
             return Err(ValidationError::new(
                 "Class C programs must include at least one hazard definition",
@@ -479,6 +504,96 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "Class C programs must include at least one hazard definition"
+        );
+    }
+
+    #[test]
+    fn rejects_a_verification_case_referencing_an_unknown_requirement() {
+        let device = DeviceContext::new("Acme", "Pump", "ui", "0.1.0", SafetyClass::B)
+            .expect("device should be valid");
+        let requirement_id = RequirementId::new("REQ-1").expect("id should be valid");
+        let orphan_id = RequirementId::new("REQ-DOES-NOT-EXIST").expect("id should be valid");
+
+        let mut program = ComplianceProgram::new(device);
+        program.add_requirement(
+            Requirement::new(
+                requirement_id.clone(),
+                "Render alarm state",
+                "IEC62304-5.2",
+                "Verify alarm screen rendering",
+            )
+            .expect("requirement should be valid"),
+        );
+        program.add_verification(
+            VerificationCase::new(
+                "VER-1",
+                requirement_id,
+                VerificationMethod::Test,
+                "Manual simulator output",
+            )
+            .expect("verification should be valid"),
+        );
+        program.add_verification(
+            VerificationCase::new(
+                "VER-ORPHAN",
+                orphan_id,
+                VerificationMethod::Test,
+                "Verification for a requirement that was never registered",
+            )
+            .expect("verification should be valid"),
+        );
+
+        let error = program
+            .validate()
+            .expect_err("a verification referencing an unknown requirement should be rejected");
+        assert_eq!(
+            error.to_string(),
+            "verification VER-ORPHAN references unknown requirement REQ-DOES-NOT-EXIST"
+        );
+    }
+
+    #[test]
+    fn rejects_a_requirement_with_no_verification_case() {
+        let device = DeviceContext::new("Acme", "Pump", "ui", "0.1.0", SafetyClass::B)
+            .expect("device should be valid");
+        let verified_id = RequirementId::new("REQ-VERIFIED").expect("id should be valid");
+        let unverified_id = RequirementId::new("REQ-UNVERIFIED").expect("id should be valid");
+
+        let mut program = ComplianceProgram::new(device);
+        program.add_requirement(
+            Requirement::new(
+                verified_id.clone(),
+                "Render alarm state",
+                "IEC62304-5.2",
+                "Verify alarm screen rendering",
+            )
+            .expect("requirement should be valid"),
+        );
+        program.add_requirement(
+            Requirement::new(
+                unverified_id,
+                "Render dosage display",
+                "IEC62304-5.2",
+                "Verify dosage screen rendering",
+            )
+            .expect("requirement should be valid"),
+        );
+        program.add_verification(
+            VerificationCase::new(
+                "VER-1",
+                verified_id,
+                VerificationMethod::Test,
+                "Manual simulator output",
+            )
+            .expect("verification should be valid"),
+        );
+
+        let error = program
+            .validate()
+            .expect_err("a requirement with no verification case should be rejected");
+        assert_eq!(
+            error.to_string(),
+            "requirement REQ-UNVERIFIED has no verification case"
         );
     }
 
