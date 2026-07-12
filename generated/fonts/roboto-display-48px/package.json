@@ -296,9 +296,9 @@
     }
   ],
   "evidence": {
-    "package_sha256": "f79f6966b9cbc5f41b91e8df4becf754737c331ba704616c7c4b8b24e5f68302",
-    "toolchain_id": "mdux-font-baker-fixture-v1",
+    "package_sha256": "13c1c22dc036739928d47791042cb073536bee4a6b9ff9d63c229c769f80cba4",
+    "toolchain_id": "trustsc-font-baker-fixture-v1",
     "unicode_version": "15.1.0",
-    "build_recipe_sha256": "617c86f37905c36ed2d9a7cacd1385c7356398f19a7eb047fd0f2436f365baa6"
+    "build_recipe_sha256": "3e09981a00aa901399d2622977d2eea83d5ff2424c7b9be80b0278a3c353f2d4"
   }
 }

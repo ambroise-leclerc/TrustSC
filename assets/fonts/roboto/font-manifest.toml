@@ -1,5 +1,5 @@
 schema_version = 1
-manifest_kind = "mdux-font-asset"
+manifest_kind = "trustsc-font-asset"
 asset_family = "Roboto"
 asset_id = "roboto-regular-400"
 license = "Apache-2.0"
@@ -28,7 +28,7 @@ upstream_blob_sha1 = "ddee473e02035bfce6244746d5d2a281616f7ff8"
 retrieved_utc = "2026-05-30T13:10:59Z"
 
 [yocto]
-package_name = "mdux-font-roboto-regular"
+package_name = "trustsc-font-roboto-regular"
 install_subdir = "assets/fonts/roboto"
 license_expression = "Apache-2.0"
 lic_files = ["LICENSE", "NOTICE"]
