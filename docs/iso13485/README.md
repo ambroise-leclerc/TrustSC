@@ -33,7 +33,7 @@ sub-clause by sub-clause, about which mechanisms in MduX-rust give evidence towa
   and the `Justification` object shared by all five standards in this corpus.
 - [`../regulatory-compliance.md`](../regulatory-compliance.md) — how this corpus fits into the
   project's overall regulatory-compliance story and its stated scope limits.
-- [`../../software_development_file/regulatory/ISO_13485/README.md`](../../software_development_file/regulatory/ISO_13485/README.md) —
+- `software_development_file/regulatory/ISO_13485/README.md` (added in a later PR in this stack) —
   MduX-rust's own filled-in scope note, which cites into this corpus.
 
 ## For AI agents
