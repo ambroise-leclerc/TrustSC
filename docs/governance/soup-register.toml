@@ -225,6 +225,26 @@ risk_controls = [
 ]
 
 [[entries]]
+component_id = "hyper-1.10.1"
+name = "hyper"
+version = "1.10.1"
+classification = "SOUP"
+supplier = "crates.io / hyperium maintainers"
+repository = "https://github.com/hyperium/hyper"
+license = "MIT"
+usage = "HTTP/1.x wire protocol implementation underlying axum's server (transitive via axum, not a direct Cargo.toml dependency) for the hosted MedUI Studio server (ADR-022). Registered explicitly, not just implied by axum's entry, since it is the actual HTTP stack terminating client connections."
+integration_path = "tools/trustsc-medui-studio (transitive via axum)"
+pinned_by = ["Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the host-only tools/trustsc-medui-studio server (ADR-005 tools zone); never linked into any crates/ or adapters/ code that ships to a device."
+risk_controls = [
+    "Version tracked via Cargo.lock and reviewed alongside axum's own version bumps (axum pins its compatible hyper range).",
+    "The server is documented (crate README) as requiring a reverse proxy for TLS/stronger auth — it is not meant to face an untrusted network directly.",
+]
+
+[[entries]]
 component_id = "tokio-1.52.3"
 name = "tokio"
 version = "1.52.3"

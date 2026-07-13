@@ -105,12 +105,23 @@ struct ScreenEntry {
     screen_name: String,
 }
 
-async fn list_screens(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let mut entries = find_medui_files(&state.repo)
+async fn list_screens(State(state): State<Arc<AppState>>) -> Response {
+    // Filesystem walking and parsing every .medui file is synchronous I/O + CPU work; on a
+    // large repo or slow disk this can take long enough to stall other requests sharing the
+    // same Tokio worker thread, so it runs on the blocking thread pool instead.
+    let repo = state.repo.clone();
+    match tokio::task::spawn_blocking(move || scan_screens(&repo)).await {
+        Ok(entries) => Json(entries).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "screen scan task failed").into_response(),
+    }
+}
+
+fn scan_screens(repo: &Path) -> Vec<ScreenEntry> {
+    let mut entries = find_medui_files(repo)
         .into_iter()
         .map(|absolute| {
             let relative = absolute
-                .strip_prefix(&state.repo)
+                .strip_prefix(repo)
                 .unwrap_or(&absolute)
                 .to_string_lossy()
                 .replace('\\', "/");
@@ -127,26 +138,35 @@ async fn list_screens(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         })
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    Json(entries)
+    entries
 }
 
 /// Recursively collects every `*.medui` file under `root`, skipping `target/` and dot
-/// directories (`.git/` and similar) so a full repo checkout scans quickly.
+/// directories (`.git/` and similar) so a full repo checkout scans quickly. Symlinks (to files
+/// or directories) are never followed: `DirEntry::file_type()` reports the entry's own type
+/// without traversing the link, unlike `Path::is_dir()`/`is_file()` — following a symlinked
+/// directory could escape the intended repo root or recurse into a cycle forever.
 fn find_medui_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let Ok(entries) = std::fs::read_dir(root) else {
         return files;
     };
     for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
         let path = entry.path();
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy();
-        if path.is_dir() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if file_type.is_dir() {
             if name == "target" || name.starts_with('.') {
                 continue;
             }
             files.extend(find_medui_files(&path));
-        } else if path.extension().is_some_and(|ext| ext == "medui") {
+        } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "medui") {
             files.push(path);
         }
     }
@@ -291,6 +311,28 @@ mod tests {
 
         let found = find_medui_files(&temp);
         assert_eq!(found, vec![temp.join("screens/kept.medui")]);
+
+        fs::remove_dir_all(&temp).unwrap();
+    }
+
+    #[test]
+    fn find_medui_files_never_follows_symlinks() {
+        let temp = std::env::temp_dir().join(format!(
+            "trustsc-medui-studio-symlink-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(temp.join("real")).unwrap();
+        fs::write(temp.join("real/kept.medui"), "").unwrap();
+        // A symlinked directory cycling back to `temp` itself: following it would recurse
+        // forever. A symlinked file pointing at a real .medui: following it would double-count
+        // (or, for an escaping target, read outside the intended repo root).
+        std::os::unix::fs::symlink(&temp, temp.join("cycle")).unwrap();
+        std::os::unix::fs::symlink(temp.join("real/kept.medui"), temp.join("linked.medui"))
+            .unwrap();
+
+        let found = find_medui_files(&temp);
+        assert_eq!(found, vec![temp.join("real/kept.medui")]);
 
         fs::remove_dir_all(&temp).unwrap();
     }
