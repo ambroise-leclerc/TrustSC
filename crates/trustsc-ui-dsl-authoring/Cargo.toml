@@ -10,3 +10,6 @@ trustsc-core = { path = "../trustsc-core" }
 trustsc-image-schema = { path = "../trustsc-image-schema" }
 trustsc-ui = { path = "../trustsc-ui" }
 trustsc-text-schema = { path = "../trustsc-text-schema" }
+
+[dev-dependencies]
+trustsc = { path = "../trustsc" }
