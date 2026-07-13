@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" width="720" height="200" role="img" aria-label="TrustSC — Traceable, Reproducible, Unsafe-free, Safety-classified, Toolkit">
+  <style>
+    .card { fill: #f6f8fa; stroke: #d0d7de; }
+    .word { fill: #24292f; }
+    .rust { fill: #f74c00; }
+    .pillar { fill: #57606a; }
+    .initial { fill: #f74c00; font-weight: 700; }
+    .caption { fill: #6e7781; }
+    .rule { stroke: #d0d7de; }
+    @media (prefers-color-scheme: dark) {
+      .card { fill: #161b22; stroke: #30363d; }
+      .word { fill: #e6edf3; }
+      .rust { fill: #ff7b42; }
+      .pillar { fill: #9198a1; }
+      .initial { fill: #ff7b42; }
+      .caption { fill: #848d97; }
+      .rule { stroke: #30363d; }
+    }
+    text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  </style>
+
+  <rect class="card" x="1.5" y="1.5" width="717" height="197" rx="14" stroke-width="1.5"/>
+
+  <text x="360" y="88" text-anchor="middle" font-size="58" font-weight="800" letter-spacing="1">
+    <tspan class="word">T</tspan><tspan class="rust">rust</tspan><tspan class="word">SC</tspan>
+  </text>
+
+  <line class="rule" x1="150" y1="112" x2="570" y2="112" stroke-width="1"/>
+
+  <text x="360" y="140" text-anchor="middle" font-size="17" class="pillar" letter-spacing="0.3">
+    <tspan class="initial">T</tspan>raceable&#8194;&#183;&#8194;<tspan class="initial">R</tspan>eproducible&#8194;&#183;&#8194;<tspan class="initial">U</tspan>nsafe-free&#8194;&#183;&#8194;<tspan class="initial">S</tspan>afety-classified&#8194;&#183;&#8194;<tspan class="initial">T</tspan>oolkit
+  </text>
+
+  <text x="360" y="172" text-anchor="middle" font-size="13.5" class="caption" letter-spacing="0.5">
+    IEC 62304 &#183; ISO 13485 &#183; ISO 14971 &#8212; Class B / C medical-device software, in pure Rust
+  </text>
+</svg>
