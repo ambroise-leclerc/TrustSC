@@ -44,7 +44,7 @@
 
 ## Blank Lines
 
-- Use a blank line between components.
+Blank lines between top-level components are recommended for readability. The committed example screens vary in their use of blank lines; however, consistency is encouraged.
 
 ## Comments
 
@@ -65,12 +65,7 @@
 
 ## Canonical Property Order
 
-- The canonical property order is as follows:
-  - `id`
-  - `width`
-  - `height`
-  - `position`
-  - Kind-specific properties (e.g., `requirement`, `label/text/template`, `source`, `states`, `colors`, `stream_source`, `format`, `max_length`, `charset`, `color`, `on_press`)
+The canonical property order is per component kind, cross-checked against `docs/dsl/component-dictionary.md` and the committed examples. For components where `requirement` is required (e.g., `CriticalButton`, `NumericDisplay`, `StatusIndicator`), it should be listed before other properties.
 
 - For `Row` components:
   - `id`
