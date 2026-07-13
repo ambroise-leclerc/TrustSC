@@ -10,8 +10,7 @@
 
 ## Layout Declaration
 
-- The `layout:` header is on one line.
-- Braces are on their own lines.
+- The `layout:` header is on one line, followed by the entire `{ ... }` block on the same line as `layout:`.
 - Example:
   ```medui
   layout: Vertical { spacing: 8px; padding: 0px; }
@@ -19,7 +18,7 @@
 
 ## Surface Declaration
 
-- The `surface:` declaration is immediately after the `layout:` header.
+- The `surface:` declaration is optional and should appear right after the `layout:` line (before the first component).
 - Example:
   ```medui
   surface: 1280px, 720px;
@@ -33,11 +32,11 @@
   @safety_critical(cv_check: [Bounds, ColorHash])
   CriticalButton {
       id: button1;
-      requirement: req123;
+      requirement: "REQ-123";
       width: 100px;
       height: 50px;
       label: t("button_label");
-      color: primary;
+      color: Theme.Colors.Primary;
       on_press: SystemEvent.Acknowledge;
   }
   ```
@@ -53,13 +52,13 @@ Blank lines between top-level components are recommended for readability. The co
   ```medui
   // This is a comment
   CriticalButton {
-      id: "button1";
-      requirement: "req123";
+      id: button1;
+      requirement: "REQ-123";
       width: 100px;
       height: 50px;
       label: t("button_label");
-      color: "primary";
-      on_press: SystemEvent::Acknowledge;
+      color: Theme.Colors.Primary;
+      on_press: SystemEvent.Acknowledge;
   }
   ```
 
@@ -67,12 +66,90 @@ Blank lines between top-level components are recommended for readability. The co
 
 The canonical property order is per component kind, cross-checked against `docs/dsl/component-dictionary.md` and the committed examples. For components where `requirement` is required (e.g., `CriticalButton`, `NumericDisplay`, `StatusIndicator`), it should be listed before other properties.
 
+- For `CriticalButton` components:
+  - `requirement`
+  - `id`
+  - `width`
+  - `height`
+  - `label`
+  - `color`
+  - `on_press`
+
+- For `VulkanViewport` components:
+  - `id`
+  - `width`
+  - `height`
+  - `stream_source`
+
+- For `SignalTrace` components:
+  - `id`
+  - `width`
+  - `height`
+  - `stream_source`
+  - `color`
+
 - For `Row` components:
   - `id`
   - `height`
   - `spacing`
   - `background`
   - Children
+
+- For `Label` components:
+  - `id`
+  - `width`
+  - `height`
+  - `text`
+  - `color`
+
+- For `Clock` components:
+  - `id`
+  - `width`
+  - `height`
+  - `format`
+
+- For `NumericDisplay` components:
+  - `requirement`
+  - `id`
+  - `width`
+  - `height`
+  - `template`
+  - `source`
+  - `color`
+
+- For `StatusIndicator` components:
+  - `requirement`
+  - `id`
+  - `width`
+  - `height`
+  - `source`
+  - `states`
+  - `colors`
+
+- For `Image` components:
+  - `id`
+  - `width`
+  - `height`
+  - `source`
+
+- For `Button` components:
+  - `id`
+  - `width`
+  - `height`
+  - `label`
+  - `color`
+  - `source`
+  - `requirement`
+
+- For `TextInput` components:
+  - `id`
+  - `width`
+  - `height`
+  - `source`
+  - `max_length`
+  - `color`
+  - `charset`
+  - `requirement`
 
 ## Why This Matters
 
