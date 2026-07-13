@@ -114,155 +114,23 @@ impl<'a> ImagePackages<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Dimension {
-    Px(u32),
-    Fill,
-}
+mod ast;
+mod catalog;
+mod diagnostic;
+mod serialize;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct LayoutDefinition {
-    kind: LayoutKind,
-    spacing: u16,
-    padding: u16,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SafetyCriticalDefinition {
-    cv_checks: Vec<CvCheckKind>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ScreenDefinition {
-    id: String,
-    layout: LayoutDefinition,
-    /// Optional `surface: WxH` pin (ADR-014): compile fails if it disagrees with the build's
-    /// configured surface.
-    declared_surface: Option<(u32, u32)>,
-    items: Vec<ScreenItem>,
-}
-
-/// A top-level entry in the screen flow: either a leaf component, or a `Row` container laying
-/// its children out horizontally. Rows exist at compile time only — the emitted package is flat.
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum ScreenItem {
-    Component(NodeDefinition),
-    Row(RowDefinition),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct RowDefinition {
-    id: String,
-    height: Dimension,
-    spacing: u16,
-    /// Optional background color token: emits a synthetic Panel node spanning the row.
-    background: Option<String>,
-    children: Vec<NodeDefinition>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct NodeDefinition {
-    id: String,
-    width: Dimension,
-    height: Dimension,
-    /// ADR-014 absolute placement: screen coordinates of the top-left corner, out of flow.
-    position: Option<(u32, u32)>,
-    kind: NodeKind,
-    safety_critical: Option<SafetyCriticalDefinition>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum NodeKind {
-    CriticalButton {
-        requirement_id: String,
-        label_text_key: String,
-        color_token: String,
-        on_press: SystemEvent,
-    },
-    VulkanViewport {
-        stream_source: String,
-    },
-    /// A scrolling 2D amplitude trace (ADR-018), e.g. an EEG/ECG waveform — distinct from
-    /// `VulkanViewport`'s 3D spectral heightfield.
-    SignalTrace {
-        stream_source: String,
-        color_token: String,
-    },
-    Label {
-        text_key: String,
-        color_token: String,
-    },
-    Clock {
-        format: ClockFormat,
-    },
-    NumericDisplay {
-        requirement_id: String,
-        template_id: String,
-        source: String,
-        color_token: String,
-    },
-    StatusIndicator {
-        requirement_id: String,
-        source: String,
-        state_text_keys: Vec<String>,
-        color_tokens: Vec<String>,
-    },
-    /// Synthetic background rectangle (Row `background:`); never parsed as a component.
-    Panel {
-        color_token: String,
-    },
-    Image {
-        image_id: String,
-    },
-    /// Application-semantic interactive button (ADR-015): no SystemEvent, events by source key.
-    Button {
-        label_text_key: String,
-        color_token: String,
-        source: String,
-        requirement_id: Option<String>,
-    },
-    /// Operator-editable text field (ADR-015): bounded controlled component over a baked charset.
-    TextInput {
-        source: String,
-        max_length: u16,
-        glyph_set_id: String,
-        color_token: String,
-        requirement_id: Option<String>,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct RectSpec {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct CompiledNodeSpec {
-    id: String,
-    bounds: RectSpec,
-    kind: NodeKind,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct GoldenReferenceSpec {
-    node_id: String,
-    bounds: RectSpec,
-    text_key: Option<String>,
-    color_token: Option<String>,
-    cv_checks: Vec<CvCheckKind>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct CompiledScreenSpec {
-    id: String,
-    layout: LayoutDefinition,
-    surface: (u32, u32),
-    nodes: Vec<CompiledNodeSpec>,
-    golden_references: Vec<GoldenReferenceSpec>,
-}
+pub use ast::{
+    CompiledNodeSpec, CompiledScreenSpec, Dimension, GoldenReferenceSpec, LayoutDefinition,
+    NodeDefinition, NodeKind, RectSpec, RowDefinition, SafetyCriticalDefinition, ScreenDefinition,
+    ScreenItem,
+};
+pub use catalog::{
+    ImageInfo, LocaleEntry, NumericTemplateInfo, PropDomain, PropSchema, TextKeyInfo,
+    WidgetSchema, enumerate_images, enumerate_numeric_templates, enumerate_text_keys,
+    widget_catalog,
+};
+pub use serialize::serialize_screen;
+pub use diagnostic::{Diagnostic, Severity};
 
 pub fn compile_medui_file_to_rust_module(
     input_path: impl AsRef<Path>,
@@ -306,9 +174,44 @@ pub fn compile_medui_source_to_rust(
     text_packages: TextPackages<'_>,
     image_packages: ImagePackages<'_>,
 ) -> TrustScResult<String> {
-    let parsed = parse_screen(source)?;
-    let compiled = compile_screen(parsed, options, text_packages, image_packages)?;
+    let compiled = compile_medui_source(source, &options, text_packages, image_packages)
+        .map_err(|mut diagnostics| ValidationError::new(diagnostics.remove(0).message))?;
     Ok(emit_rust_module(&compiled, options.crate_path))
+}
+
+/// Parses `.medui` source into its AST without compiling it — the entry point a GUI (MedUI
+/// Studio, ADR-022) uses to load a screen for editing. The parser is fail-fast (one error stops
+/// parsing), so the returned `Vec` currently always has length 1; it is `Vec` rather than a
+/// single `Diagnostic` for forward compatibility with a future multi-error parser.
+pub fn parse_medui_source(source: &str) -> Result<ScreenDefinition, Vec<Diagnostic>> {
+    parse_screen(source).map_err(|error| vec![Diagnostic::from_validation_error(&error)])
+}
+
+/// Parses and compiles `.medui` source directly to a [`CompiledScreenSpec`] — resolved nodes,
+/// absolute bounds and golden references as data, without generating or parsing Rust source text.
+/// The structured counterpart of [`compile_medui_source_to_rust`], for tools (MedUI Studio,
+/// ADR-022) that want the compiled shape without a code-generation round trip.
+pub fn compile_medui_source(
+    source: &str,
+    options: &CompileOptions,
+    text_packages: TextPackages<'_>,
+    image_packages: ImagePackages<'_>,
+) -> Result<CompiledScreenSpec, Vec<Diagnostic>> {
+    let screen = parse_medui_source(source)?;
+    compile_screen_definition(screen, options, text_packages, image_packages)
+}
+
+/// Compiles an already-parsed (and possibly GUI-edited) [`ScreenDefinition`] directly, without
+/// round-tripping it through [`serialize_screen`](crate::serialize_screen) and re-parsing —
+/// the entry point a MedUI Studio editor uses to validate the screen it is currently displaying.
+pub fn compile_screen_definition(
+    screen: ScreenDefinition,
+    options: &CompileOptions,
+    text_packages: TextPackages<'_>,
+    image_packages: ImagePackages<'_>,
+) -> Result<CompiledScreenSpec, Vec<Diagnostic>> {
+    compile_screen(screen, *options, text_packages, image_packages)
+        .map_err(|error| vec![Diagnostic::from_validation_error(&error)])
 }
 
 fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
@@ -3471,6 +3374,533 @@ Screen InteractivePanel {
                     "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
                         .to_string(),
             },
+        }
+    }
+
+    const HELLO_WORLD_MEDUI: &str =
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/hello_world/hello_world.medui"));
+    const NEUROSENSE_MEDUI: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/class_c_monitor/neurosense.medui"
+    ));
+
+    #[test]
+    fn parse_medui_source_is_deterministic_for_example_screens() {
+        for source in [HELLO_WORLD_MEDUI, NEUROSENSE_MEDUI] {
+            let first = parse_medui_source(source).expect("example screen should parse");
+            let second = parse_medui_source(source).expect("example screen should parse");
+            assert_eq!(first, second);
+        }
+    }
+
+    #[test]
+    fn diagnostics_carry_the_source_line_for_broken_inputs() {
+        // Every case below is a pure syntax error caught by `parse_screen` itself, where a line
+        // number is always embedded in the message. Semantic errors caught later by
+        // `compile_screen` (unknown color token, overlap, text budget) currently carry no line —
+        // see `diagnostic_has_no_line_for_compile_time_only_errors` below, which documents that
+        // honestly rather than asserting a line number `from_validation_error` cannot invent.
+        let cases: &[(&str, u32)] = &[
+            (
+                "Screen Broken {\n\
+                 layout: Vertical { spacing: 8px; padding: 0px; }\n\
+                 Bogus {\n\
+                 id: x;\n\
+                 }\n\
+                 }\n",
+                3,
+            ),
+            (
+                "Screen Broken {\n\
+                 layout: Circular { spacing: 8px; padding: 0px; }\n\
+                 CriticalButton {\n\
+                 id: x;\n\
+                 }\n\
+                 }\n",
+                2,
+            ),
+            (
+                "Screen Broken {\n\
+                 layout: Vertical { spacing: 8px; padding: 0px; }\n\
+                 CriticalButton {\n\
+                 bogus_prop: 1;\n\
+                 }\n\
+                 }\n",
+                4,
+            ),
+        ];
+
+        for (source, expected_line) in cases {
+            let diagnostics = parse_medui_source(source).expect_err("input should not parse");
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(
+                diagnostics[0].line,
+                Some(*expected_line),
+                "message was: {}",
+                diagnostics[0].message
+            );
+            assert_eq!(diagnostics[0].severity, Severity::Error);
+        }
+    }
+
+    #[test]
+    fn diagnostic_has_no_line_for_compile_time_only_errors() {
+        let source = "Screen Broken {\n\
+             layout: Vertical { spacing: 8px; padding: 0px; }\n\
+             CriticalButton {\n\
+             id: broken-button;\n\
+             requirement: \"REQ-BROKEN-001\";\n\
+             width: Fill;\n\
+             height: 80px;\n\
+             label: t(\"STR-HELLO-WORLD\");\n\
+             color: Theme.Colors.NotARealToken;\n\
+             on_press: SystemEvent.NoOp;\n\
+             }\n\
+             }\n";
+        let error = compile_medui_source_to_rust(
+            source,
+            CompileOptions::new(800, 480),
+            TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
+        )
+        .expect_err("unknown color token should not compile");
+        let diagnostic = Diagnostic::from_validation_error(&error);
+        assert_eq!(diagnostic.line, None, "message was: {}", diagnostic.message);
+    }
+
+    #[test]
+    fn compile_medui_source_to_rust_matches_compile_then_emit_for_example_screens() {
+        let standard_package =
+            trustsc::default_standard_text_package().expect("standard package should build");
+        let display_packages =
+            trustsc::default_display_text_packages().expect("display packages should build");
+        let display_refs = display_packages.iter().collect::<Vec<_>>();
+        let image_packages =
+            trustsc::default_image_packages().expect("image packages should build");
+
+        for (source, width, height) in
+            [(HELLO_WORLD_MEDUI, 800, 480), (NEUROSENSE_MEDUI, 1920, 1080)]
+        {
+            let options = CompileOptions::new(width, height);
+            let text_packages = TextPackages::with_displays(&standard_package, &display_refs);
+            let image_packages = ImagePackages::new(&image_packages);
+
+            let via_to_rust =
+                compile_medui_source_to_rust(source, options, text_packages, image_packages)
+                    .expect("example screen should compile to rust");
+            let via_compile_then_emit = {
+                let compiled = compile_medui_source(source, &options, text_packages, image_packages)
+                    .expect("example screen should compile");
+                emit_rust_module(&compiled, options.crate_path)
+            };
+
+            assert_eq!(via_to_rust, via_compile_then_emit);
+        }
+    }
+
+    #[test]
+    fn compile_medui_source_yields_known_bounds_and_golden_references_for_neurosense() {
+        let standard_package =
+            trustsc::default_standard_text_package().expect("standard package should build");
+        let display_packages =
+            trustsc::default_display_text_packages().expect("display packages should build");
+        let display_refs = display_packages.iter().collect::<Vec<_>>();
+        let image_packages =
+            trustsc::default_image_packages().expect("image packages should build");
+
+        let compiled = compile_medui_source(
+            NEUROSENSE_MEDUI,
+            &CompileOptions::new(1920, 1080),
+            TextPackages::with_displays(&standard_package, &display_refs),
+            ImagePackages::new(&image_packages),
+        )
+        .expect("neurosense should compile");
+
+        let find_node = |id: &str| {
+            compiled
+                .nodes
+                .iter()
+                .find(|node| node.id == id)
+                .unwrap_or_else(|| panic!("expected a compiled node named `{id}`"))
+        };
+        let find_golden = |id: &str| {
+            compiled
+                .golden_references
+                .iter()
+                .find(|golden| golden.node_id == id)
+                .unwrap_or_else(|| panic!("expected a golden reference for `{id}`"))
+        };
+
+        let device_title = find_node("device-title");
+        assert_eq!(device_title.bounds, RectSpec { x: 16, y: 8, width: 340, height: 48 });
+
+        let sedation_index = find_node("sedation-index");
+        assert_eq!(
+            sedation_index.bounds,
+            RectSpec { x: 1392, y: 80, width: 512, height: 512 }
+        );
+
+        let device_title_golden = find_golden("device-title");
+        assert_eq!(device_title_golden.text_key.as_deref(), Some("STR-NS-TITLE"));
+        assert_eq!(device_title_golden.color_token.as_deref(), Some("Theme.Colors.Title"));
+        assert_eq!(device_title_golden.cv_checks, vec![CvCheckKind::Bounds]);
+
+        let sedation_index_golden = find_golden("sedation-index");
+        assert_eq!(sedation_index_golden.bounds, sedation_index.bounds);
+        assert_eq!(sedation_index_golden.text_key, None);
+        assert_eq!(
+            sedation_index_golden.color_token.as_deref(),
+            Some("Theme.Colors.ScoreDigits")
+        );
+        assert_eq!(
+            sedation_index_golden.cv_checks,
+            vec![CvCheckKind::Bounds, CvCheckKind::ColorHash]
+        );
+    }
+
+    #[test]
+    fn compile_medui_source_reports_a_line_number_for_syntax_errors() {
+        let source = "Screen Broken {\n\
+             layout: Circular { spacing: 8px; padding: 0px; }\n\
+             CriticalButton {\n\
+             id: x;\n\
+             }\n\
+             }\n";
+        let diagnostics = compile_medui_source(
+            source,
+            &CompileOptions::new(800, 480),
+            TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
+        )
+        .expect_err("malformed layout should not compile");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, Some(2));
+    }
+
+    /// One screen exercising every `NodeKind` variant except `Panel` (compiler-synthesized only,
+    /// see `serialize::node_kind_name`), both `Dimension` variants, positioned and flow nodes, a
+    /// `Row` with `background:`, and a `@safety_critical` node.
+    fn round_trip_matrix_screen() -> ScreenDefinition {
+        ScreenDefinition {
+            id: "RoundTrip".to_string(),
+            layout: LayoutDefinition {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 0,
+            },
+            declared_surface: Some((800, 480)),
+            items: vec![
+                ScreenItem::Row(RowDefinition {
+                    id: "topbar".to_string(),
+                    height: Dimension::Px(64),
+                    spacing: 4,
+                    background: Some("Theme.Colors.TopbarBackground".to_string()),
+                    children: vec![NodeDefinition {
+                        id: "topbar-label".to_string(),
+                        width: Dimension::Px(340),
+                        height: Dimension::Px(48),
+                        position: Some((16, 8)),
+                        kind: NodeKind::Label {
+                            text_key: "STR-A".to_string(),
+                            color_token: "Theme.Colors.Title".to_string(),
+                        },
+                        safety_critical: None,
+                    }],
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "critical-button".to_string(),
+                    width: Dimension::Fill,
+                    height: Dimension::Px(48),
+                    position: None,
+                    kind: NodeKind::CriticalButton {
+                        requirement_id: "REQ-1".to_string(),
+                        label_text_key: "STR-B".to_string(),
+                        color_token: "Theme.Colors.PrimaryAction".to_string(),
+                        on_press: SystemEvent::NoOp,
+                    },
+                    safety_critical: Some(SafetyCriticalDefinition {
+                        cv_checks: vec![CvCheckKind::Bounds, CvCheckKind::ColorHash],
+                    }),
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "viewport".to_string(),
+                    width: Dimension::Fill,
+                    height: Dimension::Px(200),
+                    position: None,
+                    kind: NodeKind::VulkanViewport {
+                        stream_source: "STREAM-1".to_string(),
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "signal-trace".to_string(),
+                    width: Dimension::Px(100),
+                    height: Dimension::Px(50),
+                    position: Some((10, 20)),
+                    kind: NodeKind::SignalTrace {
+                        stream_source: "STREAM-2".to_string(),
+                        color_token: "Theme.Colors.Nominal".to_string(),
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "clock".to_string(),
+                    width: Dimension::Px(80),
+                    height: Dimension::Px(24),
+                    position: Some((10, 90)),
+                    kind: NodeKind::Clock {
+                        format: ClockFormat::TimeSeconds,
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "numeric-display".to_string(),
+                    width: Dimension::Px(200),
+                    height: Dimension::Px(60),
+                    position: Some((10, 130)),
+                    kind: NodeKind::NumericDisplay {
+                        requirement_id: "REQ-2".to_string(),
+                        template_id: "TPL-1".to_string(),
+                        source: "SRC-1".to_string(),
+                        color_token: "Theme.Colors.ScoreDigits".to_string(),
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "status-indicator".to_string(),
+                    width: Dimension::Px(150),
+                    height: Dimension::Px(40),
+                    position: Some((10, 200)),
+                    kind: NodeKind::StatusIndicator {
+                        requirement_id: "REQ-3".to_string(),
+                        source: "SRC-2".to_string(),
+                        state_text_keys: vec!["STR-C".to_string(), "STR-D".to_string()],
+                        color_tokens: vec![
+                            "Theme.Colors.Neutral".to_string(),
+                            "Theme.Colors.Alert".to_string(),
+                        ],
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "logo".to_string(),
+                    width: Dimension::Px(64),
+                    height: Dimension::Px(64),
+                    position: Some((10, 250)),
+                    kind: NodeKind::Image {
+                        image_id: "IMG-1".to_string(),
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "flow-button".to_string(),
+                    width: Dimension::Fill,
+                    height: Dimension::Px(56),
+                    position: None,
+                    kind: NodeKind::Button {
+                        label_text_key: "STR-E".to_string(),
+                        color_token: "Theme.Colors.PrimaryAction".to_string(),
+                        source: "SRC-3".to_string(),
+                        requirement_id: Some("REQ-4".to_string()),
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "positioned-button".to_string(),
+                    width: Dimension::Px(60),
+                    height: Dimension::Px(60),
+                    position: Some((10, 320)),
+                    kind: NodeKind::Button {
+                        label_text_key: "STR-F".to_string(),
+                        color_token: "Theme.Colors.PrimaryAction".to_string(),
+                        source: "SRC-4".to_string(),
+                        requirement_id: None,
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "positioned-text-input".to_string(),
+                    width: Dimension::Px(300),
+                    height: Dimension::Px(40),
+                    position: Some((10, 400)),
+                    kind: NodeKind::TextInput {
+                        source: "SRC-5".to_string(),
+                        max_length: 16,
+                        glyph_set_id: ASCII_TEXT_GLYPH_SET_ID.to_string(),
+                        color_token: "Theme.Colors.Title".to_string(),
+                        requirement_id: Some("REQ-5".to_string()),
+                    },
+                    safety_critical: None,
+                }),
+                ScreenItem::Component(NodeDefinition {
+                    id: "flow-text-input".to_string(),
+                    width: Dimension::Fill,
+                    height: Dimension::Px(40),
+                    position: None,
+                    kind: NodeKind::TextInput {
+                        source: "SRC-6".to_string(),
+                        max_length: 8,
+                        glyph_set_id: ASCII_TEXT_GLYPH_SET_ID.to_string(),
+                        color_token: "Theme.Colors.Title".to_string(),
+                        requirement_id: None,
+                    },
+                    safety_critical: None,
+                }),
+            ],
+        }
+    }
+
+    #[test]
+    fn serialize_then_parse_round_trips_every_node_kind() {
+        let screen = round_trip_matrix_screen();
+        let serialized = serialize_screen(&screen);
+        let reparsed = parse_medui_source(&serialized)
+            .unwrap_or_else(|diagnostics| panic!("serialized screen should reparse: {diagnostics:?}"));
+        assert_eq!(reparsed, screen);
+    }
+
+    #[test]
+    fn golden_examples_round_trip_and_stay_semantically_identical() {
+        let standard_package =
+            trustsc::default_standard_text_package().expect("standard package should build");
+        let display_packages =
+            trustsc::default_display_text_packages().expect("display packages should build");
+        let display_refs = display_packages.iter().collect::<Vec<_>>();
+        let image_packages =
+            trustsc::default_image_packages().expect("image packages should build");
+
+        for (source, width, height) in
+            [(HELLO_WORLD_MEDUI, 800, 480), (NEUROSENSE_MEDUI, 1920, 1080)]
+        {
+            let options = CompileOptions::new(width, height);
+            let text_packages = TextPackages::with_displays(&standard_package, &display_refs);
+            let image_packages = ImagePackages::new(&image_packages);
+
+            let original_ast =
+                parse_medui_source(source).expect("example screen should parse");
+            let serialized = serialize_screen(&original_ast);
+            let reparsed_ast = parse_medui_source(&serialized)
+                .unwrap_or_else(|diagnostics| panic!("serialized example should reparse: {diagnostics:?}"));
+            assert_eq!(reparsed_ast, original_ast);
+
+            let original_generated =
+                compile_medui_source_to_rust(source, options, text_packages, image_packages)
+                    .expect("original example should compile");
+            let serialized_generated = compile_medui_source_to_rust(
+                &serialized,
+                options,
+                text_packages,
+                image_packages,
+            )
+            .expect("serialized example should compile");
+            assert_eq!(original_generated, serialized_generated);
+        }
+    }
+
+    /// Forces a compile error if a new `ComponentKind` variant is ever added without adding a
+    /// matching `widget_catalog()` entry (the whole point of this being a `match`, not a lookup).
+    fn component_kind_name(kind: ComponentKind) -> &'static str {
+        match kind {
+            ComponentKind::CriticalButton => "CriticalButton",
+            ComponentKind::VulkanViewport => "VulkanViewport",
+            ComponentKind::SignalTrace => "SignalTrace",
+            ComponentKind::Label => "Label",
+            ComponentKind::Clock => "Clock",
+            ComponentKind::NumericDisplay => "NumericDisplay",
+            ComponentKind::StatusIndicator => "StatusIndicator",
+            ComponentKind::Image => "Image",
+            ComponentKind::Button => "Button",
+            ComponentKind::TextInput => "TextInput",
+        }
+    }
+
+    const ALL_COMPONENT_KINDS: &[ComponentKind] = &[
+        ComponentKind::CriticalButton,
+        ComponentKind::VulkanViewport,
+        ComponentKind::SignalTrace,
+        ComponentKind::Label,
+        ComponentKind::Clock,
+        ComponentKind::NumericDisplay,
+        ComponentKind::StatusIndicator,
+        ComponentKind::Image,
+        ComponentKind::Button,
+        ComponentKind::TextInput,
+    ];
+
+    #[test]
+    fn widget_catalog_has_an_entry_for_every_component_kind() {
+        let catalog = widget_catalog();
+        for &kind in ALL_COMPONENT_KINDS {
+            let name = component_kind_name(kind);
+            assert!(
+                catalog.iter().any(|schema| schema.kind_name == name),
+                "missing widget_catalog() entry for {name}"
+            );
+        }
+    }
+
+    fn sample_property_value(domain: PropDomain) -> String {
+        match domain {
+            PropDomain::Identifier => "sample-id".to_string(),
+            PropDomain::DimensionPx { .. } => "10px".to_string(),
+            PropDomain::Position => "0px, 0px".to_string(),
+            PropDomain::TextKey => "t(\"STR-HELLO-WORLD\")".to_string(),
+            PropDomain::TextKeyList => "[t(\"STR-HELLO-WORLD\")]".to_string(),
+            PropDomain::ColorToken => "Theme.Colors.PrimaryAction".to_string(),
+            PropDomain::ColorTokenList => "[Theme.Colors.PrimaryAction]".to_string(),
+            PropDomain::QuotedSource => "\"SAMPLE_SOURCE\"".to_string(),
+            PropDomain::StreamSource => "\"SAMPLE_STREAM\"".to_string(),
+            PropDomain::TemplateId => "\"TPL-SAMPLE\"".to_string(),
+            PropDomain::ImageRef => "img(\"IMG-SAMPLE\")".to_string(),
+            PropDomain::SystemEvent => "SystemEvent.NoOp".to_string(),
+            PropDomain::ClockFormat => "TimeSeconds".to_string(),
+            PropDomain::Charset => "AsciiText".to_string(),
+            PropDomain::MaxLength => "8".to_string(),
+            PropDomain::RequirementId { .. } => "\"REQ-SAMPLE\"".to_string(),
+        }
+    }
+
+    #[test]
+    fn widget_catalog_required_properties_are_accepted_by_the_parser() {
+        for schema in widget_catalog() {
+            let mut body = String::new();
+            for prop in schema.properties.iter().filter(|prop| prop.required) {
+                body.push_str(&format!(
+                    "        {}: {};\n",
+                    prop.key,
+                    sample_property_value(prop.domain)
+                ));
+            }
+            let source = format!(
+                "Screen Sample {{\n    layout: Vertical {{ spacing: 0px; padding: 0px; }}\n    {} {{\n{body}    }}\n}}\n",
+                schema.kind_name
+            );
+            parse_medui_source(&source).unwrap_or_else(|diagnostics| {
+                panic!(
+                    "minimal {} generated from its catalog schema should parse: {diagnostics:?}\nsource:\n{source}",
+                    schema.kind_name
+                )
+            });
+        }
+    }
+
+    #[test]
+    fn enumerate_text_keys_reports_known_ids_with_plausible_widths() {
+        let package =
+            trustsc::default_standard_text_package().expect("standard package should build");
+        let entries = enumerate_text_keys(&package);
+        let hello_world = entries
+            .iter()
+            .find(|info| info.string_id == "STR-HELLO-WORLD")
+            .expect("STR-HELLO-WORLD should be enumerated");
+        assert!(!hello_world.entries.is_empty());
+        for locale_entry in &hello_world.entries {
+            assert!(
+                locale_entry.width_px > 0,
+                "locale {} should have a nonzero measured width",
+                locale_entry.locale
+            );
+            assert!(!locale_entry.value.is_empty());
         }
     }
 }
