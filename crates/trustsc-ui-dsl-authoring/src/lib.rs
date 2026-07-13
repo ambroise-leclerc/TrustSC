@@ -175,7 +175,18 @@ pub fn compile_medui_source_to_rust(
     image_packages: ImagePackages<'_>,
 ) -> TrustScResult<String> {
     let compiled = compile_medui_source(source, &options, text_packages, image_packages)
-        .map_err(|mut diagnostics| ValidationError::new(diagnostics.remove(0).message))?;
+        .map_err(|diagnostics| {
+            let joined = diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.message.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            ValidationError::new(if joined.is_empty() {
+                "compilation failed with no diagnostics".to_string()
+            } else {
+                joined
+            })
+        })?;
     Ok(emit_rust_module(&compiled, options.crate_path))
 }
 
@@ -3902,5 +3913,74 @@ Screen InteractivePanel {
             );
             assert!(!locale_entry.value.is_empty());
         }
+    }
+
+    #[test]
+    fn compile_medui_source_to_rust_joins_multiple_diagnostic_messages() {
+        // `compile_medui_source_to_rust` is the legacy single-`ValidationError` API; it must
+        // never panic or silently drop diagnostics when translating `Vec<Diagnostic>` down to
+        // one message, even if a future multi-error parser starts returning more than one.
+        let error = compile_medui_source_to_rust(
+            "not a screen at all",
+            CompileOptions::new(800, 480),
+            TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
+        )
+        .expect_err("garbage input should not compile");
+        assert!(!error.to_string().is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot serialize a Panel node")]
+    fn serialize_screen_panics_on_externally_constructed_panel_node() {
+        let screen = ScreenDefinition {
+            id: "Broken".to_string(),
+            layout: LayoutDefinition {
+                kind: LayoutKind::Vertical,
+                spacing: 0,
+                padding: 0,
+            },
+            declared_surface: None,
+            items: vec![ScreenItem::Component(NodeDefinition {
+                id: "panel".to_string(),
+                width: Dimension::Px(10),
+                height: Dimension::Px(10),
+                position: None,
+                kind: NodeKind::Panel {
+                    color_token: "Theme.Colors.Neutral".to_string(),
+                },
+                safety_critical: None,
+            })],
+        };
+        serialize_screen(&screen);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot serialize TextInput")]
+    fn serialize_screen_panics_on_a_text_input_with_an_unapproved_glyph_set() {
+        let screen = ScreenDefinition {
+            id: "Broken".to_string(),
+            layout: LayoutDefinition {
+                kind: LayoutKind::Vertical,
+                spacing: 0,
+                padding: 0,
+            },
+            declared_surface: None,
+            items: vec![ScreenItem::Component(NodeDefinition {
+                id: "text-input".to_string(),
+                width: Dimension::Px(200),
+                height: Dimension::Px(40),
+                position: None,
+                kind: NodeKind::TextInput {
+                    source: "SRC".to_string(),
+                    max_length: 8,
+                    glyph_set_id: "SET-NOT-APPROVED".to_string(),
+                    color_token: "Theme.Colors.Title".to_string(),
+                    requirement_id: None,
+                },
+                safety_critical: None,
+            })],
+        };
+        serialize_screen(&screen);
     }
 }
