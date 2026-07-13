@@ -3,7 +3,7 @@
   "displayName": "MEDUI Language Support",
   "description": "Syntax highlighting and language support for .medui files.",
   "version": "0.0.1",
-  "publisher": "your-publisher-name",
+  "publisher": "trustsc-team",
   "engines": {
     "vscode": "^1.60.0"
   },

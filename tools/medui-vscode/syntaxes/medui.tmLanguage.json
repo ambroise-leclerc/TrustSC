@@ -2,6 +2,10 @@
   "scopeName": "source.medui",
   "patterns": [
     {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.medui"
+    },
+    {
       "match": "\\b(Screen|Row|Vertical|Horizontal|CriticalButton|Button|VulkanViewport|SignalTrace|Label|Clock|NumericDisplay|StatusIndicator|Image|TextInput)\\b",
       "name": "entity.name.tag.medui"
     },
@@ -10,11 +14,11 @@
       "name": "meta.annotation.medui"
     },
     {
-      "match": "\\b(id|width|height|position|spacing|padding|label|text|source|states|colors|format|color|on_press)\\b",
+      "match": "\\b(id|width|height|position|spacing|padding|label|text|source|states|colors|format|color|on_press|layout|surface|requirement|stream_source|background|template|max_length|charset)\\b",
       "name": "entity.other.attribute-name.medui"
     },
     {
-      "match": "(Npx|Fill)",
+      "match": "\\b\\d+px\\b|Fill",
       "name": "constant.numeric.dimension.medui"
     },
     {
