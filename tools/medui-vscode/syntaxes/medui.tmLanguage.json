@@ -1,0 +1,41 @@
+{
+  "scopeName": "source.medui",
+  "patterns": [
+    {
+      "match": "\\b(Screen|Row|Vertical|Horizontal|CriticalButton|Button|VulkanViewport|SignalTrace|Label|Clock|NumericDisplay|StatusIndicator|Image|TextInput)\\b",
+      "name": "entity.name.tag.medui"
+    },
+    {
+      "match": "@safety_critical\\([^)]*\\)",
+      "name": "meta.annotation.medui"
+    },
+    {
+      "match": "\\b(id|width|height|position|spacing|padding|label|text|source|states|colors|format|color|on_press)\\b",
+      "name": "entity.other.attribute-name.medui"
+    },
+    {
+      "match": "(Npx|Fill)",
+      "name": "constant.numeric.dimension.medui"
+    },
+    {
+      "match": "t\\(\"[^\"]*\"\\)|img\\(\"[^\"]*\"\\)",
+      "name": "string.quoted.double.function-call.medui"
+    },
+    {
+      "match": "Theme\\.Colors\\.[A-Za-z0-9_]+|SystemEvent\\.[A-Za-z0-9_]+",
+      "name": "constant.other.token.medui"
+    },
+    {
+      "match": "\"[^\"]*\"",
+      "name": "string.quoted.double.medui"
+    },
+    {
+      "match": "-?\\b\\d+\\.?\\d*\\b",
+      "name": "constant.numeric.decimal.medui"
+    }
+  ],
+  "repository": {},
+  "fileTypes": [
+    "medui"
+  ]
+}

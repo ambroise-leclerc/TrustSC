@@ -1,0 +1,26 @@
+{
+  "name": "medui",
+  "displayName": "MEDUI Language Support",
+  "description": "Syntax highlighting and language support for .medui files.",
+  "version": "0.0.1",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "medui",
+      "aliases": ["MEDUI", "medui"],
+      "extensions": [".medui"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "medui",
+      "scopeName": "source.medui",
+      "path": "./syntaxes/medui.tmLanguage.json"
+    }]
+  }
+}
