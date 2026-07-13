@@ -17,6 +17,22 @@ cargo run -p trustsc-medui-studio -- --repo . --listen 127.0.0.1:8080
 
 - `--repo <path>`: checkout containing `.medui` files to serve (default `.`).
 - `--listen <addr:port>`: address to listen on (default `127.0.0.1:8080`).
+- `--self-test`: compiles `examples/hello_world/hello_world.medui`, bridges it to the offscreen
+  renderer, renders one frame, writes it to `./self-test-preview.png`, and exits nonzero on
+  failure — without starting the server. Requires a Vulkan ICD (`sudo apt install
+  mesa-vulkan-drivers` for lavapipe, the same setup CI uses).
+
+## Render bridge (wave S7)
+
+`src/render_bridge.rs` bridges an authoring-side `CompiledScreenSpec`
+(`trustsc-ui-dsl-authoring`) to `adapters/trustsc-vulkan-winit`'s pixel-exact
+`OffscreenRenderer` and encodes the captured frame as PNG — the exact same render path CI's
+`--verify-ui` (ADR-016) exercises, so nothing the studio previews can disagree with what CI
+verifies. `leak_package` does a mechanical `Box`/`String::leak` mapping from the authoring
+spec's owned `String`s to the runtime `CompiledScreenPackage`'s `&'static str` fields (ADR-009);
+each render leaks a few KB, acceptable for a host tool session and never done on a device.
+Every dynamic realtime binding (numeric displays, streaming viewports, signal traces) is filled
+with a placeholder value before rendering, so a preview never looks blank.
 
 ## Auth (v1)
 
