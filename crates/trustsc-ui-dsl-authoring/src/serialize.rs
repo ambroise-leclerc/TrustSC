@@ -15,8 +15,8 @@
 //! shuffle.
 
 use crate::{
-    Dimension, LayoutDefinition, NodeDefinition, NodeKind, RowDefinition, SafetyCriticalDefinition,
-    ScreenDefinition, ScreenItem,
+    ASCII_TEXT_GLYPH_SET_ID, Dimension, LayoutDefinition, NodeDefinition, NodeKind, RowDefinition,
+    SafetyCriticalDefinition, ScreenDefinition, ScreenItem,
 };
 use std::fmt::Write as _;
 use trustsc_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent};
@@ -110,10 +110,11 @@ fn node_kind_name(kind: &NodeKind) -> &'static str {
         NodeKind::NumericDisplay { .. } => "NumericDisplay",
         NodeKind::StatusIndicator { .. } => "StatusIndicator",
         // Panel is synthesized by the compiler from a Row's `background:` token (ADR-014 flat
-        // emission) and has no `.medui` component syntax of its own — a hand-authored or
-        // GUI-edited AST should never contain one at the top level or inside a Row's children.
+        // emission) and has no `.medui` component syntax of its own. `NodeKind` is public, so a
+        // caller can construct one directly — this is an invalid-input panic, not an internal
+        // invariant, hence the explicit `panic!` rather than `unreachable!`.
         NodeKind::Panel { .. } => {
-            unreachable!("Panel nodes are compiler-synthesized only and cannot be serialized")
+            panic!("cannot serialize a Panel node: Panel is compiler-synthesized only and has no `.medui` component syntax")
         }
         NodeKind::Image { .. } => "Image",
         NodeKind::Button { .. } => "Button",
@@ -215,7 +216,7 @@ fn serialize_node_kind_properties(out: &mut String, kind: &NodeKind, pad: &str) 
             let _ = writeln!(out, "{pad}colors: {};", serialize_token_list(color_tokens));
         }
         NodeKind::Panel { .. } => {
-            unreachable!("Panel nodes are compiler-synthesized only and cannot be serialized")
+            panic!("cannot serialize a Panel node: Panel is compiler-synthesized only and has no `.medui` component syntax")
         }
         NodeKind::Image { image_id } => {
             let _ = writeln!(out, "{pad}source: img(\"{image_id}\");");
@@ -236,7 +237,7 @@ fn serialize_node_kind_properties(out: &mut String, kind: &NodeKind, pad: &str) 
         NodeKind::TextInput {
             source,
             max_length,
-            glyph_set_id: _,
+            glyph_set_id,
             color_token,
             requirement_id,
         } => {
@@ -246,7 +247,13 @@ fn serialize_node_kind_properties(out: &mut String, kind: &NodeKind, pad: &str) 
             let _ = writeln!(out, "{pad}source: \"{source}\";");
             let _ = writeln!(out, "{pad}max_length: {max_length};");
             // `AsciiText` is the only approved charset (`parse_charset`), so it is the only
-            // value that can ever have produced this node's `glyph_set_id` through parsing.
+            // `charset:` spelling that can reparse to this glyph set. `NodeKind` is public, so a
+            // caller could hand us some other `glyph_set_id` directly — fail loudly instead of
+            // silently coercing it to `AsciiText` on save.
+            assert_eq!(
+                glyph_set_id, ASCII_TEXT_GLYPH_SET_ID,
+                "cannot serialize TextInput: glyph_set_id `{glyph_set_id}` has no `charset:` spelling (only `AsciiText` / `{ASCII_TEXT_GLYPH_SET_ID}` is approved)"
+            );
             let _ = writeln!(out, "{pad}charset: AsciiText;");
             let _ = writeln!(out, "{pad}color: {color_token};");
         }
