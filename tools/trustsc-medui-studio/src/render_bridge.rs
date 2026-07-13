@@ -200,11 +200,25 @@ fn fill_placeholder_inputs(
     inputs: &mut FrameInputs,
 ) -> Result<(), BridgeError> {
     for binding in &bindings.numbers {
-        let capacity = binding.capacity.min(18);
-        let magnitude = if capacity == 0 {
+        // `binding.capacity` is glyph capacity — max_chars *plus* any prefix/suffix affix run —
+        // so it can be wider than the digit budget a formatted number is actually allowed to
+        // fill. Look up the resolved template directly for `max_chars`, the true digit budget.
+        let template = bindings
+            .displays
+            .get(binding.display_index)
+            .and_then(|display| display.find_template(&binding.template_id))
+            .ok_or_else(|| {
+                format!(
+                    "numeric display source {} references template {} missing from its resolved \
+                     display package (inconsistent screen bindings)",
+                    binding.source, binding.template_id
+                )
+            })?;
+        let max_chars = usize::from(template.max_chars).min(18);
+        let magnitude = if max_chars == 0 {
             0
         } else {
-            (10i64.pow(capacity as u32) - 1) / 2
+            (10i64.pow(max_chars as u32) - 1) / 2
         };
         inputs.set_number(binding.source, magnitude)?;
     }
@@ -291,12 +305,13 @@ mod tests {
     }
 
     /// The `include_medui_screen!`-generated static for `examples/hello_world` is a
-    /// `pub(in that binary)` `include!`d module, not reachable from another crate — so this
-    /// pins the exact values a fresh `cargo build -p hello_world` generates instead (verified by
-    /// reading `target/debug/build/hello_world-*/out/trustsc_medui_screen.rs`), per the issue's
-    /// documented fallback ("or hard-coded expected nodes").
+    /// `pub(in that binary)` `include!`d module, not reachable from another crate, so this
+    /// asserts against pinned expected values instead — hard-coded here, but copied from a
+    /// fresh `cargo build -p hello_world`'s real output (`target/debug/build/hello_world-*/out/
+    /// trustsc_medui_screen.rs`), per the issue's documented fallback ("or hard-coded expected
+    /// nodes").
     #[test]
-    fn leak_package_matches_the_generated_static_for_hello_world() {
+    fn leak_package_produces_the_expected_nodes_for_hello_world() {
         let bridged = hello_world_package();
 
         assert_eq!(bridged.screen_id, "HelloWorld");
@@ -311,11 +326,11 @@ mod tests {
 
         assert_eq!(bridged.nodes.len(), 2);
 
-        let label = &bridged.nodes[0];
-        assert_eq!(label.id, "hello-world-label");
-        assert_eq!(label.bounds, Rect { x: 24, y: 24, width: 752, height: 48 });
+        let critical_button = &bridged.nodes[0];
+        assert_eq!(critical_button.id, "hello-world-label");
+        assert_eq!(critical_button.bounds, Rect { x: 24, y: 24, width: 752, height: 48 });
         assert_eq!(
-            label.kind,
+            critical_button.kind,
             CompiledNodeKind::CriticalButton(CriticalButtonSpec {
                 requirement_id: "REQ-HELLO-001",
                 text_key: "STR-HELLO-WORLD",
@@ -409,5 +424,76 @@ mod tests {
         let mut buf = vec![0u8; reader.output_buffer_size().expect("known-good fixed-size RGBA8 image")];
         let frame_info = reader.next_frame(&mut buf).expect("frame should decode");
         assert_eq!(&buf[..frame_info.buffer_size()], rgba.as_slice());
+    }
+
+    /// Regression test for a real review finding: `NumberBinding::capacity` is glyph capacity
+    /// (`max_chars` *plus* any prefix/suffix affix run), which can be wider than the actual
+    /// digit budget. A placeholder sized from `capacity` instead of the template's own
+    /// `max_chars` could render more digits than the template allows. This binds a template
+    /// with `max_chars: 2` but a `capacity` of 6 (as if a 4-glyph affix were present) and checks
+    /// the placeholder still respects the 2-digit budget.
+    #[test]
+    fn fill_placeholder_inputs_bounds_the_number_to_max_chars_not_capacity() {
+        let template = trustsc::NumericTemplate {
+            id: "TPL-TEST".to_string(),
+            locale: "en-US".to_string(),
+            prefix_run_id: None,
+            suffix_run_id: None,
+            glyph_set_id: "SET-ASCII-DIGITS".to_string(),
+            max_chars: 2,
+            allow_negative: false,
+        };
+        let display_package = TextPackage {
+            fonts: vec![],
+            approved_strings: vec![],
+            atlases: vec![],
+            atlas_glyphs: vec![],
+            runs: vec![],
+            numeric_glyph_sets: vec![],
+            numeric_templates: vec![template],
+            evidence: trustsc::DeterminismEvidence {
+                package_sha256: "0".repeat(64),
+                toolchain_id: "test".to_string(),
+                unicode_version: "15.1.0".to_string(),
+                build_recipe_sha256: "0".repeat(64),
+            },
+        };
+        let binding = trustsc::realtime::NumberBinding {
+            node_id: "sedation-index",
+            bounds: Rect { x: 0, y: 0, width: 100, height: 100 },
+            origin_x: 0,
+            origin_y: 0,
+            source: "SEDATION_INDEX",
+            template_id: "TPL-TEST".to_string(),
+            display_index: 0,
+            color_token: "Theme.Colors.ScoreDigits",
+            // Simulates a bound capacity inflated by a (here nonexistent) affix run — the exact
+            // shape ScreenBindings::from_screen produces for a real affixed template.
+            capacity: 6,
+        };
+        let bindings = ScreenBindings {
+            standard: display_package.clone(),
+            displays: vec![display_package],
+            locale: "en-US".to_string(),
+            clocks: vec![],
+            numbers: vec![binding],
+            statuses: vec![],
+            streams: vec![],
+            traces: vec![],
+            panels: vec![],
+            images: vec![],
+            buttons: vec![],
+            critical_button_chrome: vec![],
+            text_inputs: vec![],
+        };
+        let mut inputs = FrameInputs::from_bindings(&bindings).expect("bindings are consistent");
+
+        fill_placeholder_inputs(&bindings, &mut inputs).expect("placeholder fill should succeed");
+
+        let magnitude = inputs.number("SEDATION_INDEX").expect("known source");
+        assert!(
+            magnitude <= 99,
+            "magnitude {magnitude} exceeds the template's 2-digit max_chars budget"
+        );
     }
 }
