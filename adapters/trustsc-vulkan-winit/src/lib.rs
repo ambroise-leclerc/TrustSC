@@ -31,9 +31,10 @@ use trustsc::{
     screen_text::ScreenTextLayout, CompiledNodeKind, CompiledScreenPackage, Framework,
     GraphicsProfile, Rect, SystemEvent,
 };
-use renderer::{civil_from_unix, BoxError, InteractionSnapshot, VulkanRenderer};
+use renderer::{civil_from_unix, BoxError, VulkanRenderer};
 
 pub use offscreen::{CapturedFrame, OffscreenRenderer};
+pub use renderer::{InteractionSnapshot, WallClock};
 pub use verify::LocaleSelection;
 use winit::{
     dpi::LogicalSize,

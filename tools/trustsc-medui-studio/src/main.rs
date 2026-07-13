@@ -19,6 +19,8 @@ use clap::Parser;
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 
+mod render_bridge;
+
 /// The frontend's built assets, embedded into the binary so the server has no runtime file
 /// dependency. For this wave it is a single placeholder `index.html` (real assets land in S9).
 static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/frontend/dist");
@@ -33,6 +35,64 @@ struct Cli {
     /// Address to listen on.
     #[arg(long, default_value = "127.0.0.1:8080")]
     listen: SocketAddr,
+
+    /// Compile examples/hello_world/hello_world.medui, bridge it to the offscreen renderer, and
+    /// render one frame; exits nonzero on failure without starting the server. Requires a
+    /// Vulkan ICD.
+    #[arg(long)]
+    self_test: bool,
+}
+
+const HELLO_WORLD_MEDUI: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../examples/hello_world/hello_world.medui"
+));
+
+fn run_self_test() -> Result<(), Box<dyn std::error::Error>> {
+    use trustsc_ui_dsl_authoring::{CompileOptions, ImagePackages, TextPackages, compile_medui_source};
+
+    let standard = trustsc::default_standard_text_package()?;
+    let displays = trustsc::default_display_text_packages()?;
+    let display_refs = displays.iter().collect::<Vec<_>>();
+    let images = trustsc::default_image_packages()?;
+
+    let spec = compile_medui_source(
+        HELLO_WORLD_MEDUI,
+        &CompileOptions::new(800, 480),
+        TextPackages::with_displays(&standard, &display_refs),
+        ImagePackages::new(&images),
+    )
+    .map_err(|diagnostics| format!("hello_world.medui failed to compile: {diagnostics:?}"))?;
+
+    let package = render_bridge::leak_package(&spec);
+    let frame = render_bridge::render_screen(
+        "trustsc-medui-studio --self-test",
+        package,
+        standard,
+        displays,
+        &images,
+        "en-US",
+        800,
+        480,
+    )?;
+
+    if frame.width != 800 || frame.height != 480 {
+        return Err(format!(
+            "frame extent {}x{} does not match the authored 800x480 surface",
+            frame.width, frame.height
+        )
+        .into());
+    }
+    if frame.rgba.chunks_exact(4).all(|pixel| pixel == &frame.rgba[0..4]) {
+        return Err("captured frame is a single uniform color — nothing appears to have rendered".into());
+    }
+
+    let png_bytes = render_bridge::encode_png(&frame)?;
+    let preview_path = std::env::current_dir()?.join("self-test-preview.png");
+    std::fs::write(&preview_path, png_bytes)?;
+    println!("wrote {}", preview_path.display());
+
+    Ok(())
 }
 
 struct AppState {
@@ -58,6 +118,20 @@ fn build_router(state: Arc<AppState>) -> Router {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    if cli.self_test {
+        match run_self_test() {
+            Ok(()) => {
+                println!("trustsc-medui-studio --self-test: OK");
+                return;
+            }
+            Err(error) => {
+                eprintln!("trustsc-medui-studio --self-test: FAILED: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let token = std::env::var("TRUSTSC_STUDIO_TOKEN").ok().filter(|value| !value.is_empty());
     let state = Arc::new(AppState { repo: cli.repo, token });
 
