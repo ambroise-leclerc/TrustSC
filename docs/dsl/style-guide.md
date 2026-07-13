@@ -14,10 +14,7 @@
 - Braces are on their own lines.
 - Example:
   ```medui
-  layout: Vertical {
-      spacing: 8px;
-      padding: 0px;
-  }
+  layout: Vertical { spacing: 8px; padding: 0px; }
   ```
 
 ## Surface Declaration
@@ -33,15 +30,15 @@
 - The `@safety_critical(...)` annotation is on its own line directly above its component.
 - Example:
   ```medui
-  @safety_critical("requirement_id")
+  @safety_critical(cv_check: [Bounds, ColorHash])
   CriticalButton {
-      id: "button1";
-      requirement: "req123";
+      id: button1;
+      requirement: req123;
       width: 100px;
       height: 50px;
       label: t("button_label");
-      color: "primary";
-      on_press: SystemEvent::Acknowledge;
+      color: primary;
+      on_press: SystemEvent.Acknowledge;
   }
   ```
 
