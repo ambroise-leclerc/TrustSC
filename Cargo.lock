@@ -1446,6 +1446,7 @@ dependencies = [
 name = "trustsc-ui-dsl-authoring"
 version = "0.1.0"
 dependencies = [
+ "trustsc",
  "trustsc-core",
  "trustsc-image-schema",
  "trustsc-text-schema",
