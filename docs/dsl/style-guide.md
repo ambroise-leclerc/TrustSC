@@ -4,6 +4,11 @@
 
 - Use 4-space indentation.
 
+## Block/Bracing Constraints
+
+- Each property must be on its own line.
+- Braces `{ ... }` should be on their own lines.
+
 ## Property Lines
 
 - Each property line ends with a semicolon (`;`).
