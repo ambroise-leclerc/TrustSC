@@ -22,6 +22,7 @@ members = [
     "tools/trustsc-docs-lint",
     "tools/trustsc-font-baker",
     "tools/trustsc-image-baker",
+    "tools/trustsc-medui-studio",
     "tools/trustsc-ml-baker",
     "tools/trustsc-shader-baker",
 ]

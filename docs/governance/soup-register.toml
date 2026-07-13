@@ -33,9 +33,9 @@ classification = "SOUP"
 supplier = "crates.io / serde-rs maintainers"
 repository = "https://github.com/serde-rs/serde"
 license = "MIT OR Apache-2.0"
-usage = "Deserializes host-only bake recipes and generated package.json inputs, and serializes reviewed bake outputs. Also deserializes authored scenario TOML (ADR-016 §4) in crates/trustsc-build, which compiles them to static Rust data consumed at runtime. Also deserializes ML bake recipes and evidence emission in tools/trustsc-ml-baker (ADR-017), and shader-bake recipes/reports in tools/trustsc-shader-baker (ADR-012)."
-integration_path = "tools/trustsc-font-baker, crates/trustsc/build.rs, crates/trustsc-build (scenario compilation), tools/trustsc-ml-baker, tools/trustsc-shader-baker"
-pinned_by = ["tools/trustsc-font-baker/Cargo.toml", "crates/trustsc/Cargo.toml", "crates/trustsc-build/Cargo.toml", "tools/trustsc-ml-baker/Cargo.toml", "tools/trustsc-shader-baker/Cargo.toml", "Cargo.lock"]
+usage = "Deserializes host-only bake recipes and generated package.json inputs, and serializes reviewed bake outputs. Also deserializes authored scenario TOML (ADR-016 §4) in crates/trustsc-build, which compiles them to static Rust data consumed at runtime. Also deserializes ML bake recipes and evidence emission in tools/trustsc-ml-baker (ADR-017), and shader-bake recipes/reports in tools/trustsc-shader-baker (ADR-012). Also derives Serialize/Deserialize for the MedUI Studio server's `/api/screens` JSON DTO in tools/trustsc-medui-studio (ADR-022) — the DTO is a tool-zone type, never a governed-crate one."
+integration_path = "tools/trustsc-font-baker, crates/trustsc/build.rs, crates/trustsc-build (scenario compilation), tools/trustsc-ml-baker, tools/trustsc-shader-baker, tools/trustsc-medui-studio"
+pinned_by = ["tools/trustsc-font-baker/Cargo.toml", "crates/trustsc/Cargo.toml", "crates/trustsc-build/Cargo.toml", "tools/trustsc-ml-baker/Cargo.toml", "tools/trustsc-shader-baker/Cargo.toml", "tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
 runtime_deployment = false
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
@@ -53,9 +53,9 @@ classification = "SOUP"
 supplier = "crates.io / serde-rs maintainers"
 repository = "https://github.com/serde-rs/json"
 license = "MIT OR Apache-2.0"
-usage = "Emits deterministic host-side package.json and report.json artifacts for review and reproducibility checks, and parses approved package.json inputs into generated Rust source during trustsc builds. Also parses the safetensors container header in crates/trustsc-ml-authoring (ADR-017 §6, avoiding a dedicated safetensors crate dependency), and parses/emits ML model package.json/report.json evidence in tools/trustsc-ml-baker and crates/trustsc-build model codegen, and shader package.json/report.json evidence in tools/trustsc-shader-baker (ADR-012)."
-integration_path = "tools/trustsc-font-baker, crates/trustsc/build.rs, crates/trustsc-ml-authoring, tools/trustsc-ml-baker, crates/trustsc-build (model codegen), tools/trustsc-shader-baker"
-pinned_by = ["tools/trustsc-font-baker/Cargo.toml", "crates/trustsc/Cargo.toml", "crates/trustsc-ml-authoring/Cargo.toml", "tools/trustsc-ml-baker/Cargo.toml", "crates/trustsc-build/Cargo.toml", "tools/trustsc-shader-baker/Cargo.toml", "Cargo.lock"]
+usage = "Emits deterministic host-side package.json and report.json artifacts for review and reproducibility checks, and parses approved package.json inputs into generated Rust source during trustsc builds. Also parses the safetensors container header in crates/trustsc-ml-authoring (ADR-017 §6, avoiding a dedicated safetensors crate dependency), and parses/emits ML model package.json/report.json evidence in tools/trustsc-ml-baker and crates/trustsc-build model codegen, and shader package.json/report.json evidence in tools/trustsc-shader-baker (ADR-012). Also serializes the MedUI Studio server's `/api/screens` JSON response body in tools/trustsc-medui-studio (ADR-022)."
+integration_path = "tools/trustsc-font-baker, crates/trustsc/build.rs, crates/trustsc-ml-authoring, tools/trustsc-ml-baker, crates/trustsc-build (model codegen), tools/trustsc-shader-baker, tools/trustsc-medui-studio"
+pinned_by = ["tools/trustsc-font-baker/Cargo.toml", "crates/trustsc/Cargo.toml", "crates/trustsc-ml-authoring/Cargo.toml", "tools/trustsc-ml-baker/Cargo.toml", "crates/trustsc-build/Cargo.toml", "tools/trustsc-shader-baker/Cargo.toml", "tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
 runtime_deployment = false
 yocto_target_dependency = false
 support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
@@ -202,4 +202,121 @@ risk_controls = [
     "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
     "The shaderc version and compile options are recorded in report.json so verify can detect toolchain drift.",
     "CI only ever runs tools/trustsc-shader-baker verify against committed .spv artifacts, never a rebake.",
+]
+
+[[entries]]
+component_id = "axum-0.8.9"
+name = "axum"
+version = "0.8.9"
+classification = "SOUP"
+supplier = "crates.io / tokio-rs maintainers"
+repository = "https://github.com/tokio-rs/axum"
+license = "MIT"
+usage = "HTTP routing, request extraction, and response building for the hosted MedUI Studio server's healthz/API/static-frontend endpoints (ADR-022)."
+integration_path = "tools/trustsc-medui-studio"
+pinned_by = ["tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the host-only tools/trustsc-medui-studio server (ADR-005 tools zone); never linked into any crates/ or adapters/ code that ships to a device."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "The server is documented (crate README) as requiring a reverse proxy for TLS/stronger auth — it is not meant to face an untrusted network directly.",
+]
+
+[[entries]]
+component_id = "hyper-1.10.1"
+name = "hyper"
+version = "1.10.1"
+classification = "SOUP"
+supplier = "crates.io / hyperium maintainers"
+repository = "https://github.com/hyperium/hyper"
+license = "MIT"
+usage = "HTTP/1.x wire protocol implementation underlying axum's server (transitive via axum, not a direct Cargo.toml dependency) for the hosted MedUI Studio server (ADR-022). Registered explicitly, not just implied by axum's entry, since it is the actual HTTP stack terminating client connections."
+integration_path = "tools/trustsc-medui-studio (transitive via axum)"
+pinned_by = ["Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the host-only tools/trustsc-medui-studio server (ADR-005 tools zone); never linked into any crates/ or adapters/ code that ships to a device."
+risk_controls = [
+    "Version tracked via Cargo.lock and reviewed alongside axum's own version bumps (axum pins its compatible hyper range).",
+    "The server is documented (crate README) as requiring a reverse proxy for TLS/stronger auth — it is not meant to face an untrusted network directly.",
+]
+
+[[entries]]
+component_id = "tokio-1.52.3"
+name = "tokio"
+version = "1.52.3"
+classification = "SOUP"
+supplier = "crates.io / tokio-rs maintainers"
+repository = "https://github.com/tokio-rs/tokio"
+license = "MIT"
+usage = "Async runtime (multi-thread executor, TCP listener, ctrl-c signal handling) underlying the hosted MedUI Studio server (ADR-022)."
+integration_path = "tools/trustsc-medui-studio"
+pinned_by = ["tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the host-only tools/trustsc-medui-studio server (ADR-005 tools zone); no device-facing crate depends on an async runtime."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+    "Only the feature flags the server actually uses (rt-multi-thread, macros, net, signal) are enabled.",
+]
+
+[[entries]]
+component_id = "clap-4.6.1"
+name = "clap"
+version = "4.6.1"
+classification = "SOUP"
+supplier = "crates.io / clap-rs maintainers"
+repository = "https://github.com/clap-rs/clap"
+license = "MIT OR Apache-2.0"
+usage = "Parses the `--repo`/`--listen` CLI arguments for the hosted MedUI Studio server binary (ADR-022)."
+integration_path = "tools/trustsc-medui-studio"
+pinned_by = ["tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the host-only tools/trustsc-medui-studio binary's argument parsing; no device-facing code depends on it."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
+
+[[entries]]
+component_id = "include_dir-0.7.4"
+name = "include_dir"
+version = "0.7.4"
+classification = "SOUP"
+supplier = "crates.io / Michael-F-Bryan"
+repository = "https://github.com/Michael-F-Bryan/include_dir"
+license = "MIT OR Apache-2.0"
+usage = "Embeds the built frontend/dist/ directory into the MedUI Studio server binary at compile time, so the server has no runtime file dependency (ADR-022)."
+integration_path = "tools/trustsc-medui-studio"
+pinned_by = ["tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Confined to the host-only tools/trustsc-medui-studio server; the embedded bytes are frontend assets, not anything a governed crate or adapter consumes."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
+]
+
+[[entries]]
+component_id = "tower-0.5.3"
+name = "tower"
+version = "0.5.3"
+classification = "SOUP"
+supplier = "crates.io / tower-rs maintainers"
+repository = "https://github.com/tower-rs/tower"
+license = "MIT"
+usage = "Dev-dependency only: `ServiceExt::oneshot` drives the MedUI Studio server's axum Router directly in-process for integration tests (ADR-022), with no network socket involved."
+integration_path = "tools/trustsc-medui-studio (dev-dependency)"
+pinned_by = ["tools/trustsc-medui-studio/Cargo.toml", "Cargo.lock"]
+runtime_deployment = false
+yocto_target_dependency = false
+support_model = "Community-maintained crate; no medical-device qualification or vendor support agreement."
+boundary_rationale = "Test-only dependency of the host-only tools/trustsc-medui-studio crate; never compiled into the release binary's dependency graph beyond what axum itself already pulls in transitively."
+risk_controls = [
+    "Keep the crate version pinned in Cargo.lock and review updates through normal dependency governance.",
 ]

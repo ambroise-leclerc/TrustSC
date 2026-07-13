@@ -1,0 +1,17 @@
+[package]
+name = "trustsc-medui-studio"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+trustsc-ui-dsl-authoring = { version = "0.1.0", path = "../../crates/trustsc-ui-dsl-authoring" }
+axum = "0.8.9"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "net", "signal"] }
+clap = { version = "4.6.1", features = ["derive"] }
+include_dir = "0.7.4"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
