@@ -45,11 +45,40 @@ per-user permission model in this crate. **TLS and any stronger authentication (
 allowlisting) are delegated to a reverse proxy** placed in front of this server; do not expose it
 directly to an untrusted network.
 
-## Endpoints (this wave)
+## JSON DTOs (wave S8)
+
+`src/dto.rs` mirrors every governed-crate type the API exposes as JSON: the `.medui` AST
+(`ScreenDefinition` and everything it owns), compile diagnostics, the palette catalog, and a
+compiled-node summary. `serde` derives and every DTO⇄governed-type conversion live here — the
+governed crate itself (`trustsc-ui-dsl-authoring`) never depends on serde (S1's ADR). One naming
+note if you're reading the JSON shapes: a `ScreenItemDto` (`Component` vs `Row`) is tagged
+`"type"`, not `"kind"`, specifically because its `Component` payload already has its own `"kind"`
+field (the widget kind) — reusing `"kind"` for both would collide when internally tagged.
+
+## Endpoints
 
 - `GET /healthz` — `200` with a version string.
 - `GET /api/screens` — walks the configured repo for `**/*.medui` (skipping `target/` and dot
   directories), returning `[{ id, path, screen_name }]` where `screen_name` comes from parsing
   each file with `trustsc-ui-dsl-authoring::parse_medui_source` (the same parser CI uses).
+- `GET /api/screens/{id}` — `{ source, screen, compiled: { surface, nodes, diagnostics } }` for
+  the `.medui` file at `{id}` (the same `id`/`path` `GET /api/screens` returns). `screen` and
+  `compiled.nodes` are `null`/empty if the source fails to parse or compile; `compiled.surface`
+  falls back to `800x480` when the screen has no `surface:` pin.
+- `POST /api/compile` — body `{ "source": "..." }` **or** `{ "screen": <AST DTO> }` (exactly one)
+  → `{ ok, compiled, diagnostics }`. Never `500`s on bad input: a syntax or semantic error comes
+  back as `ok: false` with `diagnostics: [{ message, line, severity }]`.
+- `GET /api/frame?screen=<id>&locale=<tag>` and `POST /api/frame` (body like `/api/compile`, plus
+  `locale`) → `image/png` at the screen's authored surface extent, rendered through the wave S7
+  bridge. Renders are serialized through a single-slot semaphore (one Vulkan instance build at a
+  time); an unknown locale is a `400`, a compile failure is a `422`.
+- `GET /api/palette` — `{ widgets, colors, text_keys, templates, images, locales }`: the governed
+  closed sets (`widget_catalog`, `THEME_COLORS`, `enumerate_text_keys`/`enumerate_numeric_templates`/
+  `enumerate_images`) a governed dropdown UI needs, so it never has to accept free-typed values.
+- `POST /api/serialize` — `{ "screen": <AST DTO> }` → `{ "source": "..." }` via `serialize_screen`.
+  Rejects (`400`) a submitted `Panel` node — compiler-synthesized only, no `.medui` syntax exists
+  for it — before ever reaching the serializer, which would otherwise panic on one.
 - `GET /*` — serves the embedded `frontend/dist/` assets (a placeholder page for this wave; the
   read-only previewer lands in wave S9).
+
+Every `/api/*` route above is behind the same bearer-token gate (see Auth).

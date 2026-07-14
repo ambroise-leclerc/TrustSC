@@ -19,7 +19,17 @@ use clap::Parser;
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
 
+mod api;
+mod dto;
 mod render_bridge;
+
+fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
+    #[derive(Serialize)]
+    struct ErrorEnvelope {
+        error: String,
+    }
+    (status, Json(ErrorEnvelope { error: message.into() })).into_response()
+}
 
 /// The frontend's built assets, embedded into the binary so the server has no runtime file
 /// dependency. For this wave it is a single placeholder `index.html` (real assets land in S9).
@@ -101,11 +111,21 @@ struct AppState {
     /// `/api/*` request is accepted unauthenticated — TLS/SSO is delegated to a reverse proxy
     /// (see the crate README), this is not meant to face the open internet directly.
     token: Option<String>,
+    /// Loaded once at startup (ADR-013's approved packages), rather than on every request.
+    standard_text: trustsc::TextPackage,
+    display_texts: Vec<trustsc::TextPackage>,
+    images: Vec<trustsc::ImagePackage>,
+    /// Serializes access to the offscreen renderer (wave S7's noted requirement: each render
+    /// builds a fresh Vulkan instance, ~100-500ms on lavapipe) — queue depth 1, so concurrent
+    /// `/api/frame` requests wait their turn instead of racing to create Vulkan instances
+    /// simultaneously.
+    render_semaphore: tokio::sync::Semaphore,
 }
 
 fn build_router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/screens", get(list_screens))
+        .merge(api::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_bearer_token));
 
     Router::new()
@@ -133,7 +153,19 @@ async fn main() {
     }
 
     let token = std::env::var("TRUSTSC_STUDIO_TOKEN").ok().filter(|value| !value.is_empty());
-    let state = Arc::new(AppState { repo: cli.repo, token });
+    let standard_text =
+        trustsc::default_standard_text_package().expect("standard text package should build");
+    let display_texts =
+        trustsc::default_display_text_packages().expect("display text packages should build");
+    let images = trustsc::default_image_packages().expect("image packages should build");
+    let state = Arc::new(AppState {
+        repo: cli.repo,
+        token,
+        standard_text,
+        display_texts,
+        images,
+        render_semaphore: tokio::sync::Semaphore::new(1),
+    });
 
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(cli.listen)
@@ -285,6 +317,10 @@ mod tests {
         Arc::new(AppState {
             repo,
             token: token.map(str::to_string),
+            standard_text: trustsc::default_standard_text_package().expect("standard package"),
+            display_texts: trustsc::default_display_text_packages().expect("display packages"),
+            images: trustsc::default_image_packages().expect("image packages"),
+            render_semaphore: tokio::sync::Semaphore::new(1),
         })
     }
 
