@@ -2,6 +2,7 @@
 //! serialize. Bearer auth (wave S6) is applied to the whole `/api` nest at the router level, not
 //! per handler.
 
+use std::path::{Component, Path as StdPath, PathBuf};
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
@@ -22,6 +23,23 @@ use crate::dto;
 /// Fallback surface for a screen with no `surface:` pin (matches `examples/hello_world`'s own
 /// build.rs configuration) — used whenever a screen doesn't declare its own.
 const DEFAULT_SURFACE: (u32, u32) = (800, 480);
+
+/// Resolves a caller-supplied screen id (the `{id}` path param or `?screen=` query param) to a
+/// path inside `repo`, rejecting anything that could escape it. `PathBuf::join` happily accepts
+/// an absolute path or `..` components and simply replaces/walks out of the base, so the id must
+/// be validated first: every component must be a plain (`Normal`) segment — no `..`, no `.`, no
+/// root/prefix — and it must end in `.medui`, both to block path traversal and because nothing
+/// else is a legitimate screen id.
+fn resolve_medui_path(repo: &StdPath, id: &str) -> Result<PathBuf, String> {
+    let candidate = StdPath::new(id);
+    let only_normal_components =
+        !id.is_empty() && candidate.components().all(|component| matches!(component, Component::Normal(_)));
+    let has_medui_extension = candidate.extension().map(|ext| ext == "medui").unwrap_or(false);
+    if !only_normal_components || !has_medui_extension {
+        return Err(format!("invalid screen id: {id}"));
+    }
+    Ok(repo.join(candidate))
+}
 
 pub fn router() -> axum::Router<Arc<AppState>> {
     use axum::routing::{get, post};
@@ -119,8 +137,10 @@ struct ScreenDetailDto {
 }
 
 async fn screen_detail(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
-    let repo = state.repo.clone();
-    let file_path = repo.join(&id);
+    let file_path = match resolve_medui_path(&state.repo, &id) {
+        Ok(path) => path,
+        Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
+    };
     let source = match tokio::task::spawn_blocking(move || std::fs::read_to_string(file_path)).await
     {
         Ok(Ok(source)) => source,
@@ -129,10 +149,14 @@ async fn screen_detail(State(state): State<Arc<AppState>>, Path(id): Path<String
     };
 
     let outcome = compile_source_with_defaults(&state, &source);
-    let (surface, nodes) = outcome
-        .compiled
-        .map(|compiled| (compiled.surface, compiled.nodes))
-        .unwrap_or((DEFAULT_SURFACE, Vec::new()));
+    // A screen that parses but fails to compile still declared its own `surface:` (if any) —
+    // report that instead of silently falling back to the 800x480 default, which would give the
+    // frontend the wrong canvas size for the diagnostics it's about to show.
+    let declared_surface = outcome.screen.as_ref().and_then(|screen| screen.declared_surface);
+    let (surface, nodes) = match outcome.compiled {
+        Some(compiled) => (compiled.surface, compiled.nodes),
+        None => (declared_surface.unwrap_or(DEFAULT_SURFACE), Vec::new()),
+    };
 
     Json(ScreenDetailDto {
         source,
@@ -205,8 +229,10 @@ struct FrameQuery {
 }
 
 async fn frame_get(State(state): State<Arc<AppState>>, Query(params): Query<FrameQuery>) -> Response {
-    let repo = state.repo.clone();
-    let file_path = repo.join(&params.screen);
+    let file_path = match resolve_medui_path(&state.repo, &params.screen) {
+        Ok(path) => path,
+        Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
+    };
     let source = match tokio::task::spawn_blocking(move || std::fs::read_to_string(file_path)).await
     {
         Ok(Ok(source)) => source,
@@ -403,9 +429,38 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::AppState;
+    use super::resolve_medui_path;
 
     fn repo_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    #[test]
+    fn resolve_medui_path_rejects_parent_directory_traversal() {
+        let repo = repo_root();
+        assert!(resolve_medui_path(&repo, "../Cargo.toml").is_err());
+        assert!(resolve_medui_path(&repo, "examples/../../Cargo.toml").is_err());
+    }
+
+    #[test]
+    fn resolve_medui_path_rejects_an_absolute_path() {
+        let repo = repo_root();
+        assert!(resolve_medui_path(&repo, "/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn resolve_medui_path_rejects_a_non_medui_extension() {
+        let repo = repo_root();
+        assert!(resolve_medui_path(&repo, "Cargo.toml").is_err());
+        assert!(resolve_medui_path(&repo, "").is_err());
+    }
+
+    #[test]
+    fn resolve_medui_path_accepts_a_normal_relative_medui_path() {
+        let repo = repo_root();
+        let resolved =
+            resolve_medui_path(&repo, "examples/hello_world/hello_world.medui").unwrap();
+        assert_eq!(resolved, repo.join("examples/hello_world/hello_world.medui"));
     }
 
     fn test_state() -> std::sync::Arc<AppState> {
@@ -413,8 +468,12 @@ mod tests {
     }
 
     fn test_state_with_token(token: Option<&str>) -> std::sync::Arc<AppState> {
+        test_state_for(repo_root(), token)
+    }
+
+    fn test_state_for(repo: PathBuf, token: Option<&str>) -> std::sync::Arc<AppState> {
         std::sync::Arc::new(AppState {
-            repo: repo_root(),
+            repo,
             token: token.map(str::to_string),
             standard_text: trustsc::default_standard_text_package().expect("standard package"),
             display_texts: trustsc::default_display_text_packages().expect("display packages"),
@@ -426,6 +485,73 @@ mod tests {
     async fn json_body(response: axum::response::Response) -> Value {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn screens_detail_rejects_a_path_traversal_id() {
+        let app = crate::build_router(test_state());
+        let response = app
+            .oneshot(
+                HttpRequest::get("/api/screens/..%2fCargo.toml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn frame_get_rejects_a_path_traversal_screen_param() {
+        let app = crate::build_router(test_state());
+        let response = app
+            .oneshot(
+                HttpRequest::get("/api/frame?screen=..%2fCargo.toml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn screens_detail_reports_the_declared_surface_when_compile_fails() {
+        let temp = std::env::temp_dir().join(format!(
+            "trustsc-medui-studio-surface-fallback-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+        std::fs::write(
+            temp.join("broken.medui"),
+            "Screen Broken {\n\
+             layout: Vertical { spacing: 0px; padding: 0px; }\n\
+             surface: 1000px, 600px;\n\
+             Label {\n\
+             id: l;\n\
+             width: 100px;\n\
+             height: 20px;\n\
+             text: t(\"STR-HELLO-WORLD\");\n\
+             color: Theme.Colors.NotARealToken;\n\
+             }\n\
+             }\n",
+        )
+        .unwrap();
+
+        let app = crate::build_router(test_state_for(temp.clone(), None));
+        let response = app
+            .oneshot(HttpRequest::get("/api/screens/broken.medui").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = json_body(response).await;
+        assert_eq!(body["compiled"]["surface"], json!([1000, 600]));
+        assert_ne!(body["compiled"]["diagnostics"], json!([]));
+        assert_eq!(body["compiled"]["nodes"], json!([]));
+
+        std::fs::remove_dir_all(&temp).unwrap();
     }
 
     #[tokio::test]
