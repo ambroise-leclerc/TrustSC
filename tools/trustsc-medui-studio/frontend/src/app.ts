@@ -1,7 +1,6 @@
-// Read-only MedUI Studio previewer (ADR-022 wave S9): a screen list and a screen view (pixel-
-// exact frame, locale switcher, node-bounds overlay, diagnostics panel, PNG download). No
-// editing in this wave — `renderOverlay`/`boundsToStyle` (overlay.ts) are the pieces wave S11's
-// editor is expected to build drag/resize on top of.
+// MedUI Studio previewer + canvas editor (ADR-022 waves S9/S11): a screen list and a screen view
+// (pixel-exact frame, locale switcher, node-bounds overlay, diagnostics panel, PNG download,
+// and — wave S11 — canvas selection/drag/resize with a debounced compile loop).
 
 import {
   ApiError,
@@ -11,9 +10,12 @@ import {
   screenDetail,
   type CompiledNodeSummary,
   type Diagnostic,
+  type NodeDefinitionDto,
   type ScreenEntry,
 } from "./api.js";
 import { renderOverlay, tooltipText } from "./overlay.js";
+import { CanvasEditor } from "./editor.js";
+import { isDraggable } from "./ast.js";
 
 type Zoom = "fit" | "100" | "200";
 
@@ -30,6 +32,7 @@ const app: HTMLElement = appEl;
 
 let zoom: Zoom = "fit";
 let showGoldenOutlines = false;
+let currentEditor: CanvasEditor | null = null;
 
 function parseRoute(): Route {
   const params = new URLSearchParams(location.hash.replace(/^#/, ""));
@@ -63,7 +66,16 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** Every screen view owns document-level listeners (drag/keyboard) via its `CanvasEditor`; this
+ * must run before replacing `#app`'s content on every navigation, or listeners from a previous
+ * screen view pile up and keep firing against DOM that no longer exists. */
+function teardownEditor(): void {
+  currentEditor?.destroy();
+  currentEditor = null;
+}
+
 async function renderScreenList(): Promise<void> {
+  teardownEditor();
   app.replaceChildren(el("p", { class: "status" }, ["Loading screens…"]));
   let screens: ScreenEntry[];
   try {
@@ -92,18 +104,18 @@ function errorPanel(error: unknown): HTMLElement {
   return el("p", { class: "status status--error" }, [message]);
 }
 
-function diagnosticsPanel(diagnostics: Diagnostic[]): HTMLElement {
+function renderDiagnostics(container: HTMLElement, diagnostics: Diagnostic[]): void {
   if (diagnostics.length === 0) {
-    return el("div", { class: "diagnostics diagnostics--empty" }, ["No diagnostics."]);
+    container.className = "diagnostics diagnostics--empty";
+    container.replaceChildren("No diagnostics.");
+    return;
   }
   const items = diagnostics.map((diagnostic) => {
     const location = diagnostic.line !== null ? `line ${diagnostic.line}: ` : "";
     return el("li", {}, [`${location}${diagnostic.message}`]);
   });
-  return el("div", { class: "diagnostics diagnostics--error" }, [
-    el("strong", {}, [`${diagnostics.length} diagnostic(s)`]),
-    el("ul", {}, items),
-  ]);
+  container.className = "diagnostics diagnostics--error";
+  container.replaceChildren(el("strong", {}, [`${diagnostics.length} diagnostic(s)`]), el("ul", {}, items));
 }
 
 function applyZoomStyle(stage: HTMLElement, surfaceWidth: number): void {
@@ -117,7 +129,15 @@ function applyZoomStyle(stage: HTMLElement, surfaceWidth: number): void {
   }
 }
 
+function selectionStatusText(node: NodeDefinitionDto): string {
+  const editable = isDraggable(node)
+    ? "draggable"
+    : "flow (right-click for “Convert to absolute”)";
+  return `Selected: ${node.id} (${node.kind.kind}, ${editable})`;
+}
+
 async function renderScreenView(screenId: string, requestedLocale: string | null): Promise<void> {
+  teardownEditor();
   app.replaceChildren(el("p", { class: "status" }, [`Loading ${screenId}…`]));
 
   let detail;
@@ -151,6 +171,9 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
     }
     localeSelect.append(option);
   }
+  // Switching locale re-navigates (a fresh screenDetail load), which discards any in-progress
+  // canvas edit — the editor's document is purely in-memory in this wave (no save until S15),
+  // so there's nothing to preserve across it anyway.
   localeSelect.addEventListener("change", () => navigate(screenId, localeSelect.value));
 
   const zoomSelect = el("select", { class: "zoom-select" });
@@ -186,27 +209,52 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
     class: "frame-image",
   });
   const stage = el("div", { class: "frame-stage" }, [img]);
-  const hoverLabel = el("div", { class: "hover-label" }, [" "]);
+  const hoverLabel = el("div", { class: "hover-label" }, [" "]);
+  const selectionLabel = el("div", { class: "selection-label" }, [" "]);
+  const diagnosticsContainer = el("div", { class: "diagnostics diagnostics--empty" }, ["No diagnostics."]);
 
   applyZoomStyle(stage, surfaceWidth);
   zoomSelect.addEventListener("change", () => {
     zoom = zoomSelect.value as Zoom;
     applyZoomStyle(stage, surfaceWidth);
   });
-  goldenCheckbox?.addEventListener("change", () => {
-    showGoldenOutlines = goldenCheckbox.checked;
-    renderOverlay(stage, detail.compiled.nodes, surfaceWidth, surfaceHeight, {
-      showGoldenOutlines,
-      onHover: (node) => setHoverLabel(hoverLabel, node),
-    });
-  });
 
-  img.addEventListener("load", () => {
+  if (detail.screen) {
+    // Editable: the AST DTO is the document the CanvasEditor mutates in memory. It owns the
+    // overlay entirely from here on (selection, drag/resize, flow badges, the compile loop) —
+    // renderOverlay/boundsToStyle (overlay.ts) stay the shared geometry primitives underneath.
+    const editor = new CanvasEditor(locale, stage, img, detail.screen, detail.compiled, {
+      onHover: (node) => setHoverLabel(hoverLabel, node),
+      onDiagnostics: (diagnostics) => renderDiagnostics(diagnosticsContainer, diagnostics),
+      onSelectionChange: (node) => {
+        selectionLabel.textContent = node ? selectionStatusText(node) : " ";
+      },
+      onRowSelected: (rowId) => {
+        selectionLabel.textContent = `Selected row background: ${rowId} (inspector lands in a later wave)`;
+      },
+      onCompileError: (message) => {
+        renderDiagnostics(diagnosticsContainer, [{ message, line: null, severity: "Error" }]);
+      },
+    });
+    currentEditor = editor;
+    goldenCheckbox?.addEventListener("change", () => editor.setShowGoldenOutlines(goldenCheckbox.checked));
+  } else {
+    // The source failed to even parse — nothing to edit. Fall back to the plain read-only
+    // overlay (S9 behavior) so the page still shows whatever compiled data exists (usually
+    // none) instead of a blank canvas.
     renderOverlay(stage, detail.compiled.nodes, surfaceWidth, surfaceHeight, {
       showGoldenOutlines,
       onHover: (node) => setHoverLabel(hoverLabel, node),
     });
-  });
+    goldenCheckbox?.addEventListener("change", () => {
+      showGoldenOutlines = goldenCheckbox.checked;
+      renderOverlay(stage, detail.compiled.nodes, surfaceWidth, surfaceHeight, {
+        showGoldenOutlines,
+        onHover: (node) => setHoverLabel(hoverLabel, node),
+      });
+    });
+  }
+  renderDiagnostics(diagnosticsContainer, detail.compiled.diagnostics);
 
   const children: (Node | string)[] = [
     el("div", { class: "toolbar" }, [
@@ -222,16 +270,12 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
   if (localeWarning) {
     children.push(el("p", { class: "status status--error" }, [localeWarning]));
   }
-  children.push(
-    el("div", { class: "frame-viewport" }, [stage]),
-    hoverLabel,
-    diagnosticsPanel(detail.compiled.diagnostics),
-  );
+  children.push(el("div", { class: "frame-viewport" }, [stage]), hoverLabel, selectionLabel, diagnosticsContainer);
   app.replaceChildren(...children);
 }
 
 function setHoverLabel(label: HTMLElement, node: CompiledNodeSummary | null): void {
-  label.textContent = node ? tooltipText(node).replace(/\n/g, " — ") : " ";
+  label.textContent = node ? tooltipText(node).replace(/\n/g, " — ") : " ";
 }
 
 async function render(): Promise<void> {
