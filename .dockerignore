@@ -1,0 +1,8 @@
+# Keeps the Docker build context small for tools/trustsc-medui-studio/Dockerfile, which builds
+# from the repo root (the crate is a workspace member, so the whole workspace is the build
+# context). None of this is needed inside the image: build output, VCS metadata, and the
+# frontend's own node_modules (frontend/dist/ — the actual build output the server embeds — is
+# committed and copied normally).
+/target
+.git
+**/node_modules

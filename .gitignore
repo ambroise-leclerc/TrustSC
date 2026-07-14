@@ -12,3 +12,7 @@ CLAUDE.md
 # lavapipe ColorHash baseline out of this tree into a real committed gate is a deliberate,
 # manual `git add -f` step, not an automatic one.
 /generated/verification/
+
+# trustsc-medui-studio --self-test (ADR-022 wave S7) writes this preview to whatever directory
+# it's run from, for manual inspection; never a runtime input or evidence artifact.
+/self-test-preview.png

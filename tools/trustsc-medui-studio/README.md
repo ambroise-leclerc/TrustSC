@@ -109,3 +109,64 @@ committed and `typescript` is tracked in `docs/governance/soup-register.toml`.
 See `MANUAL_TESTS.md` for the browser checklist this wave's acceptance criteria requires (Rust
 tests only cover the API and static-asset serving, not actual rendering/interaction in a
 browser).
+
+## Deployment (wave S10)
+
+`Dockerfile` is a multi-stage build: a `rust:1-bookworm` build stage, then a `debian:bookworm-
+slim` runtime stage with `mesa-vulkan-drivers` (lavapipe, ADR-016 §8 — the same software Vulkan
+rasterizer CI uses) and `libvulkan1` (the loader `ash`'s `loaded` feature `dlopen`s at runtime;
+the build stage needs no Vulkan dev headers at all, since nothing links against it at compile
+time). Build from the **repository root** — this crate is a Cargo workspace member, so the whole
+workspace is the build context:
+
+```sh
+docker build -f tools/trustsc-medui-studio/Dockerfile -t trustsc-medui-studio .
+```
+
+Two deployment modes, both driven by `entrypoint.sh`:
+
+- **Bind-mounted checkout** (the simple case — an existing `.medui` repo checkout on the host):
+  ```sh
+  docker run -p 8080:8080 \
+    -e TRUSTSC_STUDIO_TOKEN=<token> \
+    -v /path/to/checkout:/data:ro \
+    trustsc-medui-studio
+  ```
+- **Cloned at container startup** (`STUDIO_REPO_URL` set to a git remote; useful when the studio
+  runs somewhere the host checkout isn't available). The clone lands in `$STUDIO_REPO_DIR`
+  (default `/data`) and is reused — not re-cloned — on container restart as long as that path is
+  a persistent volume:
+  ```sh
+  docker run -p 8080:8080 \
+    -e TRUSTSC_STUDIO_TOKEN=<token> \
+    -e STUDIO_REPO_URL=https://github.com/<org>/<repo>.git \
+    -v studio-data:/data \
+    trustsc-medui-studio
+  ```
+
+`docker-compose.yml` in this directory is a runnable example of the bind-mounted mode:
+
+```sh
+TRUSTSC_STUDIO_TOKEN=<token> docker compose -f tools/trustsc-medui-studio/docker-compose.yml up
+```
+
+Both modes were verified end to end in a container with **no host GPU**: `/healthz` and
+`/api/frame` (a real, non-blank PNG via lavapipe) both work purely on CPU software rendering.
+
+### Deployment posture
+
+This image has no TLS termination and only the v1 shared-bearer-token auth described above under
+"Auth" — **put a reverse proxy in front of it** for TLS and any stronger authentication (SSO,
+mTLS, IP allowlisting); never expose the container's port directly to an untrusted network. The
+container's own auth is a floor, not a complete access-control story: treat
+`TRUSTSC_STUDIO_TOKEN` as a shared secret with the same handling discipline as any other
+credential (a secrets manager or orchestrator-native secret, not a value baked into an image or
+committed anywhere).
+
+### CI smoke (`.github/workflows/ci.yml`)
+
+After the lavapipe install step, CI runs `cargo run -p trustsc-medui-studio -- --self-test`
+(wave S7's render-bridge self-test: compiles `hello_world.medui`, bridges it, renders one frame,
+and fails the build if the frame doesn't match the authored extent or comes back blank) — the
+same lavapipe-backed check this Dockerfile's runtime image relies on, run directly on the runner
+rather than through a Docker build for CI turnaround time.
