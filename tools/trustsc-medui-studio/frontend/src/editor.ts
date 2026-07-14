@@ -71,6 +71,10 @@ export class CanvasEditor {
   private frameObjectUrl: string | null = null;
   private drag: DragState | null = null;
   private contextMenuEl: HTMLElement | null = null;
+  /** Bumped on every compile/frame round trip so a response that arrives after a newer one has
+   * already started (rapid drag-drops, a locale switch mid-flight) is detected and dropped
+   * instead of overwriting fresher state with stale data. */
+  private generation = 0;
 
   constructor(
     private locale: string,
@@ -96,7 +100,8 @@ export class CanvasEditor {
 
   setLocale(locale: string): void {
     this.locale = locale;
-    void this.refreshFrame();
+    const gen = ++this.generation;
+    void this.refreshFrame(gen);
   }
 
   destroy(): void {
@@ -207,7 +212,8 @@ export class CanvasEditor {
     if (this.contextMenuEl && !this.contextMenuEl.contains(event.target as Node)) {
       this.closeContextMenu();
     }
-    if (!(event.target as HTMLElement).closest(".node-overlay") && this.selectedNodeId !== null) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest(".node-overlay") && this.selectedNodeId !== null) {
       this.select(null);
     }
   };
@@ -234,6 +240,9 @@ export class CanvasEditor {
   }
 
   private startResize(event: MouseEvent, nodeId: string): void {
+    if (event.button !== 0) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const node = findNode(this.screen, nodeId);
@@ -421,12 +430,19 @@ export class CanvasEditor {
   }
 
   private async compileAndRefresh(): Promise<void> {
+    const gen = ++this.generation;
     let result;
     try {
       result = await compileScreen(this.screen);
     } catch (error) {
+      if (gen !== this.generation) {
+        return; // A newer compile/edit has since started; this response is stale.
+      }
       this.callbacks.onCompileError(error instanceof Error ? error.message : String(error));
       return;
+    }
+    if (gen !== this.generation) {
+      return; // A newer compile/edit has since started; this response is stale.
     }
 
     if (result.ok && result.compiled) {
@@ -440,7 +456,7 @@ export class CanvasEditor {
       // stage sizing). Waiting for refreshFrame() here would leave the offender rect visibly
       // stale for that whole window, disagreeing with the diagnostics panel it just cleared.
       this.renderOverlays();
-      await this.refreshFrame();
+      await this.refreshFrame(gen);
     } else {
       this.lastDiagnostics = result.diagnostics;
       this.callbacks.onDiagnostics(result.diagnostics);
@@ -448,9 +464,12 @@ export class CanvasEditor {
     }
   }
 
-  private async refreshFrame(): Promise<void> {
+  private async refreshFrame(gen: number): Promise<void> {
     try {
       const blob = await postFrame(this.screen, this.locale);
+      if (gen !== this.generation) {
+        return; // A newer compile/edit/locale switch has since started; this frame is stale.
+      }
       const url = URL.createObjectURL(blob);
       const previous = this.frameObjectUrl;
       this.img.src = url;
@@ -459,6 +478,9 @@ export class CanvasEditor {
         URL.revokeObjectURL(previous);
       }
     } catch (error) {
+      if (gen !== this.generation) {
+        return; // A newer compile/edit/locale switch has since started; this response is stale.
+      }
       // The compile step already reported its own outcome via onDiagnostics; a failure here is
       // purely the render step failing on top of a *successful* compile (e.g. a transient
       // renderer error) — rare, and not worth a second, competing error surface on a read path

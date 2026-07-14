@@ -186,7 +186,13 @@ async function renderScreenView(screenId, requestedLocale) {
             },
         });
         currentEditor = editor;
-        goldenCheckbox?.addEventListener("change", () => editor.setShowGoldenOutlines(goldenCheckbox.checked));
+        if (showGoldenOutlines) {
+            editor.setShowGoldenOutlines(true);
+        }
+        goldenCheckbox?.addEventListener("change", () => {
+            showGoldenOutlines = goldenCheckbox.checked;
+            editor.setShowGoldenOutlines(showGoldenOutlines);
+        });
     }
     else {
         // The source failed to even parse — nothing to edit. Fall back to the plain read-only

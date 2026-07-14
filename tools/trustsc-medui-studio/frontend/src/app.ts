@@ -237,7 +237,13 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
       },
     });
     currentEditor = editor;
-    goldenCheckbox?.addEventListener("change", () => editor.setShowGoldenOutlines(goldenCheckbox.checked));
+    if (showGoldenOutlines) {
+      editor.setShowGoldenOutlines(true);
+    }
+    goldenCheckbox?.addEventListener("change", () => {
+      showGoldenOutlines = goldenCheckbox.checked;
+      editor.setShowGoldenOutlines(showGoldenOutlines);
+    });
   } else {
     // The source failed to even parse — nothing to edit. Fall back to the plain read-only
     // overlay (S9 behavior) so the page still shows whatever compiled data exists (usually
