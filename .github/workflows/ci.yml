@@ -63,6 +63,9 @@ jobs:
       - name: Run headless Class C monitor smoke test
         run: cargo run --locked -q -p class_c_monitor -- --headless-smoke
 
+      - name: MedUI Studio render bridge self-test (ADR-022, lavapipe)
+        run: cargo run --locked -q -p trustsc-medui-studio -- --self-test
+
       - name: Verify hello world UI (ADR-016, lavapipe)
         # hello_world's greeting is only authored in en-US (it is the minimal smoke example, not
         # an i18n demonstration) -- class_c_monitor below is the example that covers --locales=all.

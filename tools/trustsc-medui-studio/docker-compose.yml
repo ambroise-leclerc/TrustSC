@@ -1,0 +1,19 @@
+# Example deployment (ADR-022 wave S10): bind-mounts a local .medui repo checkout, read-only,
+# and gates /api/* behind a shared bearer token. Build first from the repo root:
+#
+#   docker build -f tools/trustsc-medui-studio/Dockerfile -t trustsc-medui-studio .
+#   TRUSTSC_STUDIO_TOKEN=<your-token> docker compose -f tools/trustsc-medui-studio/docker-compose.yml up
+#
+# See the crate README's "Deployment" section for the reverse-proxy/TLS posture this assumes.
+services:
+  medui-studio:
+    image: trustsc-medui-studio
+    ports:
+      - "8080:8080"
+    environment:
+      TRUSTSC_STUDIO_TOKEN: "${TRUSTSC_STUDIO_TOKEN:?set TRUSTSC_STUDIO_TOKEN before starting}"
+    volumes:
+      # Replace with the .medui repo checkout to preview. Read-only: the studio never writes
+      # into it in this wave (no editing until wave S11).
+      - ../..:/data:ro
+    restart: unless-stopped
