@@ -14,11 +14,22 @@ if [ -n "${STUDIO_REPO_URL:-}" ]; then
   if [ -d "$repo_dir/.git" ]; then
     echo "entrypoint: $repo_dir already a git checkout, not re-cloning"
   else
-    # Every checkout git touches in this container is single-tenant and ephemeral (the image's
-    # only job), so git's "dubious ownership" guard (relevant when a bind-mounted or
-    # locally-cloned source is owned by a different uid than the container runs as) has nothing
-    # to protect here; without this it fails closed on some STUDIO_REPO_URL/volume combinations.
-    git config --global --add safe.directory '*'
+    local_path=""
+    case "$STUDIO_REPO_URL" in
+      /* | ./* | ../*) local_path="$STUDIO_REPO_URL" ;;
+      # git's ownership check runs against the resolved filesystem path, not the file:// URL
+      # string itself, so the scheme has to be stripped for the exemption to actually match.
+      file://*) local_path="${STUDIO_REPO_URL#file://}" ;;
+    esac
+    if [ -n "$local_path" ]; then
+      # If it's owned by a different uid than the container runs as, git's "dubious ownership"
+      # guard refuses to clone it. Only this specific source path needs the exemption -- unlike
+      # a wildcard, this doesn't waive the guard for every repository the container might ever
+      # touch. Cloning from a local path checks the *.git* subdirectory specifically, not the
+      # working-tree path, so both forms are registered.
+      git config --global --add safe.directory "$local_path"
+      git config --global --add safe.directory "$local_path/.git"
+    fi
     echo "entrypoint: cloning $STUDIO_REPO_URL into $repo_dir"
     git clone --depth 1 "$STUDIO_REPO_URL" "$repo_dir"
   fi

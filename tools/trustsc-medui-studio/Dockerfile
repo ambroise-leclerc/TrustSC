@@ -24,14 +24,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       mesa-vulkan-drivers libvulkan1 git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Runs as a dedicated, unprivileged user rather than the image default (root): this is a hosted
+# web service (ADR-022), and root inside the container is unnecessary blast radius if it's ever
+# compromised. Needs a real home directory so `git config --global` (entrypoint.sh, the
+# clone-at-startup path) has somewhere to write ~/.gitconfig.
+RUN groupadd --system studio \
+    && useradd --system --create-home --gid studio --shell /usr/sbin/nologin studio
+
 COPY --from=builder /workspace/target/release/trustsc-medui-studio /usr/local/bin/trustsc-medui-studio
 COPY tools/trustsc-medui-studio/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Default bind-mount target for the "mount an existing checkout" deployment mode; also the
-# default clone target when STUDIO_REPO_URL is set (see entrypoint.sh).
+# default clone target when STUDIO_REPO_URL is set (see entrypoint.sh). Owned by the runtime
+# user up front so a freshly created named volume (Docker seeds it from the image at first
+# mount) is writable for the clone-at-startup path without an extra chown step at runtime.
+RUN mkdir -p /data && chown studio:studio /data
 VOLUME ["/data"]
 WORKDIR /data
 
+USER studio
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

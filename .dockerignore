@@ -2,7 +2,16 @@
 # from the repo root (the crate is a workspace member, so the whole workspace is the build
 # context). None of this is needed inside the image: build output, VCS metadata, and the
 # frontend's own node_modules (frontend/dist/ — the actual build output the server embeds — is
-# committed and copied normally).
+# committed and copied normally). generated/fonts, generated/images, and generated/models are
+# NOT excluded here: they're real build.rs inputs the release binary is baked from.
 /target
 .git
 **/node_modules
+
+# ADR-016 --verify-ui evidence (gitignored, regenerated fresh every run) and the wave S7
+# self-test's preview PNG (also gitignored, written to whatever directory it's run from) — never
+# build inputs, and can be large/plentiful if this checkout has been used to run either locally.
+# Scoped to these known-generated paths rather than a blanket **/*.png: a future baked image
+# fixture could legitimately need to be a real build input in the Docker context.
+/generated/verification/
+/self-test-preview.png
