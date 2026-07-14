@@ -197,3 +197,90 @@ h1 {
   margin: 0.4rem 0 0;
   padding-left: 1.2rem;
 }
+
+.selection-label {
+  min-height: 1.2rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 0.2rem;
+}
+
+/* Wave S11: canvas editing states, layered on top of .node-overlay (defined above). */
+
+.node-overlay--editable {
+  cursor: move;
+}
+
+.node-overlay--flow {
+  cursor: not-allowed;
+  border: 1px dashed #8888;
+}
+
+.node-overlay__flow-badge {
+  position: absolute;
+  bottom: -1.15rem;
+  left: 0;
+  font-size: 0.65rem;
+  line-height: 1.4;
+  background: #6b6b6b;
+  color: white;
+  padding: 0 0.3rem;
+  border-radius: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.node-overlay--selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.node-resize-handle {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border: 1px solid white;
+  cursor: nwse-resize;
+}
+
+.node-overlay--offender {
+  border: 2px solid #d4342b;
+  background: color-mix(in srgb, #d4342b 18%, transparent);
+  pointer-events: none;
+}
+
+.node-overlay--panel {
+  cursor: pointer;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  padding: 0.25rem;
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.context-menu button:hover {
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}

@@ -82,18 +82,42 @@ field (the widget kind) — reusing `"kind"` for both would collide when interna
 
 Every `/api/*` route above is behind the same bearer-token gate (see Auth).
 
-## Frontend (wave S9)
+## Frontend (waves S9 + S11)
 
-`frontend/` is a plain-TypeScript, no-framework, no-bundler previewer: a screen list and a screen
-view (pixel-exact frame via `<img>`, a locale switcher, a zoom control, a node-bounds hover
-overlay, a golden-reference-outline toggle, a diagnostics panel, and a PNG download button).
-Read-only — no editing lands until wave S11 — but `frontend/src/overlay.ts`'s
-`renderOverlay`/`boundsToStyle` are factored out specifically so the editor can build drag/resize
-on top of them instead of rewriting this geometry.
+`frontend/` is a plain-TypeScript, no-framework, no-bundler app: a screen list and a screen view
+(pixel-exact frame via `<img>`, a locale switcher, a zoom control, a node-bounds hover overlay, a
+golden-reference-outline toggle, a diagnostics panel, and a PNG download button — wave S9), plus
+canvas selection and drag/resize editing on top of it (wave S11).
 
 Routing is a plain `location.hash` (`#screen=<id>&locale=<tag>`), so any screen+locale view is a
 copy-pasteable, shareable URL — the server doesn't need a catch-all SPA route, since the hash
 never reaches it.
+
+### Canvas editor (wave S11)
+
+`src/ast.ts` (pure AST helpers: find/update a node, grid-snap, "is this node draggable")
+and `src/editor.ts` (`CanvasEditor` — all the DOM/interaction state: selection, drag/resize,
+keyboard nudge, the context menu, the debounced compile loop) sit on top of `overlay.ts`'s
+`renderOverlay`/`boundsToStyle`, which wave S9 deliberately factored out for exactly this.
+
+- The client holds the AST DTO from `GET /api/screens/{id}` as the document; it's never persisted
+  anywhere in this wave (no save/propose-change flow until wave S15) — reload or navigate away
+  and an edit is gone.
+- Only absolutely-positioned, fixed-px nodes (`position:` + fixed `width:`/`height:`) can be
+  dragged/resized — the parser requires that pairing anyway (`parse_component_properties`). Flow
+  nodes (no `position:`, or `Fill` dims) show a "flow" badge and offer "Convert to absolute" in a
+  right-click context menu, which pins their *current compiled* bounds as `position:` + fixed
+  dims — visually lossless.
+- Drag moves only the overlay rect (no compile/render per mouse move); on drop — or debounced
+  ~250ms after a keyboard nudge (arrows = 1px, Shift+arrows = 8px) — the AST is sent to
+  `POST /api/compile`. On success, a fresh frame is requested via `POST /api/frame` (as a blob,
+  swapped into the `<img>` via an object URL) and the overlay geometry updates immediately —
+  it doesn't wait on that frame request, since overlay positions come from the compile result,
+  not the image itself. On failure the last-good frame and compiled bounds are kept, the edited
+  node's *proposed* bounds are drawn as a red outline, and the diagnostics panel shows why.
+- Clicking a Row's synthesized background (a compiled `Panel` node, id `{row_id}-background`)
+  selects the Row instead of trying to treat it as a draggable widget — inspector-only until
+  wave S13.
 
 ```sh
 cd frontend
@@ -106,7 +130,7 @@ alongside the source, so `cargo build`/`cargo run` never requires Node — only 
 if you're changing it, then rebuild `dist/` and commit both. `frontend/package-lock.json` is
 committed and `typescript` is tracked in `docs/governance/soup-register.toml`.
 
-See `MANUAL_TESTS.md` for the browser checklist this wave's acceptance criteria requires (Rust
+See `MANUAL_TESTS.md` for the browser checklist both waves' acceptance criteria require (Rust
 tests only cover the API and static-asset serving, not actual rendering/interaction in a
 browser).
 

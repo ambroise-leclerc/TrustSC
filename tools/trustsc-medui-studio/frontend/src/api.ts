@@ -1,7 +1,7 @@
-// Typed fetch wrappers over the studio REST API (ADR-022 wave S8). Kept in sync by hand with
-// tools/trustsc-medui-studio/src/dto.rs — there is no shared schema generator (yet); if a field
-// here stops matching the server, every call site fails loudly (missing/undefined field) rather
-// than silently, since this file has no runtime validation of its own.
+// Typed fetch wrappers over the studio REST API (ADR-022 waves S8/S11). Kept in sync by hand
+// with tools/trustsc-medui-studio/src/dto.rs — there is no shared schema generator (yet); if a
+// field here stops matching the server, every call site fails loudly (missing/undefined field)
+// rather than silently, since this file has no runtime validation of its own.
 
 export interface ScreenEntry {
   id: string;
@@ -16,16 +16,32 @@ export interface Bounds {
   h: number;
 }
 
-// The "kind" tag plus whatever fields that widget kind carries (see NodeKindDto in dto.rs). The
-// previewer only ever reads `kind` itself for the tooltip/badge; other fields are looked up by
-// name when present (e.g. `text_key`) rather than fully typed, since a read-only previewer has
-// no need to round-trip this shape the way the (future, S11) editor will.
-export interface NodeKindDto {
-  kind: string;
-  [field: string]: unknown;
-}
-
 export type CvCheckKind = "Bounds" | "ColorHash";
+export type SystemEventDto = "NoOp" | "TriggerHalt";
+export type ClockFormatDto = "TimeSeconds" | "DateTimeSeconds";
+
+// Mirrors NodeKindDto (dto.rs) exactly, including Panel: a *compiled* node summary can carry one
+// (synthesized from a Row's background:), even though the AST editor never authors one directly
+// (see ast.ts's isSyntheticPanel/isDraggable).
+export type NodeKindDto =
+  | { kind: "CriticalButton"; requirement_id: string; label_text_key: string; color_token: string; on_press: SystemEventDto }
+  | { kind: "VulkanViewport"; stream_source: string }
+  | { kind: "SignalTrace"; stream_source: string; color_token: string }
+  | { kind: "Label"; text_key: string; color_token: string }
+  | { kind: "Clock"; format: ClockFormatDto }
+  | { kind: "NumericDisplay"; requirement_id: string; template_id: string; source: string; color_token: string }
+  | { kind: "StatusIndicator"; requirement_id: string; source: string; state_text_keys: string[]; color_tokens: string[] }
+  | { kind: "Panel"; color_token: string }
+  | { kind: "Image"; image_id: string }
+  | { kind: "Button"; label_text_key: string; color_token: string; source: string; requirement_id: string | null }
+  | {
+      kind: "TextInput";
+      source: string;
+      max_length: number;
+      glyph_set_id: string;
+      color_token: string;
+      requirement_id: string | null;
+    };
 
 export interface CompiledNodeSummary {
   id: string;
@@ -49,14 +65,55 @@ export interface CompiledSummary {
   diagnostics: Diagnostic[];
 }
 
-// The AST DTO (ScreenDefinitionDto in dto.rs) is opaque here: the read-only previewer never
-// edits it, only round-trips it through /api/serialize in a later wave. Typed as `unknown` on
-// purpose so this file doesn't silently drift from the editor's eventual, much larger AST types.
-export type ScreenAst = unknown;
+// ---------------------------------------------------------------------------------------------
+// AST DTOs (wave S11): mirrors ScreenDefinitionDto and everything it owns (dto.rs). This is the
+// document the canvas editor mutates in memory and round-trips through /api/compile + /api/frame
+// — never persisted anywhere in this wave (no save/PR flow until wave S15).
+// ---------------------------------------------------------------------------------------------
+
+export type DimensionDto = { kind: "Px"; value: number } | { kind: "Fill" };
+
+export interface LayoutDefinitionDto {
+  kind: "Vertical" | "Horizontal";
+  spacing: number;
+  padding: number;
+}
+
+export interface SafetyCriticalDto {
+  cv_checks: CvCheckKind[];
+}
+
+export interface NodeDefinitionDto {
+  id: string;
+  width: DimensionDto;
+  height: DimensionDto;
+  position: [number, number] | null;
+  kind: NodeKindDto;
+  safety_critical: SafetyCriticalDto | null;
+}
+
+export interface RowDefinitionDto {
+  id: string;
+  height: DimensionDto;
+  spacing: number;
+  background: string | null;
+  children: NodeDefinitionDto[];
+}
+
+// Internally tagged on "type" (not "kind" — NodeDefinitionDto already has its own "kind" field;
+// see dto.rs's ScreenItemDto doc comment). Each variant's payload is flattened alongside the tag.
+export type ScreenItemDto = ({ type: "Component" } & NodeDefinitionDto) | ({ type: "Row" } & RowDefinitionDto);
+
+export interface ScreenDefinitionDto {
+  id: string;
+  layout: LayoutDefinitionDto;
+  declared_surface: [number, number] | null;
+  items: ScreenItemDto[];
+}
 
 export interface ScreenDetail {
   source: string;
-  screen: ScreenAst | null;
+  screen: ScreenDefinitionDto | null;
   compiled: CompiledSummary;
 }
 
@@ -86,6 +143,12 @@ export interface Palette {
   locales: string[];
 }
 
+export interface CompileResult {
+  ok: boolean;
+  compiled: CompiledSummary | null;
+  diagnostics: Diagnostic[];
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -96,19 +159,23 @@ export class ApiError extends Error {
   }
 }
 
+async function errorMessageFrom(response: Response): Promise<string> {
+  let message = `${response.status} ${response.statusText}`;
+  try {
+    const body = (await response.json()) as { error?: string };
+    if (body.error) {
+      message = body.error;
+    }
+  } catch {
+    // Non-JSON error body (e.g. a 401 from the auth middleware) — the status text is enough.
+  }
+  return message;
+}
+
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { accept: "application/json" } });
   if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body.error) {
-        message = body.error;
-      }
-    } catch {
-      // Non-JSON error body (e.g. a 401 from the auth middleware) — the status text is enough.
-    }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, await errorMessageFrom(response));
   }
   return (await response.json()) as T;
 }
@@ -126,8 +193,38 @@ export function palette(): Promise<Palette> {
 }
 
 /** The `/api/frame` URL for an `<img src>` — not fetched directly, since the browser handles
- * PNG loading (and caching) itself. */
+ * PNG loading (and caching) itself. Always renders the *saved* source (there is no save/PR flow
+ * until wave S15, so this is never the in-progress edit — see `postFrame` for that). */
 export function frameUrl(screenId: string, locale: string): string {
   const params = new URLSearchParams({ screen: screenId, locale });
   return `/api/frame?${params.toString()}`;
+}
+
+/** `POST /api/compile` with an in-memory AST — the canvas editor's compile loop. Never throws
+ * for a screen that fails to compile (`ok: false` + `diagnostics` instead); only throws for a
+ * genuine transport/request-shape failure. */
+export async function compileScreen(screen: ScreenDefinitionDto): Promise<CompileResult> {
+  const response = await fetch("/api/compile", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ screen }),
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorMessageFrom(response));
+  }
+  return (await response.json()) as CompileResult;
+}
+
+/** `POST /api/frame` with an in-memory AST, returning the rendered PNG as a `Blob` (the caller
+ * turns it into an object URL) — the editor's post-compile frame refresh for unsaved edits. */
+export async function postFrame(screen: ScreenDefinitionDto, locale: string): Promise<Blob> {
+  const response = await fetch("/api/frame", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ screen, locale }),
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorMessageFrom(response));
+  }
+  return await response.blob();
 }
