@@ -129,7 +129,16 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
     return;
   }
 
-  const locale = requestedLocale ?? paletteData.locales[0] ?? "en-US";
+  // A shared/edited URL can name a locale the palette doesn't know about — /api/frame would
+  // 400 on it, leaving the <img> broken with no in-page explanation. Clamp to a known locale
+  // up front and say so, rather than letting the request fail silently.
+  let locale = requestedLocale ?? paletteData.locales[0] ?? "en-US";
+  let localeWarning: string | null = null;
+  if (!paletteData.locales.includes(locale)) {
+    const fallback = paletteData.locales[0] ?? "en-US";
+    localeWarning = `Unknown locale "${locale}" — showing "${fallback}" instead.`;
+    locale = fallback;
+  }
   const [surfaceWidth, surfaceHeight] = detail.compiled.surface;
 
   const backLink = el("a", { href: "#", class: "back-link" }, ["← all screens"]);
@@ -199,7 +208,7 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
     });
   });
 
-  app.replaceChildren(
+  const children: (Node | string)[] = [
     el("div", { class: "toolbar" }, [
       backLink,
       el("h1", {}, [screenId]),
@@ -209,10 +218,16 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
       goldenToggle,
       downloadLink,
     ]),
+  ];
+  if (localeWarning) {
+    children.push(el("p", { class: "status status--error" }, [localeWarning]));
+  }
+  children.push(
     el("div", { class: "frame-viewport" }, [stage]),
     hoverLabel,
     diagnosticsPanel(detail.compiled.diagnostics),
   );
+  app.replaceChildren(...children);
 }
 
 function setHoverLabel(label: HTMLElement, node: CompiledNodeSummary | null): void {
