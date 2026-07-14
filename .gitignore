@@ -2,6 +2,11 @@
 CLAUDE.md
 .claude/settings.local.json
 
+# Frontend build tooling (wave S9): node_modules is reproducible from the committed
+# package-lock.json via `npm ci`; frontend/dist/ is committed (built output embedded into the
+# server binary), so it is not ignored.
+/tools/trustsc-medui-studio/frontend/node_modules/
+
 # ADR-016 --verify-ui evidence: regenerated fresh every run and uploaded as a CI artifact, not a
 # runtime input like the font/image bake outputs elsewhere under generated/. Promoting a
 # lavapipe ColorHash baseline out of this tree into a real committed gate is a deliberate,

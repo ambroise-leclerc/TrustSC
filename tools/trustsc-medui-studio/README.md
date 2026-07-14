@@ -78,7 +78,34 @@ field (the widget kind) — reusing `"kind"` for both would collide when interna
 - `POST /api/serialize` — `{ "screen": <AST DTO> }` → `{ "source": "..." }` via `serialize_screen`.
   Rejects (`400`) a submitted `Panel` node — compiler-synthesized only, no `.medui` syntax exists
   for it — before ever reaching the serializer, which would otherwise panic on one.
-- `GET /*` — serves the embedded `frontend/dist/` assets (a placeholder page for this wave; the
-  read-only previewer lands in wave S9).
+- `GET /*` — serves the embedded `frontend/dist/` assets (the read-only previewer, wave S9).
 
 Every `/api/*` route above is behind the same bearer-token gate (see Auth).
+
+## Frontend (wave S9)
+
+`frontend/` is a plain-TypeScript, no-framework, no-bundler previewer: a screen list and a screen
+view (pixel-exact frame via `<img>`, a locale switcher, a zoom control, a node-bounds hover
+overlay, a golden-reference-outline toggle, a diagnostics panel, and a PNG download button).
+Read-only — no editing lands until wave S11 — but `frontend/src/overlay.ts`'s
+`renderOverlay`/`boundsToStyle` are factored out specifically so the editor can build drag/resize
+on top of them instead of rewriting this geometry.
+
+Routing is a plain `location.hash` (`#screen=<id>&locale=<tag>`), so any screen+locale view is a
+copy-pasteable, shareable URL — the server doesn't need a catch-all SPA route, since the hash
+never reaches it.
+
+```sh
+cd frontend
+npm ci
+npm run build   # tsc -p tsconfig.json, then copies styles.css and index.html into dist/
+```
+
+`frontend/dist/` (the build output `include_dir!` embeds into the binary, wave S6) is committed
+alongside the source, so `cargo build`/`cargo run` never requires Node — only touch the frontend
+if you're changing it, then rebuild `dist/` and commit both. `frontend/package-lock.json` is
+committed and `typescript` is tracked in `docs/governance/soup-register.toml`.
+
+See `MANUAL_TESTS.md` for the browser checklist this wave's acceptance criteria requires (Rust
+tests only cover the API and static-asset serving, not actual rendering/interaction in a
+browser).

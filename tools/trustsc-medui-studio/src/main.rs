@@ -31,8 +31,9 @@ fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(ErrorEnvelope { error: message.into() })).into_response()
 }
 
-/// The frontend's built assets, embedded into the binary so the server has no runtime file
-/// dependency. For this wave it is a single placeholder `index.html` (real assets land in S9).
+/// The frontend's built assets (`frontend/dist/`, wave S9's read-only previewer — a plain
+/// TypeScript app built with `npm run build`, see this crate's README), embedded into the
+/// binary so the server has no runtime file dependency.
 static FRONTEND_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/frontend/dist");
 
 #[derive(Debug, Parser)]
@@ -343,7 +344,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_serves_the_placeholder_frontend() {
+    async fn root_serves_the_frontend_index() {
         let app = build_router(state_for_repo(repo_root(), None));
         let response = app
             .oneshot(HttpRequest::get("/").body(Body::empty()).unwrap())
@@ -352,6 +353,29 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("TrustSC MedUI Studio"));
+    }
+
+    #[tokio::test]
+    async fn frontend_scripts_and_styles_serve_with_correct_content_types() {
+        let app = build_router(state_for_repo(repo_root(), None));
+        for (path, expected_content_type) in [
+            ("/app.js", "text/javascript; charset=utf-8"),
+            ("/api.js", "text/javascript; charset=utf-8"),
+            ("/overlay.js", "text/javascript; charset=utf-8"),
+            ("/styles.css", "text/css; charset=utf-8"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::get(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "path: {path}");
+            assert_eq!(
+                response.headers().get("content-type").unwrap(),
+                expected_content_type,
+                "path: {path}"
+            );
+        }
     }
 
     #[tokio::test]
