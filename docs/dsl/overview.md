@@ -29,3 +29,7 @@ The current slice is intentionally narrow:
 - runtime consumes `CompiledScreenPackage` only
 
 This keeps the regulated runtime deterministic while still giving developers and LLMs a structured UI description format.
+
+## Style Guide
+
+For canonical formatting conventions, see [MedUI DSL Style Guide](style-guide.md).
