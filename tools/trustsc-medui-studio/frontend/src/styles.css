@@ -449,6 +449,52 @@ h1 {
   cursor: not-allowed;
 }
 
+/* Wave S14: safety guard rails. */
+
+.safety-banner {
+  background: #fdf3d7;
+  color: #6b4d00;
+  border: 1px solid #d4a72b;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .safety-banner {
+    background: #3a2f10;
+    color: #e8c76a;
+  }
+}
+
+.changes-drawer {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  max-width: 40rem;
+  font-size: 0.85rem;
+}
+
+.changes-drawer summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.changes-drawer__list {
+  margin: 0.4rem 0 0.2rem;
+  padding-left: 1.2rem;
+}
+
+.changes-drawer__golden {
+  color: #a86e00;
+}
+
+.inspector__cv-checks {
+  flex-wrap: wrap;
+}
+
 .context-menu {
   position: fixed;
   z-index: 1000;

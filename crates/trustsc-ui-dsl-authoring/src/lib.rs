@@ -1379,6 +1379,19 @@ impl CompileContext<'_, '_> {
         validate_node_text_budget(&node, bounds, self.text_packages)?;
         validate_color_tokens(&node.id, &node.kind)?;
 
+        // The parser already rejects `@safety_critical(cv_check: [])`, but a directly-built AST
+        // (the studio's compile API) can carry an empty list — and would then serialize to a
+        // `.medui` file that fails to re-parse. Enforce the same invariant here so an AST that
+        // compiles always round-trips.
+        if let Some(safety) = &node.safety_critical {
+            if safety.cv_checks.is_empty() {
+                return Err(ValidationError::new(format!(
+                    "component {} safety-critical annotation must declare at least one CV check",
+                    node.id
+                )));
+            }
+        }
+
         if let NodeKind::Image { image_id } = &node.kind {
             let package = self.image_packages.find(image_id).ok_or_else(|| {
                 ValidationError::new(format!(
@@ -3477,6 +3490,50 @@ Screen InteractivePanel {
         .expect_err("unknown color token should not compile");
         let diagnostic = Diagnostic::from_validation_error(&error);
         assert_eq!(diagnostic.line, None, "message was: {}", diagnostic.message);
+    }
+
+    #[test]
+    fn compile_screen_definition_rejects_empty_cv_check_list() {
+        // The parser can never produce this shape (`@safety_critical(cv_check: [])` is a parse
+        // error), but a directly-built AST (e.g. MedUI Studio's compile API) can — and it would
+        // serialize to a `.medui` file that fails to re-parse if compilation accepted it.
+        let screen = ScreenDefinition {
+            id: "EmptyChecks".to_string(),
+            layout: LayoutDefinition {
+                kind: LayoutKind::Vertical,
+                spacing: 8,
+                padding: 0,
+            },
+            declared_surface: Some((800, 480)),
+            items: vec![ScreenItem::Component(NodeDefinition {
+                id: "title".to_string(),
+                width: Dimension::Px(340),
+                height: Dimension::Px(48),
+                position: Some((16, 8)),
+                kind: NodeKind::Label {
+                    text_key: "STR-HELLO-WORLD".to_string(),
+                    color_token: "Theme.Colors.Title".to_string(),
+                },
+                safety_critical: Some(SafetyCriticalDefinition { cv_checks: vec![] }),
+            })],
+        };
+        let diagnostics = compile_screen_definition(
+            screen,
+            &CompileOptions::new(800, 480),
+            TextPackages::standard_only(&sample_text_package()),
+            ImagePackages::none(),
+        )
+        .expect_err("an empty cv_check list should not compile");
+        assert!(
+            diagnostics[0].message.contains("at least one CV check"),
+            "message was: {}",
+            diagnostics[0].message
+        );
+        assert!(
+            diagnostics[0].message.contains("title"),
+            "message should name the offending node, was: {}",
+            diagnostics[0].message
+        );
     }
 
     #[test]

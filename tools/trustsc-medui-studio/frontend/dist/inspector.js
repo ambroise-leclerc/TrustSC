@@ -89,8 +89,67 @@ export class Inspector {
         }
         if (schema) {
             children.push(...this.kindPropFields(node, schema));
+            if (schema.safety_critical_eligible) {
+                children.push(this.safetyCriticalField(node));
+            }
         }
         this.container.replaceChildren(...children);
+    }
+    /** Wave S14 guard rail: the `@safety_critical(cv_check: [...])` annotation. An annotation with
+     * an empty check list is a compile error, so unchecking the last check is rejected at the
+     * field (inline error, AST untouched) instead of diagnosed after the fact. */
+    safetyCriticalField(node) {
+        const error = el("span", { class: "inspector__error" });
+        const nodeId = this.targetNodeId();
+        const applyChecks = (checks) => {
+            this.editor.applyNodeUpdate(nodeId, (n) => ({
+                ...n,
+                safety_critical: checks === null ? null : { cv_checks: checks },
+            }));
+            this.renderNode(nodeId);
+        };
+        const master = el("input", {
+            type: "checkbox",
+            ...(node.safety_critical ? { checked: "checked" } : {}),
+        });
+        master.addEventListener("change", () => {
+            applyChecks(master.checked ? ["Bounds"] : null);
+        });
+        const masterLabel = el("label", { class: "inspector__fill" }, [master, " @safety_critical"]);
+        const rows = [masterLabel];
+        if (node.safety_critical) {
+            const current = node.safety_critical.cv_checks;
+            for (const check of ["Bounds", "ColorHash"]) {
+                const box = el("input", {
+                    type: "checkbox",
+                    ...(current.includes(check) ? { checked: "checked" } : {}),
+                });
+                // The compiler rejects ColorHash on Image (only Bounds is eligible there).
+                const colorHashOnImage = check === "ColorHash" && node.kind.kind === "Image";
+                if (colorHashOnImage) {
+                    box.setAttribute("disabled", "disabled");
+                }
+                box.addEventListener("change", () => {
+                    const next = box.checked ? [...current, check] : current.filter((c) => c !== check);
+                    if (next.length === 0) {
+                        error.textContent = "at least one cv_check is required (a compile error otherwise)";
+                        box.checked = true;
+                        return;
+                    }
+                    error.textContent = "";
+                    applyChecks(next);
+                });
+                rows.push(el("label", { class: "inspector__fill", ...(colorHashOnImage ? { title: "ColorHash is not eligible on Image" } : {}) }, [
+                    box,
+                    ` ${check}`,
+                ]));
+            }
+            rows.push(error);
+        }
+        return el("div", { class: "inspector__field" }, [
+            el("label", { class: "inspector__label" }, ["safety critical"]),
+            el("span", { class: "inspector__pair inspector__cv-checks" }, rows),
+        ]);
     }
     renderRow(rowId) {
         const row = findRow(this.editor.getScreen(), rowId);
