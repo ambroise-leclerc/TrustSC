@@ -30,11 +30,14 @@ import {
   updateNode,
   updateRow,
 } from "./ast.js";
+import { diffScreens, type ScreenDiff } from "./changes.js";
 import { defaultNodeAt } from "./palette-defaults.js";
 import { boundsToStyle, renderOverlay } from "./overlay.js";
 
 const GRID_PX = 8;
 const COMPILE_DEBOUNCE_MS = 250;
+/** Undo history depth (wave S14). Snapshots are small owned AST documents, so 100 is cheap. */
+const HISTORY_CAP = 100;
 
 /** The drag payload type palette items set on dragstart and the canvas accepts on drop — a
  * private convention between app.ts's palette panel and this editor, carrying the widget
@@ -47,6 +50,9 @@ export interface CanvasEditorCallbacks {
   onSelectionChange(node: NodeDefinitionDto | null): void;
   onRowSelected(rowId: string): void;
   onCompileError(message: string): void;
+  /** Fired after every commit and every undo/redo with the diff against the loaded file — drives
+   * the wave-S14 changes drawer and the golden-impact warning banner. */
+  onDocumentChanged(diff: ScreenDiff): void;
 }
 
 type DragState =
@@ -76,6 +82,10 @@ type DragState =
 export class CanvasEditor {
   private screen: ScreenDefinitionDto;
   private compiled: CompiledSummary;
+  /** The document as loaded from disk — the diff baseline for the changes drawer / banner. */
+  private readonly initialScreen: ScreenDefinitionDto;
+  private undoStack: ScreenDefinitionDto[] = [];
+  private redoStack: ScreenDefinitionDto[] = [];
   private selectedNodeId: string | null = null;
   private selectedRowId: string | null = null;
   private lastEditedNodeId: string | null = null;
@@ -100,6 +110,7 @@ export class CanvasEditor {
     private readonly callbacks: CanvasEditorCallbacks,
   ) {
     this.screen = initialScreen;
+    this.initialScreen = initialScreen;
     this.compiled = initialCompiled;
     document.addEventListener("keydown", this.onKeyDown);
     document.addEventListener("mousemove", this.onMouseMove);
@@ -179,6 +190,16 @@ export class CanvasEditor {
       el.classList.add("node-overlay--editable");
       if (astNode.id === this.selectedNodeId) {
         el.classList.add("node-overlay--selected");
+      }
+
+      // Wave S14 guard rail: `@safety_critical` nodes always wear the shield, not only while the
+      // golden-outline toggle is on (which adds its own badge — skip doubling it then).
+      if (astNode.safety_critical !== null && !this.showGolden) {
+        const shield = document.createElement("span");
+        shield.className = "node-overlay__badge";
+        shield.textContent = "\u{1F6E1}";
+        shield.setAttribute("aria-hidden", "true");
+        el.appendChild(shield);
       }
 
       if (isDraggable(astNode)) {
@@ -272,6 +293,56 @@ export class CanvasEditor {
     return this.screen;
   }
 
+  /** The single mutation gate (wave S14): pushes the outgoing document onto the undo stack,
+   * clears the redo stack, reports the new diff against the loaded file, and runs the compile
+   * loop. Every edit path — canvas, palette, inspector — lands here. */
+  private commit(next: ScreenDefinitionDto, editedNodeId: string | null, immediate: boolean): void {
+    if (next === this.screen) {
+      return;
+    }
+    this.undoStack.push(this.screen);
+    if (this.undoStack.length > HISTORY_CAP) {
+      this.undoStack.shift();
+    }
+    this.redoStack = [];
+    this.screen = next;
+    this.lastEditedNodeId = editedNodeId;
+    this.callbacks.onDocumentChanged(diffScreens(this.initialScreen, this.screen));
+    this.scheduleCompile(immediate);
+  }
+
+  private undo(): void {
+    this.jumpHistory(this.undoStack, this.redoStack);
+  }
+
+  private redo(): void {
+    this.jumpHistory(this.redoStack, this.undoStack);
+  }
+
+  private jumpHistory(from: ScreenDefinitionDto[], to: ScreenDefinitionDto[]): void {
+    const target = from.pop();
+    if (!target) {
+      return;
+    }
+    to.push(this.screen);
+    this.screen = target;
+    this.lastEditedNodeId = null;
+    // The restored version may not contain what was selected.
+    if (this.selectedNodeId && !findNode(this.screen, this.selectedNodeId)) {
+      this.selectedNodeId = null;
+    }
+    if (this.selectedRowId && !findRow(this.screen, this.selectedRowId)) {
+      this.selectedRowId = null;
+    }
+    if (this.selectedRowId) {
+      this.callbacks.onRowSelected(this.selectedRowId);
+    } else {
+      this.callbacks.onSelectionChange(this.selectedNodeId ? findNode(this.screen, this.selectedNodeId) : null);
+    }
+    this.callbacks.onDocumentChanged(diffScreens(this.initialScreen, this.screen));
+    this.scheduleCompile(true);
+  }
+
   /** Applies an inspector edit to a node and recompiles. If the update renames the node, the
    * selection follows the new id. */
   applyNodeUpdate(nodeId: string, updater: (node: NodeDefinitionDto) => NodeDefinitionDto): void {
@@ -280,12 +351,10 @@ export class CanvasEditor {
       return;
     }
     const updated = updater(before);
-    this.screen = updateNode(this.screen, nodeId, () => updated);
     if (this.selectedNodeId === nodeId) {
       this.selectedNodeId = updated.id;
     }
-    this.lastEditedNodeId = updated.id;
-    this.scheduleCompile(true);
+    this.commit(updateNode(this.screen, nodeId, () => updated), updated.id, true);
   }
 
   /** Applies an inspector edit to a Row's own definition (height, spacing, background, id). */
@@ -295,20 +364,16 @@ export class CanvasEditor {
       return;
     }
     const updated = updater(before);
-    this.screen = updateRow(this.screen, rowId, () => updated);
     if (this.selectedRowId === rowId) {
       this.selectedRowId = updated.id;
     }
     // A Row edit has no single proposed rect to outline; diagnostics alone report a failure.
-    this.lastEditedNodeId = null;
-    this.scheduleCompile(true);
+    this.commit(updateRow(this.screen, rowId, () => updated), null, true);
   }
 
   /** Applies a screen-level inspector edit (layout spacing/padding, declared surface). */
   applyScreenUpdate(updater: (screen: ScreenDefinitionDto) => ScreenDefinitionDto): void {
-    this.screen = updater(this.screen);
-    this.lastEditedNodeId = null;
-    this.scheduleCompile(true);
+    this.commit(updater(this.screen), null, true);
   }
 
   private startDrag(event: MouseEvent, nodeId: string): void {
@@ -395,10 +460,8 @@ export class CanvasEditor {
       this.callbacks.onCompileError(`cannot create a default ${kindName} node`);
       return;
     }
-    this.screen = appendNode(this.screen, node);
-    this.lastEditedNodeId = id;
+    this.commit(appendNode(this.screen, node), id, true);
     this.select(id);
-    this.scheduleCompile(true);
   }
 
   /** Wave S12: removes the currently selected node (Delete/Backspace), then recompiles. */
@@ -406,14 +469,8 @@ export class CanvasEditor {
     if (!this.selectedNodeId) {
       return;
     }
-    const next = removeNode(this.screen, this.selectedNodeId);
-    if (next === this.screen) {
-      return;
-    }
-    this.screen = next;
-    this.lastEditedNodeId = null;
+    this.commit(removeNode(this.screen, this.selectedNodeId), null, true);
     this.select(null);
-    this.scheduleCompile(true);
   }
 
   private onMouseMove = (event: MouseEvent): void => {
@@ -458,31 +515,45 @@ export class CanvasEditor {
     if (!pending) {
       return;
     }
+    let next: ScreenDefinitionDto;
     if (kind === "move") {
       const [x, y] = pending;
-      this.screen = updateNode(this.screen, nodeId, (node) => ({ ...node, position: [x, y] }));
+      next = updateNode(this.screen, nodeId, (node) => ({ ...node, position: [x, y] }));
     } else {
       const [width, height] = pending;
-      this.screen = updateNode(this.screen, nodeId, (node) => ({
+      next = updateNode(this.screen, nodeId, (node) => ({
         ...node,
         width: { kind: "Px", value: width },
         height: { kind: "Px", value: height },
       }));
     }
-    this.lastEditedNodeId = nodeId;
+    this.commit(next, nodeId, true);
     // Keep the inspector's position/size fields in sync with the canvas edit (wave S13).
     if (this.selectedNodeId === nodeId) {
       this.callbacks.onSelectionChange(findNode(this.screen, nodeId));
     }
-    this.scheduleCompile(true);
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.selectedNodeId) {
-      return;
-    }
     const active = document.activeElement;
     if (active && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) {
+      return; // Let inputs keep their own editing keys, including the browser's native undo.
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        this.redo();
+      } else {
+        this.undo();
+      }
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      this.redo();
+      return;
+    }
+    if (!this.selectedNodeId) {
       return;
     }
     if (event.key === "Delete" || event.key === "Backspace") {
@@ -519,8 +590,11 @@ export class CanvasEditor {
     const x = Math.max(0, node.position[0] + dx);
     const y = Math.max(0, node.position[1] + dy);
     const nodeId = this.selectedNodeId;
-    this.screen = updateNode(this.screen, nodeId, (n) => ({ ...n, position: [x, y] }));
-    this.lastEditedNodeId = nodeId;
+    this.commit(
+      updateNode(this.screen, nodeId, (n) => ({ ...n, position: [x, y] })),
+      nodeId,
+      false,
+    );
     this.callbacks.onSelectionChange(findNode(this.screen, nodeId));
 
     // Immediate visual feedback, same as a drag move — don't wait for the debounced compile.
@@ -531,7 +605,6 @@ export class CanvasEditor {
       const [surfaceWidth, surfaceHeight] = this.compiled.surface;
       Object.assign(el.style, boundsToStyle({ x, y, w: width, h: height }, surfaceWidth, surfaceHeight));
     }
-    this.scheduleCompile(false);
   };
 
   private openContextMenu(clientX: number, clientY: number, node: NodeDefinitionDto, compiledNode: CompiledNodeSummary): void {
@@ -548,11 +621,9 @@ export class CanvasEditor {
     item.textContent = "Convert to absolute";
     item.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.screen = convertToAbsolute(this.screen, node.id, compiledNode.bounds);
-      this.lastEditedNodeId = node.id;
       this.closeContextMenu();
+      this.commit(convertToAbsolute(this.screen, node.id, compiledNode.bounds), node.id, true);
       this.select(node.id);
-      this.scheduleCompile(true);
     });
     menu.appendChild(item);
     document.body.appendChild(menu);

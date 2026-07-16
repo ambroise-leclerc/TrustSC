@@ -5,6 +5,7 @@ import { ApiError, frameUrl, listScreens, palette, screenDetail, } from "./api.j
 import { renderOverlay, tooltipText } from "./overlay.js";
 import { CanvasEditor, WIDGET_DRAG_MIME } from "./editor.js";
 import { isDraggable } from "./ast.js";
+import { hasGoldenImpact } from "./changes.js";
 import { el } from "./dom.js";
 import { Inspector } from "./inspector.js";
 import { cannotCreateReason } from "./palette-defaults.js";
@@ -117,6 +118,31 @@ function buildPalettePanel(paletteData) {
         list,
     ]);
 }
+function changeEntryText(entry) {
+    const verb = entry.change === "added"
+        ? "added"
+        : entry.change === "removed"
+            ? "removed"
+            : entry.geometryChanged
+                ? "moved/resized"
+                : "edited";
+    const flags = `${entry.safetyCritical ? " \u{1F6E1} safety-critical" : ""}${entry.goldenAffected ? " ⚠ golden references affected" : ""}`;
+    return `${verb} ${entry.id}${flags}`;
+}
+/** Wave S14: the golden-impact warning banner and the changes-summary drawer, re-rendered from
+ * the diff the editor reports after every commit and undo/redo. The drawer's entries become the
+ * proposal summary in wave S15. */
+function renderChanges(banner, drawer, list, summary, diff) {
+    banner.hidden = !hasGoldenImpact(diff);
+    const count = diff.entries.length + (diff.screenChanged ? 1 : 0);
+    drawer.hidden = count === 0;
+    summary.textContent = `Changes vs. loaded file (${count})`;
+    const items = diff.entries.map((entry) => el("li", entry.goldenAffected ? { class: "changes-drawer__golden" } : {}, [changeEntryText(entry)]));
+    if (diff.screenChanged) {
+        items.push(el("li", {}, ["screen layout/surface changed"]));
+    }
+    list.replaceChildren(...items);
+}
 function selectionStatusText(node) {
     const editable = isDraggable(node)
         ? "draggable"
@@ -206,6 +232,14 @@ async function renderScreenView(screenId, requestedLocale) {
     });
     let inspector = null;
     const inspectorPanel = el("aside", { class: "inspector" });
+    const safetyBanner = el("div", { class: "safety-banner" }, [
+        "\u{1F6E1} Golden references / lavapipe ColorHash baselines change — CI re-approval required.",
+    ]);
+    safetyBanner.hidden = true;
+    const changesSummary = el("summary", {}, ["Changes vs. loaded file (0)"]);
+    const changesList = el("ul", { class: "changes-drawer__list" });
+    const changesDrawer = el("details", { class: "changes-drawer" }, [changesSummary, changesList]);
+    changesDrawer.hidden = true;
     if (detail.screen) {
         // Editable: the AST DTO is the document the CanvasEditor mutates in memory. It owns the
         // overlay entirely from here on (selection, drag/resize, flow badges, the compile loop) —
@@ -224,6 +258,7 @@ async function renderScreenView(screenId, requestedLocale) {
             onCompileError: (message) => {
                 renderDiagnostics(diagnosticsContainer, [{ message, line: null, severity: "Error" }]);
             },
+            onDocumentChanged: (diff) => renderChanges(safetyBanner, changesDrawer, changesList, changesSummary, diff),
         });
         currentEditor = editor;
         inspector = new Inspector(inspectorPanel, paletteData, editor);
@@ -271,7 +306,7 @@ async function renderScreenView(screenId, requestedLocale) {
     const canvasArea = detail.screen
         ? el("div", { class: "editor-layout" }, [buildPalettePanel(paletteData), frameViewport, inspectorPanel])
         : frameViewport;
-    children.push(canvasArea, hoverLabel, selectionLabel, diagnosticsContainer);
+    children.push(safetyBanner, canvasArea, hoverLabel, selectionLabel, diagnosticsContainer, changesDrawer);
     app.replaceChildren(...children);
 }
 function setHoverLabel(label, node) {

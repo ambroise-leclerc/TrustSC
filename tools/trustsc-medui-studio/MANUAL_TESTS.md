@@ -1,4 +1,4 @@
-# Manual test checklist — previewer (wave S9) + canvas editor (waves S11/S12/S13)
+# Manual test checklist — previewer (wave S9) + canvas editor (waves S11–S14)
 
 Run before every release of the previewer. Requires a Vulkan ICD (`sudo apt install
 mesa-vulkan-drivers` for lavapipe, the same setup CI uses).
@@ -132,14 +132,40 @@ Open `NeuroSense500`:
       re-renders in the new locale *with the moved button still moved* (the switch no longer
       reloads the saved file).
 
+## Safety guard rails + undo/redo (wave S14)
+
+Open `NeuroSense500`:
+
+- [ ] **Persistent shield badge**: `sedation-index` (the `@safety_critical` node) wears a shield
+      badge even with "golden-reference outlines" toggled off; toggling the outlines on keeps a
+      single badge (no doubling).
+- [ ] **Golden-impact banner**: drag `sedation-index` a few pixels — a persistent warning banner
+      appears above the canvas ("Golden references / lavapipe ColorHash baselines change — CI
+      re-approval required") and stays across further edits. It also appears when moving a plain
+      positioned node (e.g. `ack-button` — auto golden Bounds references), but *not* after only
+      recoloring it.
+- [ ] **Changes drawer**: after the moves above, the "Changes vs. loaded file (N)" drawer below
+      the diagnostics lists each changed node — `sedation-index` flagged both safety-critical and
+      golden-affected. Undoing everything empties the drawer and hides the banner.
+- [ ] **cv_check checkboxes**: select `sedation-index` — the inspector shows the
+      `@safety_critical` section with Bounds and ColorHash checked. Unchecking both: the second
+      uncheck is refused with an inline "at least one CV check" error and the AST stays
+      unchanged. Unchecking the annotation master checkbox removes it entirely (the changes
+      drawer flags this as golden-affected).
+- [ ] **ColorHash not offered on Image**: select `acme-logo`, enable `@safety_critical` — the
+      ColorHash checkbox is disabled (the compiler rejects it on Image; Bounds works).
+- [ ] **Undo/redo**: perform drag → recolor → palette-drop, then press Ctrl+Z three times — the
+      document returns to the exact loaded state (frame matches the original, drawer empty,
+      banner gone). Ctrl+Shift+Z (or Ctrl+Y) replays all three. Undo/redo works with nothing
+      selected, and while typing in an inspector field Ctrl+Z stays the input's own undo.
+
 ## Known limits (this wave)
 
 - No save/propose-change flow yet (wave S15): every canvas edit lives only in the browser tab's
   memory and is discarded on reload or navigating away (a locale switch no longer discards —
   wave S13).
-- No undo/redo and no safety-critical guard rails yet (wave S14): the `@safety_critical`
-  annotation isn't editable in the inspector, and there is no warning when moving a node with
-  golden-reference evidence.
+- The changes drawer diffs by id, so a rename reads as removed + added (which is also what
+  happens to the node's golden-reference evidence).
 - Render latency is the render bridge's own (ADR-022 wave S7): each frame is a fresh Vulkan
   instance, typically ~100-500ms on lavapipe, more under host load. During a drag, only the
   overlay rect moves (no re-render per mouse move, per the wave S11 compile-loop design); once

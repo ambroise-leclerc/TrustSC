@@ -5,7 +5,7 @@
 // sources, px dimensions). Every applied change flows through the editor's wave-S11 compile loop;
 // this file never touches the AST document directly.
 
-import type { DimensionDto, NodeDefinitionDto, Palette, PropSchema, TextKeyInfo } from "./api.js";
+import type { CvCheckKind, DimensionDto, NodeDefinitionDto, Palette, PropSchema, TextKeyInfo } from "./api.js";
 import { collectIds, dimensionPx, findNode, findRow, isValidIdentifier } from "./ast.js";
 import { el } from "./dom.js";
 import type { CanvasEditor } from "./editor.js";
@@ -128,8 +128,78 @@ export class Inspector {
 
     if (schema) {
       children.push(...this.kindPropFields(node, schema));
+      if (schema.safety_critical_eligible) {
+        children.push(this.safetyCriticalField(node));
+      }
     }
     this.container.replaceChildren(...children);
+  }
+
+  /** Wave S14 guard rail: the `@safety_critical(cv_check: [...])` annotation. An annotation with
+   * an empty check list is a compile error, so unchecking the last check is rejected at the
+   * field (inline error, AST untouched) instead of diagnosed after the fact. */
+  private safetyCriticalField(node: NodeDefinitionDto): HTMLElement {
+    const error = el("span", { class: "inspector__error" });
+    const nodeId = this.targetNodeId();
+    const applyChecks = (checks: CvCheckKind[] | null): void => {
+      this.editor.applyNodeUpdate(nodeId, (n) => ({
+        ...n,
+        safety_critical: checks === null ? null : { cv_checks: checks },
+      }));
+      this.renderNode(nodeId);
+    };
+
+    const master = el("input", {
+      type: "checkbox",
+      ...(node.safety_critical ? { checked: "checked" } : {}),
+    });
+    master.addEventListener("change", () => {
+      applyChecks(master.checked ? ["Bounds"] : null);
+    });
+    const masterLabel = el("label", { class: "inspector__fill" }, [master, " @safety_critical"]);
+
+    const rows: (Node | string)[] = [masterLabel];
+    if (node.safety_critical) {
+      const current = node.safety_critical.cv_checks;
+      for (const check of ["Bounds", "ColorHash"] as const) {
+        const box = el("input", {
+          type: "checkbox",
+          ...(current.includes(check) ? { checked: "checked" } : {}),
+        });
+        // The compiler rejects ColorHash on Image (only Bounds is eligible there).
+        const colorHashOnImage = check === "ColorHash" && node.kind.kind === "Image";
+        if (colorHashOnImage) {
+          box.setAttribute("disabled", "disabled");
+        }
+        box.addEventListener("change", () => {
+          const updated = box.checked ? [...current, check] : current.filter((c) => c !== check);
+          // Normalize to a fixed order (matching the compiler's own Bounds-first convention,
+          // e.g. `golden_references_push`): otherwise unchecking then rechecking a box reorders
+          // the array without changing its meaning, which would misfire as an annotation change
+          // in the wave-S14 diff (goldenAffected) for a semantically no-op edit.
+          const next = (["Bounds", "ColorHash"] as const).filter((candidate) => updated.includes(candidate));
+          if (next.length === 0) {
+            error.textContent = "at least one cv_check is required (a compile error otherwise)";
+            box.checked = true;
+            return;
+          }
+          error.textContent = "";
+          applyChecks(next);
+        });
+        rows.push(
+          el("label", { class: "inspector__fill", ...(colorHashOnImage ? { title: "ColorHash is not eligible on Image" } : {}) }, [
+            box,
+            ` ${check}`,
+          ]),
+        );
+      }
+      rows.push(error);
+    }
+
+    return el("div", { class: "inspector__field" }, [
+      el("label", { class: "inspector__label" }, ["safety critical"]),
+      el("span", { class: "inspector__pair inspector__cv-checks" }, rows),
+    ]);
   }
 
   private renderRow(rowId: string): void {
