@@ -18,6 +18,9 @@ quickstart; the pages below go deeper.
 - **[MedUI DSL reference](dsl/overview.md)** — the `.medui` build-time UI description language:
   [language reference](dsl/language-reference.md), [component dictionary](dsl/component-dictionary.md),
   [safety-monitor contract](dsl/safety-monitor-contract.md), [build integration](dsl/build-integration.md).
+- **[Automated UI verification](verification/ui-verification.md)** — the `--verify-ui` operator
+  guide (ADR-016): run modes, the check vocabulary and their tolerances, the report schema, and the
+  lavapipe `ColorHash` baseline bootstrap/refresh procedure.
 - **[SOUP register](governance/soup-register.toml)** — the structured, audit-ready register of
   every third-party dependency reachable from host tooling and presentation adapters.
 - **[AI agent onboarding](../AGENTS.md)** — the canonical, tool-neutral instruction file for AI
