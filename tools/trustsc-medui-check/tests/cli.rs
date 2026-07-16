@@ -1,6 +1,8 @@
 //! Drives the built `trustsc-medui-check` binary end to end (issue #25's acceptance criteria):
-//! a valid screen prints `OK` and exits `0`; a broken one prints the diagnostic with its line
-//! and exits nonzero.
+//! a valid screen prints `OK` and exits `0`; a broken one prints the diagnostic and exits
+//! nonzero — with a line number when the parser produced one (only *parse*-time diagnostics
+//! carry one; a semantic/compile-time error like an unknown color token does not, see the two
+//! tests below for both cases).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -71,12 +73,18 @@ struct TempMeduiFile {
 
 impl TempMeduiFile {
     fn new(contents: &str) -> Self {
+        // pid + thread id + nanos: the test harness runs tests in parallel threads, so pid alone
+        // (constant for the whole run) or pid+nanos (coarse clock resolution can tie two threads
+        // started together) can collide and silently truncate another test's fixture via
+        // File::create. `duration_since` uses unwrap_or_default rather than unwrap: a clock set
+        // before the epoch would otherwise panic here for no reason relevant to what's tested.
         let path = std::env::temp_dir().join(format!(
-            "trustsc-medui-check-test-{}-{}.medui",
+            "trustsc-medui-check-test-{}-{:?}-{}.medui",
             std::process::id(),
+            std::thread::current().id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_nanos()
         ));
         let mut file = std::fs::File::create(&path).expect("temp file should create");
