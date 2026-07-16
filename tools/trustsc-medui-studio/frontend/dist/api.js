@@ -3,29 +3,35 @@
 // field here stops matching the server, every call site fails loudly (missing/undefined field)
 // rather than silently, since this file has no runtime validation of its own.
 export class ApiError extends Error {
-    constructor(status, message) {
+    constructor(status, message, 
+    /** Machine-readable error code some endpoints attach (wave S15's proposals: "stale_base",
+     * "comment_loss", "uncompilable") so callers can branch without parsing prose. */
+    code = null) {
         super(message);
         this.status = status;
+        this.code = code;
         this.name = "ApiError";
     }
 }
-async function errorMessageFrom(response) {
+async function errorFrom(response) {
     let message = `${response.status} ${response.statusText}`;
+    let code = null;
     try {
         const body = (await response.json());
         if (body.error) {
             message = body.error;
         }
+        code = body.code ?? null;
     }
     catch {
         // Non-JSON error body (e.g. a 401 from the auth middleware) — the status text is enough.
     }
-    return message;
+    return new ApiError(response.status, message, code);
 }
 async function getJson(path) {
     const response = await fetch(path, { headers: { accept: "application/json" } });
     if (!response.ok) {
-        throw new ApiError(response.status, await errorMessageFrom(response));
+        throw await errorFrom(response);
     }
     return (await response.json());
 }
@@ -39,8 +45,8 @@ export function palette() {
     return getJson("/api/palette");
 }
 /** The `/api/frame` URL for an `<img src>` — not fetched directly, since the browser handles
- * PNG loading (and caching) itself. Always renders the *saved* source (there is no save/PR flow
- * until wave S15, so this is never the in-progress edit — see `postFrame` for that). */
+ * PNG loading (and caching) itself. Always renders the *saved* source, never the in-progress
+ * edit — see `postFrame` for that. */
 export function frameUrl(screenId, locale) {
     const params = new URLSearchParams({ screen: screenId, locale });
     return `/api/frame?${params.toString()}`;
@@ -55,7 +61,7 @@ export async function compileScreen(screen) {
         body: JSON.stringify({ screen }),
     });
     if (!response.ok) {
-        throw new ApiError(response.status, await errorMessageFrom(response));
+        throw await errorFrom(response);
     }
     return (await response.json());
 }
@@ -68,7 +74,31 @@ export async function postFrame(screen, locale) {
         body: JSON.stringify({ screen, locale }),
     });
     if (!response.ok) {
-        throw new ApiError(response.status, await errorMessageFrom(response));
+        throw await errorFrom(response);
     }
     return await response.blob();
+}
+/** `POST /api/proposals` (wave S15): serializes `screen` server-side and turns it into a pushed
+ * branch (+ PR when possible). Throws `ApiError` with `code === "stale_base"` when the file
+ * changed upstream since `baseSourceSha256` was read, `"comment_loss"` when the committed file
+ * has `//` comments the caller hasn't confirmed dropping, or `"uncompilable"` when the server's
+ * own re-compile of `screen` fails — the caller branches on `error.code`, not on parsing prose. */
+export async function proposeChange(request) {
+    const response = await fetch("/api/proposals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            screen_id: request.screenId,
+            screen: request.screen,
+            base_source_sha256: request.baseSourceSha256,
+            title: request.title,
+            description: request.description,
+            allow_comment_loss: request.allowCommentLoss ?? false,
+        }),
+    });
+    if (!response.ok) {
+        throw await errorFrom(response);
+    }
+    const body = (await response.json());
+    return { branch: body.branch, commit: body.commit, prUrl: body.pr_url, warning: body.warning };
 }

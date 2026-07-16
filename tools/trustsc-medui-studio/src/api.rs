@@ -29,13 +29,17 @@ const DEFAULT_SURFACE: (u32, u32) = (800, 480);
 /// an absolute path or `..` components and simply replaces/walks out of the base, so the id must
 /// be validated first: every component must be a plain (`Normal`) segment — no `..`, no `.`, no
 /// root/prefix — and it must end in `.medui`, both to block path traversal and because nothing
-/// else is a legitimate screen id.
+/// else is a legitimate screen id. Also rejects control characters and `,`: wave S15's
+/// `POST /api/proposals` embeds this same id in a `git update-index --cacheinfo
+/// <mode>,<blob>,<path>` argument, where git itself splits on commas — an id containing one
+/// would corrupt that argument's parsing (ADR-022 wave S15 review).
 fn resolve_medui_path(repo: &StdPath, id: &str) -> Result<PathBuf, String> {
     let candidate = StdPath::new(id);
     let only_normal_components =
         !id.is_empty() && candidate.components().all(|component| matches!(component, Component::Normal(_)));
     let has_medui_extension = candidate.extension().map(|ext| ext == "medui").unwrap_or(false);
-    if !only_normal_components || !has_medui_extension {
+    let has_safe_characters = id.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b',');
+    if !only_normal_components || !has_medui_extension || !has_safe_characters {
         return Err(format!("invalid screen id: {id}"));
     }
     Ok(repo.join(candidate))
@@ -49,6 +53,18 @@ pub fn router() -> axum::Router<Arc<AppState>> {
         .route("/frame", get(frame_get).post(frame_post))
         .route("/palette", get(palette))
         .route("/serialize", post(serialize))
+        .route("/proposals", post(create_proposal))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// The outcome of parsing (and, if that succeeds, compiling) a screen: every field is `None`/
@@ -132,6 +148,9 @@ struct CompiledWithDiagnosticsDto {
 #[derive(Serialize)]
 struct ScreenDetailDto {
     source: String,
+    /// SHA-256 of `source` as read from disk — the optimistic-concurrency base the frontend
+    /// echoes back in `POST /api/proposals` (wave S15).
+    source_sha256: String,
     screen: Option<dto::ScreenDefinitionDto>,
     compiled: CompiledWithDiagnosticsDto,
 }
@@ -159,6 +178,7 @@ async fn screen_detail(State(state): State<Arc<AppState>>, Path(id): Path<String
     };
 
     Json(ScreenDetailDto {
+        source_sha256: sha256_hex(source.as_bytes()),
         source,
         screen: outcome.screen,
         compiled: CompiledWithDiagnosticsDto {
@@ -419,6 +439,138 @@ async fn serialize(Json(request): Json<SerializeRequestBody>) -> Response {
     Json(SerializeResponseBody { source }).into_response()
 }
 
+// ---------------------------------------------------------------------------------------------
+// POST /api/proposals (wave S15)
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct ProposalRequestBody {
+    screen_id: String,
+    screen: dto::ScreenDefinitionDto,
+    /// SHA-256 of the source this edit was loaded from (`GET /api/screens/{id}`'s
+    /// `source_sha256`) — the optimistic-concurrency check.
+    base_source_sha256: String,
+    title: String,
+    #[serde(default)]
+    description: String,
+    /// The canonical serializer drops `//` comment lines (the AST has no trivia slots); a
+    /// proposal over a file that has any is refused until the caller acknowledges the loss.
+    #[serde(default)]
+    allow_comment_loss: bool,
+}
+
+#[derive(Serialize)]
+struct ProposalResponseBody {
+    branch: String,
+    commit: String,
+    pr_url: Option<String>,
+    warning: Option<String>,
+}
+
+/// Error envelope with a machine-readable `code` so the frontend can distinguish "reload and
+/// redo" (`stale_base`) and "confirm comment loss" (`comment_loss`) from plain failures.
+fn coded_error(status: StatusCode, code: &str, message: impl Into<String>) -> Response {
+    #[derive(Serialize)]
+    struct CodedErrorEnvelope {
+        error: String,
+        code: String,
+    }
+    (status, Json(CodedErrorEnvelope { error: message.into(), code: code.to_string() })).into_response()
+}
+
+async fn create_proposal(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ProposalRequestBody>,
+) -> Response {
+    if request.title.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "a proposal needs a non-empty title");
+    }
+    let file_path = match resolve_medui_path(&state.repo, &request.screen_id) {
+        Ok(path) => path,
+        Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
+    };
+    let read_path = file_path.clone();
+    let current_source = match tokio::task::spawn_blocking(move || std::fs::read_to_string(read_path)).await {
+        Ok(Ok(source)) => source,
+        Ok(Err(_)) => {
+            return error_response(StatusCode::NOT_FOUND, format!("no such screen: {}", request.screen_id));
+        }
+        Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "read task failed"),
+    };
+
+    if sha256_hex(current_source.as_bytes()) != request.base_source_sha256 {
+        return coded_error(
+            StatusCode::CONFLICT,
+            "stale_base",
+            "the screen changed upstream since it was loaded — reload and re-apply the edit",
+        );
+    }
+    if crate::proposals::has_comment_lines(&current_source) && !request.allow_comment_loss {
+        return coded_error(
+            StatusCode::CONFLICT,
+            "comment_loss",
+            "the committed file contains // comments, which the canonical serializer does not preserve — confirm to proceed without them",
+        );
+    }
+    if dto::contains_panel(&request.screen) {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "screen contains a Panel node, which is compiler-synthesized only and cannot be submitted",
+        );
+    }
+
+    // Never propose an uncompilable document: this is the same gate CI will apply, applied early.
+    let screen: ScreenDefinition = request.screen.into();
+    let outcome = compile_screen_with_defaults(&state, screen.clone());
+    if outcome.compiled.is_none() {
+        return coded_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "uncompilable",
+            format!(
+                "the edited screen does not compile and cannot be proposed: {}",
+                outcome
+                    .diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        );
+    }
+
+    let serialized = serialize_screen(&screen);
+    let repo = state.repo.clone();
+    let screen_id = request.screen_id.clone();
+    let title = request.title.clone();
+    let description = request.description.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let state = state; // move the Arc so ProposalConfig outlives the closure
+        crate::proposals::create_proposal(&repo, &screen_id, &serialized, &title, &description, &state.proposals)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(outcome)) => Json(ProposalResponseBody {
+            branch: outcome.branch,
+            commit: outcome.commit,
+            pr_url: outcome.pr_url,
+            warning: outcome.warning,
+        })
+        .into_response(),
+        // A caller proposing an unmodified document is a normal outcome, not a server failure —
+        // a distinct 4xx + code, not the generic 500 every other proposal failure gets.
+        Ok(Err(crate::proposals::ProposalError::NoChange)) => coded_error(
+            StatusCode::BAD_REQUEST,
+            "no_change",
+            "the serialized screen is identical to the committed file; nothing to propose",
+        ),
+        Ok(Err(crate::proposals::ProposalError::Failed(message))) => {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, message)
+        }
+        Err(_) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "proposal task failed"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -463,6 +615,16 @@ mod tests {
         assert_eq!(resolved, repo.join("examples/hello_world/hello_world.medui"));
     }
 
+    #[test]
+    fn resolve_medui_path_rejects_commas_and_control_characters() {
+        // Both would corrupt POST /api/proposals' `git update-index --cacheinfo mode,blob,path`
+        // argument, which git itself splits on commas.
+        let repo = repo_root();
+        assert!(resolve_medui_path(&repo, "screens/a,b.medui").is_err());
+        assert!(resolve_medui_path(&repo, "screens/a\nb.medui").is_err());
+        assert!(resolve_medui_path(&repo, "screens/a\tb.medui").is_err());
+    }
+
     fn test_state() -> std::sync::Arc<AppState> {
         test_state_with_token(None)
     }
@@ -479,6 +641,12 @@ mod tests {
             display_texts: trustsc::default_display_text_packages().expect("display packages"),
             images: trustsc::default_image_packages().expect("image packages"),
             render_semaphore: tokio::sync::Semaphore::new(1),
+            proposals: crate::proposals::ProposalConfig {
+                remote: "origin".to_string(),
+                author_name: "MedUI Studio Test".to_string(),
+                author_email: "medui-studio-test@localhost".to_string(),
+                token: None,
+            },
         })
     }
 
@@ -796,5 +964,208 @@ mod tests {
         assert_eq!(reader.info().height, 480);
         let mut buf = vec![0u8; reader.output_buffer_size().expect("known-good RGBA8 image")];
         reader.next_frame(&mut buf).expect("frame should decode");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // POST /api/proposals (wave S15) — integration against a local bare "remote", no GitHub.
+    // -----------------------------------------------------------------------------------------
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=test", "-c", "user.email=test@localhost"])
+            .args(args)
+            .output()
+            .expect("git should run");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).to_string()
+    }
+
+    const HELLO_WORLD_MEDUI: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/hello_world/hello_world.medui"
+    ));
+
+    /// A throwaway work checkout (containing `screens/hello.medui` on `main`) plus a local bare
+    /// repository it pushes to as `origin` — the whole propose flow minus GitHub.
+    fn proposal_repos(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let temp = std::env::temp_dir().join(format!(
+            "trustsc-medui-studio-proposal-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp);
+        let work = temp.join("work");
+        let remote = temp.join("remote.git");
+        std::fs::create_dir_all(work.join("screens")).unwrap();
+        std::fs::write(work.join("screens/hello.medui"), HELLO_WORLD_MEDUI).unwrap();
+        git(&work, &["init", "-q", "-b", "main"]);
+        git(&work, &["add", "."]);
+        git(&work, &["commit", "-q", "-m", "init"]);
+        git(&temp, &["init", "-q", "--bare", "remote.git"]);
+        git(&work, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git(&work, &["push", "-q", "origin", "main"]);
+        (temp, work, remote)
+    }
+
+    fn hello_screen_dto() -> crate::dto::ScreenDefinitionDto {
+        let screen = trustsc_ui_dsl_authoring::parse_medui_source(HELLO_WORLD_MEDUI)
+            .expect("hello_world.medui should parse");
+        crate::dto::ScreenDefinitionDto::from(screen)
+    }
+
+    fn resize_viewport(dto: &mut crate::dto::ScreenDefinitionDto, height: u32) {
+        for item in &mut dto.items {
+            if let crate::dto::ScreenItemDto::Component(node) = item {
+                if node.id == "hello-world-viewport" {
+                    node.height = crate::dto::DimensionDto::Px { value: height };
+                    return;
+                }
+            }
+        }
+        panic!("hello-world-viewport not found");
+    }
+
+    async fn post_proposal(app: &axum::Router, body: Value) -> axum::response::Response {
+        app.clone()
+            .oneshot(
+                HttpRequest::post("/api/proposals")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn proposals_create_a_pushed_branch_with_exactly_the_serialized_file_changed() {
+        let (temp, work, remote) = proposal_repos("happy");
+        let app = crate::build_router(test_state_for(work.clone(), None));
+
+        let mut screen = hello_screen_dto();
+        resize_viewport(&mut screen, 288);
+        let response = post_proposal(
+            &app,
+            json!({
+                "screen_id": "screens/hello.medui",
+                "screen": serde_json::to_value(&screen).unwrap(),
+                "base_source_sha256": super::sha256_hex(HELLO_WORLD_MEDUI.as_bytes()),
+                "title": "Resize the simulation viewport",
+                "description": "moved/resized hello-world-viewport ⚠ golden references affected",
+            }),
+        )
+        .await;
+        let status = response.status();
+        let body = json_body(response).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let branch = body["branch"].as_str().unwrap();
+        assert!(branch.starts_with("medui-studio/hello-"), "branch was: {branch}");
+        // No GitHub in this test: the branch must still be pushed, with the reason in `warning`.
+        assert!(body["pr_url"].is_null());
+        assert!(body["warning"].as_str().unwrap().contains("github.com"));
+
+        // The remote got exactly one changed file, with the resized height, authored by the bot.
+        let changed = git(&remote, &["diff", "--name-only", &format!("main..{branch}")]);
+        assert_eq!(changed.trim(), "screens/hello.medui");
+        let proposed = git(&remote, &["show", &format!("{branch}:screens/hello.medui")]);
+        assert!(proposed.contains("height: 288px;"), "proposed was:\n{proposed}");
+        let author = git(&remote, &["log", "-1", "--format=%an <%ae>", branch]);
+        assert_eq!(author.trim(), "MedUI Studio Test <medui-studio-test@localhost>");
+        let message = git(&remote, &["log", "-1", "--format=%B", branch]);
+        assert!(message.contains("Resize the simulation viewport"));
+        assert!(message.contains("golden references affected"));
+        // The proposed file re-parses and its AST matches what was submitted (round-trip).
+        let reparsed = trustsc_ui_dsl_authoring::parse_medui_source(&proposed)
+            .expect("the proposed file should re-parse");
+        assert_eq!(crate::dto::ScreenDefinitionDto::from(reparsed).items.len(), screen.items.len());
+        // The serving checkout's working tree was never touched.
+        let status = git(&work, &["status", "--porcelain"]);
+        assert_eq!(status.trim(), "");
+
+        std::fs::remove_dir_all(&temp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn proposals_reject_a_stale_base_and_an_uncompilable_screen() {
+        let (temp, work, _remote) = proposal_repos("reject");
+        let app = crate::build_router(test_state_for(work.clone(), None));
+
+        let mut screen = hello_screen_dto();
+        resize_viewport(&mut screen, 288);
+        let screen_value = serde_json::to_value(&screen).unwrap();
+
+        // Stale base sha -> 409 stale_base.
+        let response = post_proposal(
+            &app,
+            json!({
+                "screen_id": "screens/hello.medui",
+                "screen": screen_value,
+                "base_source_sha256": "deadbeef",
+                "title": "t",
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(json_body(response).await["code"], "stale_base");
+
+        // Uncompilable AST (unknown color token) -> 422 uncompilable, and no branch anywhere.
+        let mut broken = hello_screen_dto();
+        if let crate::dto::ScreenItemDto::Component(node) = &mut broken.items[0] {
+            if let crate::dto::NodeKindDto::CriticalButton { color_token, .. } = &mut node.kind {
+                *color_token = "Theme.Colors.NotAToken".to_string();
+            }
+        }
+        let response = post_proposal(
+            &app,
+            json!({
+                "screen_id": "screens/hello.medui",
+                "screen": serde_json::to_value(&broken).unwrap(),
+                "base_source_sha256": super::sha256_hex(HELLO_WORLD_MEDUI.as_bytes()),
+                "title": "t",
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json_body(response).await["code"], "uncompilable");
+        let branches = git(&work, &["branch", "--list", "medui-studio/*"]);
+        assert_eq!(branches.trim(), "");
+
+        std::fs::remove_dir_all(&temp).unwrap();
+    }
+
+    #[tokio::test]
+    async fn proposals_require_acknowledging_comment_loss() {
+        let (temp, work, _remote) = proposal_repos("comments");
+        let commented = format!("// operator note kept out of the AST\n{HELLO_WORLD_MEDUI}");
+        std::fs::write(work.join("screens/hello.medui"), &commented).unwrap();
+        git(&work, &["commit", "-aqm", "add a comment"]);
+        git(&work, &["push", "-q", "origin", "main"]);
+        let app = crate::build_router(test_state_for(work.clone(), None));
+
+        let mut screen = hello_screen_dto();
+        resize_viewport(&mut screen, 288);
+        let base = super::sha256_hex(commented.as_bytes());
+        let body = json!({
+            "screen_id": "screens/hello.medui",
+            "screen": serde_json::to_value(&screen).unwrap(),
+            "base_source_sha256": base,
+            "title": "t",
+        });
+
+        let refused = post_proposal(&app, body.clone()).await;
+        assert_eq!(refused.status(), StatusCode::CONFLICT);
+        assert_eq!(json_body(refused).await["code"], "comment_loss");
+
+        let mut acknowledged = body;
+        acknowledged["allow_comment_loss"] = json!(true);
+        let accepted = post_proposal(&app, acknowledged).await;
+        assert_eq!(accepted.status(), StatusCode::OK);
+
+        std::fs::remove_dir_all(&temp).unwrap();
     }
 }

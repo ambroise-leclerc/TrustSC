@@ -1,4 +1,4 @@
-# Manual test checklist — previewer (wave S9) + canvas editor (waves S11–S14)
+# Manual test checklist — previewer (wave S9) + canvas editor (waves S11–S15)
 
 Run before every release of the previewer. Requires a Vulkan ICD (`sudo apt install
 mesa-vulkan-drivers` for lavapipe, the same setup CI uses).
@@ -6,6 +6,11 @@ mesa-vulkan-drivers` for lavapipe, the same setup CI uses).
 ```sh
 cargo run -p trustsc-medui-studio -- --repo .
 ```
+
+For the wave-S15 section, run against a real git checkout with a remote you can push proposal
+branches to (a scratch fork is fine) — the server operates on `--repo`'s working directory, so
+point `--repo` at that checkout. Set `TRUSTSC_STUDIO_GIT_REMOTE`/`_TOKEN` if it isn't `origin`
+with ambient `gh` auth.
 
 Open `http://127.0.0.1:8080/` in a browser and work through:
 
@@ -159,13 +164,38 @@ Open `NeuroSense500`:
       banner gone). Ctrl+Shift+Z (or Ctrl+Y) replays all three. Undo/redo works with nothing
       selected, and while typing in an inspector field Ctrl+Z stays the input's own undo.
 
+## Propose-change flow (wave S15)
+
+Open `NeuroSense500` (in a `--repo` checkout with a pushable remote — see the note at the top):
+
+- [ ] **Button gating**: "Propose change…" in the toolbar starts disabled. It stays disabled
+      after a golden-outline toggle or zoom change (no document edit), and enables after any edit
+      (e.g. drag `ack-button`).
+- [ ] **Dialog prefill**: click "Propose change…" — the dialog's title defaults to a sensible
+      message naming the screen, and the description is prefilled with one line per change,
+      matching the wave-S14 changes drawer's entries (safety-critical/golden flags included).
+- [ ] **Successful proposal**: submit — a success panel shows the pushed branch name
+      (`medui-studio/neurosense-<timestamp>`) and, if the configured remote is a `github.com` URL
+      with working `gh` auth, a clickable PR link that opens a real PR with a small diff. Verify
+      on GitHub: only `examples/class_c_monitor/neurosense.medui` changed, and CI (`--verify-ui`)
+      runs on the PR.
+- [ ] **No GitHub remote**: against a remote that isn't `github.com` (or with `gh` unauthenticated),
+      submitting still pushes the branch and shows a warning explaining no PR was opened, instead
+      of failing outright.
+- [ ] **Stale base (409)**: with the dialog open (or the edit still in memory), have someone else
+      (or `git commit --amend` + push on the checkout directly) change the committed file, then
+      submit — a "reload and re-apply" message appears with a working reload button, no crash.
+- [ ] **Comment loss (409)**: temporarily add a `// operator note` line to the committed `.medui`
+      file, reload the screen, make an edit, and propose — a confirmation appears explaining
+      comments will be dropped; confirming proceeds and the resulting PR's file has no comment.
+- [ ] **Uncompilable submission blocked**: the "Propose change…" button is disabled whenever the
+      diagnostics panel is non-empty (e.g. mid-drag onto an occupied area) — there is no way to
+      submit a currently-broken document.
+
 ## Known limits (this wave)
 
-- No save/propose-change flow yet (wave S15): every canvas edit lives only in the browser tab's
-  memory and is discarded on reload or navigating away (a locale switch no longer discards —
-  wave S13).
-- The changes drawer diffs by id, so a rename reads as removed + added (which is also what
-  happens to the node's golden-reference evidence).
+- The changes drawer (and the proposal description it feeds) diffs by id, so a rename reads as
+  removed + added (which is also what happens to the node's golden-reference evidence).
 - Render latency is the render bridge's own (ADR-022 wave S7): each frame is a fresh Vulkan
   instance, typically ~100-500ms on lavapipe, more under host load. During a drag, only the
   overlay rect moves (no re-render per mouse move, per the wave S11 compile-loop design); once

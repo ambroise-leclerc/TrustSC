@@ -113,3 +113,21 @@ export function diffScreens(initial, current) {
 export function hasGoldenImpact(diff) {
     return diff.entries.some((entry) => entry.goldenAffected);
 }
+/** One human-readable line for a change entry — shared by the wave-S14 changes drawer and the
+ * wave-S15 proposal dialog's prefilled description. */
+export function describeChange(entry) {
+    const verb = entry.change === "added"
+        ? "added"
+        : entry.change === "removed"
+            ? "removed"
+            : entry.geometryChanged
+                ? "moved/resized"
+                : "edited";
+    const flags = `${entry.safetyCritical ? " \u{1F6E1} safety-critical" : ""}${entry.goldenAffected ? " ⚠ golden references affected" : ""}`;
+    return `${verb} ${entry.id}${flags}`;
+}
+/** The total number of changed items a diff represents — nodes/Rows plus the screen-level
+ * layout/surface change, if any. Used to gate the "Propose change" button and label the drawer. */
+export function changeCount(diff) {
+    return diff.entries.length + (diff.screenChanged ? 1 : 0);
+}

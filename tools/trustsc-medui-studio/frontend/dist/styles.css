@@ -495,6 +495,137 @@ h1 {
   flex-wrap: wrap;
 }
 
+/* Wave S15: propose-change button + dialog. */
+
+.propose-button {
+  font: inherit;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  background: none;
+  border-radius: 4px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.propose-button:hover:not(:disabled) {
+  background: var(--accent);
+  color: white;
+}
+
+.propose-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.propose-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.propose-dialog {
+  background: Canvas;
+  color: CanvasText;
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  width: min(32rem, 90vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.propose-dialog h2 {
+  margin: 0 0 0.3rem;
+  font-size: 1.05rem;
+}
+
+.propose-dialog__hint {
+  font-size: 0.8rem;
+  color: #888;
+  margin: 0 0 0.8rem;
+}
+
+.propose-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.propose-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.propose-dialog__control {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.propose-dialog__description {
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+
+.propose-dialog__status {
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.propose-dialog__status--error {
+  color: var(--error-fg);
+}
+
+.propose-dialog__warning {
+  color: var(--golden);
+}
+
+.propose-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.propose-dialog__submit {
+  font: inherit;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: white;
+  border-radius: 4px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+
+.propose-dialog__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.propose-dialog__cancel {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  border-radius: 4px;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+
 .context-menu {
   position: fixed;
   z-index: 1000;

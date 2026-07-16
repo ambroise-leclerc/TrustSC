@@ -293,6 +293,11 @@ export class CanvasEditor {
     return this.screen;
   }
 
+  /** The document as loaded from disk — the wave-S15 proposal dialog's diff baseline. */
+  getInitialScreen(): ScreenDefinitionDto {
+    return this.initialScreen;
+  }
+
   /** The single mutation gate (wave S14): pushes the outgoing document onto the undo stack,
    * clears the redo stack, reports the new diff against the loaded file, and runs the compile
    * loop. Every edit path — canvas, palette, inspector — lands here. */
