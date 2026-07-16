@@ -10,23 +10,33 @@ import {
   type CompiledSummary,
   type Diagnostic,
   type NodeDefinitionDto,
+  type Palette,
   type ScreenDefinitionDto,
 } from "./api.js";
 import {
+  appendNode,
   convertToAbsolute,
   dimensionPx,
   findNode,
+  generateNodeId,
   isDraggable,
   isSyntheticPanel,
   proposedBounds,
+  removeNode,
   rowIdFromPanelId,
   snap,
   updateNode,
 } from "./ast.js";
+import { defaultNodeAt } from "./palette-defaults.js";
 import { boundsToStyle, renderOverlay } from "./overlay.js";
 
 const GRID_PX = 8;
 const COMPILE_DEBOUNCE_MS = 250;
+
+/** The drag payload type palette items set on dragstart and the canvas accepts on drop — a
+ * private convention between app.ts's palette panel and this editor, carrying the widget
+ * `kind_name`. */
+export const WIDGET_DRAG_MIME = "application/x-medui-widget";
 
 export interface CanvasEditorCallbacks {
   onHover(node: CompiledNodeSummary | null): void;
@@ -82,6 +92,7 @@ export class CanvasEditor {
     private readonly img: HTMLImageElement,
     initialScreen: ScreenDefinitionDto,
     initialCompiled: CompiledSummary,
+    private readonly palette: Palette,
     private readonly callbacks: CanvasEditorCallbacks,
   ) {
     this.screen = initialScreen;
@@ -90,6 +101,22 @@ export class CanvasEditor {
     document.addEventListener("mousemove", this.onMouseMove);
     document.addEventListener("mouseup", this.onMouseUp);
     document.addEventListener("click", this.onDocumentClick);
+    // Palette drops (wave S12). Attached to the stage, not the document, so they die with the
+    // stage element on navigation — no teardown needed in destroy().
+    this.stage.addEventListener("dragover", (event) => {
+      if (event.dataTransfer?.types.includes(WIDGET_DRAG_MIME)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }
+    });
+    this.stage.addEventListener("drop", (event) => {
+      const kindName = event.dataTransfer?.getData(WIDGET_DRAG_MIME);
+      if (!kindName) {
+        return;
+      }
+      event.preventDefault();
+      this.insertNodeFromPalette(kindName, event.clientX, event.clientY);
+    });
     this.renderOverlays();
   }
 
@@ -276,6 +303,53 @@ export class CanvasEditor {
     return [dxClient * scaleX, dyClient * scaleY];
   }
 
+  /** Converts an absolute client point (e.g. a drop location) to the surface's own coordinate
+   * space — the positional counterpart of `clientDeltaToSurface`. */
+  private clientPointToSurface(clientX: number, clientY: number): [number, number] {
+    const rect = this.stage.getBoundingClientRect();
+    const [surfaceWidth, surfaceHeight] = this.compiled.surface;
+    const scaleX = rect.width === 0 ? 1 : surfaceWidth / rect.width;
+    const scaleY = rect.height === 0 ? 1 : surfaceHeight / rect.height;
+    return [(clientX - rect.left) * scaleX, (clientY - rect.top) * scaleY];
+  }
+
+  /** Wave S12: inserts a fresh default node of `kindName` with its top-left at the (grid-snapped)
+   * drop point, selects it, and runs the compile loop. The drop point is used as-is — if the
+   * default-size node overlaps something or escapes the surface there, the S11 diagnostic flow
+   * (red proposed-rect outline + diagnostics panel, last-good frame kept) reports it rather than
+   * the node being silently relocated. */
+  insertNodeFromPalette(kindName: string, clientX: number, clientY: number): void {
+    const [rawX, rawY] = this.clientPointToSurface(clientX, clientY);
+    const position: [number, number] = [snap(rawX, GRID_PX, false), snap(rawY, GRID_PX, false)];
+    const id = generateNodeId(this.screen, kindName);
+    const node = defaultNodeAt(kindName, this.palette, id, position);
+    if (!node) {
+      // Palette entries whose governed sets are empty are rendered disabled (app.ts), so this is
+      // only reachable for an unknown kind_name — a catalog/frontend version skew.
+      this.callbacks.onCompileError(`cannot create a default ${kindName} node`);
+      return;
+    }
+    this.screen = appendNode(this.screen, node);
+    this.lastEditedNodeId = id;
+    this.select(id);
+    this.scheduleCompile(true);
+  }
+
+  /** Wave S12: removes the currently selected node (Delete/Backspace), then recompiles. */
+  private deleteSelectedNode(): void {
+    if (!this.selectedNodeId) {
+      return;
+    }
+    const next = removeNode(this.screen, this.selectedNodeId);
+    if (next === this.screen) {
+      return;
+    }
+    this.screen = next;
+    this.lastEditedNodeId = null;
+    this.select(null);
+    this.scheduleCompile(true);
+  }
+
   private onMouseMove = (event: MouseEvent): void => {
     if (!this.drag) {
       return;
@@ -339,6 +413,11 @@ export class CanvasEditor {
     }
     const active = document.activeElement;
     if (active && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) {
+      return;
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      this.deleteSelectedNode();
       return;
     }
     const node = findNode(this.screen, this.selectedNodeId);

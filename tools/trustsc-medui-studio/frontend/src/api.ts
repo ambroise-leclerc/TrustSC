@@ -134,12 +134,58 @@ export interface TextKeyInfo {
   entries: LocaleEntry[];
 }
 
+// Mirrors PropDomainDto (dto.rs): the accepted shape of a widget property value, driving which
+// control the palette/inspector renders for it (dropdown, px field, free text, ...).
+export type PropDomainDto =
+  | { kind: "Identifier" }
+  | { kind: "DimensionPx"; fill_allowed: boolean }
+  | { kind: "Position" }
+  | { kind: "TextKey" }
+  | { kind: "TextKeyList" }
+  | { kind: "ColorToken" }
+  | { kind: "ColorTokenList" }
+  | { kind: "QuotedSource" }
+  | { kind: "StreamSource" }
+  | { kind: "TemplateId" }
+  | { kind: "ImageRef" }
+  | { kind: "SystemEvent" }
+  | { kind: "ClockFormat" }
+  | { kind: "Charset" }
+  | { kind: "MaxLength" }
+  | { kind: "RequirementId"; optional: boolean };
+
+export interface PropSchema {
+  key: string;
+  required: boolean;
+  domain: PropDomainDto;
+}
+
+export interface WidgetSchema {
+  kind_name: string;
+  description: string;
+  safety_critical_eligible: boolean;
+  properties: PropSchema[];
+}
+
+export interface NumericTemplateInfo {
+  id: string;
+  locale: string;
+  max_chars: number;
+  glyph_set_id: string;
+}
+
+export interface ImageInfo {
+  id: string;
+  width: number;
+  height: number;
+}
+
 export interface Palette {
-  widgets: unknown[];
+  widgets: WidgetSchema[];
   colors: ColorSwatch[];
   text_keys: TextKeyInfo[];
-  templates: unknown[];
-  images: { id: string; width: number; height: number }[];
+  templates: NumericTemplateInfo[];
+  images: ImageInfo[];
   locales: string[];
 }
 

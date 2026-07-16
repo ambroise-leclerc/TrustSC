@@ -11,11 +11,13 @@ import {
   type CompiledNodeSummary,
   type Diagnostic,
   type NodeDefinitionDto,
+  type Palette,
   type ScreenEntry,
 } from "./api.js";
 import { renderOverlay, tooltipText } from "./overlay.js";
-import { CanvasEditor } from "./editor.js";
+import { CanvasEditor, WIDGET_DRAG_MIME } from "./editor.js";
 import { isDraggable } from "./ast.js";
+import { cannotCreateReason } from "./palette-defaults.js";
 
 type Zoom = "fit" | "100" | "200";
 
@@ -129,6 +131,38 @@ function applyZoomStyle(stage: HTMLElement, surfaceWidth: number): void {
   }
 }
 
+/** The wave-S12 palette panel: one draggable entry per governed widget kind, with the catalog
+ * description as tooltip. Kinds whose governed sets are empty in this repo (no baked images, no
+ * approved text keys, ...) render disabled with the reason, instead of allowing a drop that could
+ * only fail. */
+function buildPalettePanel(paletteData: Palette): HTMLElement {
+  const list = el("ul", { class: "palette__list" });
+  for (const widget of paletteData.widgets) {
+    const reason = cannotCreateReason(widget.kind_name, paletteData);
+    const item = el("li", { class: "palette__item" }, [widget.kind_name]);
+    if (reason) {
+      item.classList.add("palette__item--disabled");
+      item.title = `${widget.description}\nUnavailable: ${reason}`;
+    } else {
+      item.title = widget.description;
+      item.setAttribute("draggable", "true");
+      item.addEventListener("dragstart", (event) => {
+        if (!event.dataTransfer) {
+          return;
+        }
+        event.dataTransfer.setData(WIDGET_DRAG_MIME, widget.kind_name);
+        event.dataTransfer.effectAllowed = "copy";
+      });
+    }
+    list.append(item);
+  }
+  return el("aside", { class: "palette" }, [
+    el("h2", { class: "palette__title" }, ["Palette"]),
+    el("p", { class: "palette__hint" }, ["Drag a widget onto the canvas."]),
+    list,
+  ]);
+}
+
 function selectionStatusText(node: NodeDefinitionDto): string {
   const editable = isDraggable(node)
     ? "draggable"
@@ -223,7 +257,7 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
     // Editable: the AST DTO is the document the CanvasEditor mutates in memory. It owns the
     // overlay entirely from here on (selection, drag/resize, flow badges, the compile loop) —
     // renderOverlay/boundsToStyle (overlay.ts) stay the shared geometry primitives underneath.
-    const editor = new CanvasEditor(locale, stage, img, detail.screen, detail.compiled, {
+    const editor = new CanvasEditor(locale, stage, img, detail.screen, detail.compiled, paletteData, {
       onHover: (node) => setHoverLabel(hoverLabel, node),
       onDiagnostics: (diagnostics) => renderDiagnostics(diagnosticsContainer, diagnostics),
       onSelectionChange: (node) => {
@@ -276,7 +310,12 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
   if (localeWarning) {
     children.push(el("p", { class: "status status--error" }, [localeWarning]));
   }
-  children.push(el("div", { class: "frame-viewport" }, [stage]), hoverLabel, selectionLabel, diagnosticsContainer);
+  const frameViewport = el("div", { class: "frame-viewport" }, [stage]);
+  // The palette only makes sense when there is an editable AST to insert into.
+  const canvasArea = detail.screen
+    ? el("div", { class: "editor-layout" }, [buildPalettePanel(paletteData), frameViewport])
+    : frameViewport;
+  children.push(canvasArea, hoverLabel, selectionLabel, diagnosticsContainer);
   app.replaceChildren(...children);
 }
 
