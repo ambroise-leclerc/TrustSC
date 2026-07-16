@@ -11,6 +11,7 @@ import {
   type Diagnostic,
   type NodeDefinitionDto,
   type Palette,
+  type RowDefinitionDto,
   type ScreenDefinitionDto,
 } from "./api.js";
 import {
@@ -18,6 +19,7 @@ import {
   convertToAbsolute,
   dimensionPx,
   findNode,
+  findRow,
   generateNodeId,
   isDraggable,
   isSyntheticPanel,
@@ -26,6 +28,7 @@ import {
   rowIdFromPanelId,
   snap,
   updateNode,
+  updateRow,
 } from "./ast.js";
 import { defaultNodeAt } from "./palette-defaults.js";
 import { boundsToStyle, renderOverlay } from "./overlay.js";
@@ -74,6 +77,7 @@ export class CanvasEditor {
   private screen: ScreenDefinitionDto;
   private compiled: CompiledSummary;
   private selectedNodeId: string | null = null;
+  private selectedRowId: string | null = null;
   private lastEditedNodeId: string | null = null;
   private lastDiagnostics: Diagnostic[] = [];
   private showGolden = false;
@@ -162,8 +166,7 @@ export class CanvasEditor {
         el.classList.add("node-overlay--panel");
         el.addEventListener("click", (event) => {
           event.stopPropagation();
-          this.select(null);
-          this.callbacks.onRowSelected(rowIdFromPanelId(compiledNode.id));
+          this.selectRow(rowIdFromPanelId(compiledNode.id));
         });
         return;
       }
@@ -231,7 +234,15 @@ export class CanvasEditor {
 
   private select(nodeId: string | null): void {
     this.selectedNodeId = nodeId;
+    this.selectedRowId = null;
     this.callbacks.onSelectionChange(nodeId ? findNode(this.screen, nodeId) : null);
+    this.renderOverlays();
+  }
+
+  private selectRow(rowId: string): void {
+    this.selectedNodeId = null;
+    this.selectedRowId = rowId;
+    this.callbacks.onRowSelected(rowId);
     this.renderOverlays();
   }
 
@@ -240,10 +251,65 @@ export class CanvasEditor {
       this.closeContextMenu();
     }
     const target = event.target instanceof Element ? event.target : null;
-    if (!target?.closest(".node-overlay") && this.selectedNodeId !== null) {
+    // Clicks inside the inspector or palette are edits/drag starts against the current
+    // selection, never a "click away" — deselecting on them would yank the inspector out from
+    // under its own controls.
+    if (target?.closest(".inspector, .palette")) {
+      return;
+    }
+    if (!target?.closest(".node-overlay") && (this.selectedNodeId !== null || this.selectedRowId !== null)) {
       this.select(null);
     }
   };
+
+  // -------------------------------------------------------------------------------------------
+  // Inspector-facing API (wave S13). The inspector reads the live document via getScreen() and
+  // applies every edit through these methods so the compile loop, selection tracking, and the
+  // offender-rect bookkeeping stay in one place.
+  // -------------------------------------------------------------------------------------------
+
+  getScreen(): ScreenDefinitionDto {
+    return this.screen;
+  }
+
+  /** Applies an inspector edit to a node and recompiles. If the update renames the node, the
+   * selection follows the new id. */
+  applyNodeUpdate(nodeId: string, updater: (node: NodeDefinitionDto) => NodeDefinitionDto): void {
+    const before = findNode(this.screen, nodeId);
+    if (!before) {
+      return;
+    }
+    const updated = updater(before);
+    this.screen = updateNode(this.screen, nodeId, () => updated);
+    if (this.selectedNodeId === nodeId) {
+      this.selectedNodeId = updated.id;
+    }
+    this.lastEditedNodeId = updated.id;
+    this.scheduleCompile(true);
+  }
+
+  /** Applies an inspector edit to a Row's own definition (height, spacing, background, id). */
+  applyRowUpdate(rowId: string, updater: (row: RowDefinitionDto) => RowDefinitionDto): void {
+    const before = findRow(this.screen, rowId);
+    if (!before) {
+      return;
+    }
+    const updated = updater(before);
+    this.screen = updateRow(this.screen, rowId, () => updated);
+    if (this.selectedRowId === rowId) {
+      this.selectedRowId = updated.id;
+    }
+    // A Row edit has no single proposed rect to outline; diagnostics alone report a failure.
+    this.lastEditedNodeId = null;
+    this.scheduleCompile(true);
+  }
+
+  /** Applies a screen-level inspector edit (layout spacing/padding, declared surface). */
+  applyScreenUpdate(updater: (screen: ScreenDefinitionDto) => ScreenDefinitionDto): void {
+    this.screen = updater(this.screen);
+    this.lastEditedNodeId = null;
+    this.scheduleCompile(true);
+  }
 
   private startDrag(event: MouseEvent, nodeId: string): void {
     if (event.button !== 0) {
@@ -404,6 +470,10 @@ export class CanvasEditor {
       }));
     }
     this.lastEditedNodeId = nodeId;
+    // Keep the inspector's position/size fields in sync with the canvas edit (wave S13).
+    if (this.selectedNodeId === nodeId) {
+      this.callbacks.onSelectionChange(findNode(this.screen, nodeId));
+    }
     this.scheduleCompile(true);
   };
 
@@ -451,6 +521,7 @@ export class CanvasEditor {
     const nodeId = this.selectedNodeId;
     this.screen = updateNode(this.screen, nodeId, (n) => ({ ...n, position: [x, y] }));
     this.lastEditedNodeId = nodeId;
+    this.callbacks.onSelectionChange(findNode(this.screen, nodeId));
 
     // Immediate visual feedback, same as a drag move — don't wait for the debounced compile.
     const el = this.stage.querySelector<HTMLElement>(`.node-overlay[data-node-id="${CSS.escape(nodeId)}"]`);

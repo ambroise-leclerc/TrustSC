@@ -315,6 +315,140 @@ h1 {
   cursor: not-allowed;
 }
 
+/* Wave S13: property inspector. */
+
+.inspector {
+  flex: 0 0 17rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.inspector__title {
+  font-size: 0.9rem;
+  margin: 0 0 0.2rem;
+}
+
+.inspector__hint {
+  font-size: 0.75rem;
+  color: #888;
+  margin: 0 0 0.6rem;
+}
+
+.inspector__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.55rem;
+}
+
+.inspector__label {
+  font-size: 0.72rem;
+  color: #888;
+  font-family: ui-monospace, monospace;
+}
+
+.inspector__control {
+  font: inherit;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.inspector__filter {
+  margin-bottom: 0.2rem;
+}
+
+.inspector__pair {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.inspector__pair .inspector__control {
+  width: 5.5rem;
+}
+
+.inspector__fill {
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.inspector__color {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.inspector__color .inspector__control {
+  flex: 1;
+}
+
+.inspector__swatch {
+  flex: 0 0 1rem;
+  height: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background-clip: padding-box;
+}
+
+.inspector__error {
+  color: var(--error-fg);
+  font-size: 0.75rem;
+}
+
+.inspector__text-details {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.inspector__text-over {
+  color: var(--error-fg);
+}
+
+.inspector__states {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.inspector__state-row {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.inspector__state-row > * {
+  min-width: 0;
+}
+
+.inspector__clear {
+  font: inherit;
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
+  justify-self: start;
+  width: fit-content;
+}
+
+.inspector__clear:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.inspector__clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .context-menu {
   position: fixed;
   z-index: 1000;

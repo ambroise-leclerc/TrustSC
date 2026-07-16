@@ -71,6 +71,35 @@ export function updateNode(screen, nodeId, updater) {
     });
     return changed ? { ...screen, items } : screen;
 }
+/** Finds a top-level Row by id. Row-children lookups go through `findNode`; this is for editing
+ * the Row's *own* properties (height, spacing, background) in the inspector (wave S13). */
+export function findRow(screen, rowId) {
+    for (const item of screen.items) {
+        if (item.type === "Row" && item.id === rowId) {
+            return item;
+        }
+    }
+    return null;
+}
+/** `updateNode`'s counterpart for a Row's own definition. Same contract: returns `screen`
+ * unchanged, by reference, when the id names no Row. */
+export function updateRow(screen, rowId, updater) {
+    let changed = false;
+    const items = screen.items.map((item) => {
+        if (item.type === "Row" && item.id === rowId) {
+            changed = true;
+            return { ...updater(item), type: "Row" };
+        }
+        return item;
+    });
+    return changed ? { ...screen, items } : screen;
+}
+/** Mirrors the parser's `parse_identifier`: non-empty, ASCII alphanumerics plus `_` and `-`.
+ * Used for inline id validation in the inspector, so a bad rename is rejected at the field
+ * instead of surfacing as a compile diagnostic on the whole document. */
+export function isValidIdentifier(id) {
+    return id.length > 0 && /^[A-Za-z0-9_-]+$/.test(id);
+}
 /** Every identifier already taken in the screen: component ids, Row ids, and Row-children ids.
  * New-node id generation must avoid all of them — the compiler rejects duplicate ids wherever
  * they appear, and a Row id colliding with a component id is just as fatal as two components. */
