@@ -5,6 +5,8 @@ import { ApiError, frameUrl, listScreens, palette, screenDetail, } from "./api.j
 import { renderOverlay, tooltipText } from "./overlay.js";
 import { CanvasEditor, WIDGET_DRAG_MIME } from "./editor.js";
 import { isDraggable } from "./ast.js";
+import { el } from "./dom.js";
+import { Inspector } from "./inspector.js";
 import { cannotCreateReason } from "./palette-defaults.js";
 const appEl = document.getElementById("app");
 if (!appEl) {
@@ -28,16 +30,6 @@ function navigate(screenId, locale) {
         params.set("locale", locale);
     }
     location.hash = params.toString();
-}
-function el(tag, attrs = {}, children = []) {
-    const node = document.createElement(tag);
-    for (const [key, value] of Object.entries(attrs)) {
-        node.setAttribute(key, value);
-    }
-    for (const child of children) {
-        node.append(child);
-    }
-    return node;
 }
 /** Every screen view owns document-level listeners (drag/keyboard) via its `CanvasEditor`; this
  * must run before replacing `#app`'s content on every navigation, or listeners from a previous
@@ -163,10 +155,21 @@ async function renderScreenView(screenId, requestedLocale) {
         }
         localeSelect.append(option);
     }
-    // Switching locale re-navigates (a fresh screenDetail load), which discards any in-progress
-    // canvas edit — the editor's document is purely in-memory in this wave (no save until S15),
-    // so there's nothing to preserve across it anyway.
-    localeSelect.addEventListener("change", () => navigate(screenId, localeSelect.value));
+    // With an editable document (wave S13's inspector edits included), a locale switch must not
+    // re-navigate — that would discard every in-progress canvas edit. The editor re-renders its
+    // in-memory document in the new locale instead, and the URL hash is updated in place so the
+    // shareable-URL property is preserved. The read-only fallback keeps the old navigate behavior.
+    localeSelect.addEventListener("change", () => {
+        if (currentEditor) {
+            const params = new URLSearchParams({ screen: screenId, locale: localeSelect.value });
+            history.replaceState(null, "", `#${params.toString()}`);
+            downloadLink.setAttribute("href", frameUrl(screenId, localeSelect.value));
+            currentEditor.setLocale(localeSelect.value);
+        }
+        else {
+            navigate(screenId, localeSelect.value);
+        }
+    });
     const zoomSelect = el("select", { class: "zoom-select" });
     for (const [value, label] of [
         ["fit", "Fit"],
@@ -201,6 +204,8 @@ async function renderScreenView(screenId, requestedLocale) {
         zoom = zoomSelect.value;
         applyZoomStyle(stage, surfaceWidth);
     });
+    let inspector = null;
+    const inspectorPanel = el("aside", { class: "inspector" });
     if (detail.screen) {
         // Editable: the AST DTO is the document the CanvasEditor mutates in memory. It owns the
         // overlay entirely from here on (selection, drag/resize, flow badges, the compile loop) —
@@ -210,15 +215,18 @@ async function renderScreenView(screenId, requestedLocale) {
             onDiagnostics: (diagnostics) => renderDiagnostics(diagnosticsContainer, diagnostics),
             onSelectionChange: (node) => {
                 selectionLabel.textContent = node ? selectionStatusText(node) : " ";
+                inspector?.showNode(node?.id ?? null);
             },
             onRowSelected: (rowId) => {
-                selectionLabel.textContent = `Selected row background: ${rowId} (inspector lands in a later wave)`;
+                selectionLabel.textContent = `Selected row: ${rowId}`;
+                inspector?.showRow(rowId);
             },
             onCompileError: (message) => {
                 renderDiagnostics(diagnosticsContainer, [{ message, line: null, severity: "Error" }]);
             },
         });
         currentEditor = editor;
+        inspector = new Inspector(inspectorPanel, paletteData, editor);
         if (showGoldenOutlines) {
             editor.setShowGoldenOutlines(true);
         }
@@ -259,9 +267,9 @@ async function renderScreenView(screenId, requestedLocale) {
         children.push(el("p", { class: "status status--error" }, [localeWarning]));
     }
     const frameViewport = el("div", { class: "frame-viewport" }, [stage]);
-    // The palette only makes sense when there is an editable AST to insert into.
+    // The palette and inspector only make sense when there is an editable AST.
     const canvasArea = detail.screen
-        ? el("div", { class: "editor-layout" }, [buildPalettePanel(paletteData), frameViewport])
+        ? el("div", { class: "editor-layout" }, [buildPalettePanel(paletteData), frameViewport, inspectorPanel])
         : frameViewport;
     children.push(canvasArea, hoverLabel, selectionLabel, diagnosticsContainer);
     app.replaceChildren(...children);

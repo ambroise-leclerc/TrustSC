@@ -3,7 +3,15 @@
 // interactive/DOM side, this file is the part that's actually worth reasoning about in
 // isolation (and the part a future test runner, if one lands, would target first).
 
-import type { Bounds, DimensionDto, NodeDefinitionDto, NodeKindDto, ScreenDefinitionDto, ScreenItemDto } from "./api.js";
+import type {
+  Bounds,
+  DimensionDto,
+  NodeDefinitionDto,
+  NodeKindDto,
+  RowDefinitionDto,
+  ScreenDefinitionDto,
+  ScreenItemDto,
+} from "./api.js";
 
 /** True only for nodes the canvas can drag/resize: the parser requires fixed `width`/`height`
  * whenever `position:` is present (see `parse_component_properties` in the governed crate), so
@@ -83,6 +91,42 @@ export function updateNode(
     return item;
   });
   return changed ? { ...screen, items } : screen;
+}
+
+/** Finds a top-level Row by id. Row-children lookups go through `findNode`; this is for editing
+ * the Row's *own* properties (height, spacing, background) in the inspector (wave S13). */
+export function findRow(screen: ScreenDefinitionDto, rowId: string): RowDefinitionDto | null {
+  for (const item of screen.items) {
+    if (item.type === "Row" && item.id === rowId) {
+      return item;
+    }
+  }
+  return null;
+}
+
+/** `updateNode`'s counterpart for a Row's own definition. Same contract: returns `screen`
+ * unchanged, by reference, when the id names no Row. */
+export function updateRow(
+  screen: ScreenDefinitionDto,
+  rowId: string,
+  updater: (row: RowDefinitionDto) => RowDefinitionDto,
+): ScreenDefinitionDto {
+  let changed = false;
+  const items: ScreenItemDto[] = screen.items.map((item) => {
+    if (item.type === "Row" && item.id === rowId) {
+      changed = true;
+      return { ...updater(item), type: "Row" };
+    }
+    return item;
+  });
+  return changed ? { ...screen, items } : screen;
+}
+
+/** Mirrors the parser's `parse_identifier`: non-empty, ASCII alphanumerics plus `_` and `-`.
+ * Used for inline id validation in the inspector, so a bad rename is rejected at the field
+ * instead of surfacing as a compile diagnostic on the whole document. */
+export function isValidIdentifier(id: string): boolean {
+  return id.length > 0 && /^[A-Za-z0-9_-]+$/.test(id);
 }
 
 /** Every identifier already taken in the screen: component ids, Row ids, and Row-children ids.

@@ -1,4 +1,4 @@
-# Manual test checklist — previewer (wave S9) + canvas editor (waves S11/S12)
+# Manual test checklist — previewer (wave S9) + canvas editor (waves S11/S12/S13)
 
 Run before every release of the previewer. Requires a Vulkan ICD (`sudo apt install
 mesa-vulkan-drivers` for lavapipe, the same setup CI uses).
@@ -93,16 +93,53 @@ Open `NeuroSense500`:
       from the frame on the next render and the selection clears. This also works on committed
       nodes (e.g. `ack-button`); reload the page to restore the file's state.
 
+## Property inspector (wave S13)
+
+Open `NeuroSense500`:
+
+- [ ] **Relabel from the governed dropdown**: select `ack-button`; the inspector shows its
+      catalog description, id, geometry, and one editor per property. Change `label` to another
+      approved key (e.g. `STR-NS-ALERT`) — the per-locale values and measured px widths show
+      under the dropdown, and the frame re-renders with the new text.
+- [ ] **Budget flagging before compile**: with `ack-button` still selected, open the `label`
+      dropdown — keys whose worst-case locale is wider than the button (e.g. `STR-NS-TITLE`,
+      flagged "⚠") are visible as such *before* picking one. Pick one anyway: the compiler's
+      text-budget diagnostic appears, the frame stays last-good, and the node's proposed rect is
+      outlined red.
+- [ ] **Color token**: change `ack-button`'s `color` — the swatch next to the dropdown and the
+      re-rendered frame agree on the new color.
+- [ ] **Duplicate id rejected inline**: rename `ack-button`'s id to `wall-clock` — an inline
+      "already taken" error shows at the field, the value snaps back, and no compile runs (the
+      diagnostics panel is untouched). Renaming to a fresh id (e.g. `acknowledge-button`)
+      applies, and the selection/status line follows the new id.
+- [ ] **Image picker resizes**: select `acme-logo`, pick a different entry (only one image is
+      baked in this repo, so re-pick the same one) — the width/height fields snap to the baked
+      intrinsic size.
+- [ ] **Position and size fields**: with a node selected, edit `position` x/y or width/height
+      numerically — the frame re-renders; dragging the node on the canvas updates the same
+      fields live.
+- [ ] **Row properties**: click the topbar Row's background — the inspector shows the Row's id,
+      height, spacing, and a `background` dropdown with a "(none)" entry and swatches. Change
+      the background — the topbar retints.
+- [ ] **Global view**: click empty space (deselect) — the inspector shows the screen's layout
+      spacing/padding and the declared surface. Increase the surface (e.g. 2560×1440) — the
+      frame re-renders larger; shrinking it below the content (e.g. 1280×720) produces
+      out-of-bounds diagnostics with the last-good frame kept.
+- [ ] **StatusIndicator states**: select `system-status` — states and their colors edit as
+      paired rows; "+ add state" appends one (Neutral color), "×" removes one, and removing the
+      last state is not offered.
+- [ ] **Locale switch keeps edits**: move `ack-button`, then switch the locale — the frame
+      re-renders in the new locale *with the moved button still moved* (the switch no longer
+      reloads the saved file).
+
 ## Known limits (this wave)
 
 - No save/propose-change flow yet (wave S15): every canvas edit lives only in the browser tab's
-  memory and is discarded on reload or navigating away (including a locale switch, which
-  re-fetches the screen from disk).
-- No inspector (wave S13): a Row's own properties (`spacing:`, `background:`) aren't editable,
-  and clicking its background only reports the selection.
-- Palette-dropped nodes default their free-text properties to placeholders (`REQ-TODO`,
-  `DATA_SOURCE`, `STREAM_SOURCE`) and their governed properties to the first approved entry —
-  changing any of them needs the inspector (wave S13).
+  memory and is discarded on reload or navigating away (a locale switch no longer discards —
+  wave S13).
+- No undo/redo and no safety-critical guard rails yet (wave S14): the `@safety_critical`
+  annotation isn't editable in the inspector, and there is no warning when moving a node with
+  golden-reference evidence.
 - Render latency is the render bridge's own (ADR-022 wave S7): each frame is a fresh Vulkan
   instance, typically ~100-500ms on lavapipe, more under host load. During a drag, only the
   overlay rect moves (no re-render per mouse move, per the wave S11 compile-loop design); once

@@ -3,7 +3,7 @@
 // stage; app.ts owns everything outside the stage (toolbar, diagnostics panel container, hover
 // label) and is handed callbacks to keep those in sync.
 import { compileScreen, postFrame, } from "./api.js";
-import { appendNode, convertToAbsolute, dimensionPx, findNode, generateNodeId, isDraggable, isSyntheticPanel, proposedBounds, removeNode, rowIdFromPanelId, snap, updateNode, } from "./ast.js";
+import { appendNode, convertToAbsolute, dimensionPx, findNode, findRow, generateNodeId, isDraggable, isSyntheticPanel, proposedBounds, removeNode, rowIdFromPanelId, snap, updateNode, updateRow, } from "./ast.js";
 import { defaultNodeAt } from "./palette-defaults.js";
 import { boundsToStyle, renderOverlay } from "./overlay.js";
 const GRID_PX = 8;
@@ -25,6 +25,7 @@ export class CanvasEditor {
         this.palette = palette;
         this.callbacks = callbacks;
         this.selectedNodeId = null;
+        this.selectedRowId = null;
         this.lastEditedNodeId = null;
         this.lastDiagnostics = [];
         this.showGolden = false;
@@ -41,7 +42,13 @@ export class CanvasEditor {
                 this.closeContextMenu();
             }
             const target = event.target instanceof Element ? event.target : null;
-            if (!target?.closest(".node-overlay") && this.selectedNodeId !== null) {
+            // Clicks inside the inspector or palette are edits/drag starts against the current
+            // selection, never a "click away" — deselecting on them would yank the inspector out from
+            // under its own controls.
+            if (target?.closest(".inspector, .palette")) {
+                return;
+            }
+            if (!target?.closest(".node-overlay") && (this.selectedNodeId !== null || this.selectedRowId !== null)) {
                 this.select(null);
             }
         };
@@ -96,6 +103,10 @@ export class CanvasEditor {
                 }));
             }
             this.lastEditedNodeId = nodeId;
+            // Keep the inspector's position/size fields in sync with the canvas edit (wave S13).
+            if (this.selectedNodeId === nodeId) {
+                this.callbacks.onSelectionChange(findNode(this.screen, nodeId));
+            }
             this.scheduleCompile(true);
         };
         this.onKeyDown = (event) => {
@@ -140,6 +151,7 @@ export class CanvasEditor {
             const nodeId = this.selectedNodeId;
             this.screen = updateNode(this.screen, nodeId, (n) => ({ ...n, position: [x, y] }));
             this.lastEditedNodeId = nodeId;
+            this.callbacks.onSelectionChange(findNode(this.screen, nodeId));
             // Immediate visual feedback, same as a drag move — don't wait for the debounced compile.
             const el = this.stage.querySelector(`.node-overlay[data-node-id="${CSS.escape(nodeId)}"]`);
             const width = dimensionPx(node.width);
@@ -211,8 +223,7 @@ export class CanvasEditor {
                 el.classList.add("node-overlay--panel");
                 el.addEventListener("click", (event) => {
                     event.stopPropagation();
-                    this.select(null);
-                    this.callbacks.onRowSelected(rowIdFromPanelId(compiledNode.id));
+                    this.selectRow(rowIdFromPanelId(compiledNode.id));
                 });
                 return;
             }
@@ -273,8 +284,59 @@ export class CanvasEditor {
     }
     select(nodeId) {
         this.selectedNodeId = nodeId;
+        this.selectedRowId = null;
         this.callbacks.onSelectionChange(nodeId ? findNode(this.screen, nodeId) : null);
         this.renderOverlays();
+    }
+    selectRow(rowId) {
+        this.selectedNodeId = null;
+        this.selectedRowId = rowId;
+        this.callbacks.onRowSelected(rowId);
+        this.renderOverlays();
+    }
+    // -------------------------------------------------------------------------------------------
+    // Inspector-facing API (wave S13). The inspector reads the live document via getScreen() and
+    // applies every edit through these methods so the compile loop, selection tracking, and the
+    // offender-rect bookkeeping stay in one place.
+    // -------------------------------------------------------------------------------------------
+    getScreen() {
+        return this.screen;
+    }
+    /** Applies an inspector edit to a node and recompiles. If the update renames the node, the
+     * selection follows the new id. */
+    applyNodeUpdate(nodeId, updater) {
+        const before = findNode(this.screen, nodeId);
+        if (!before) {
+            return;
+        }
+        const updated = updater(before);
+        this.screen = updateNode(this.screen, nodeId, () => updated);
+        if (this.selectedNodeId === nodeId) {
+            this.selectedNodeId = updated.id;
+        }
+        this.lastEditedNodeId = updated.id;
+        this.scheduleCompile(true);
+    }
+    /** Applies an inspector edit to a Row's own definition (height, spacing, background, id). */
+    applyRowUpdate(rowId, updater) {
+        const before = findRow(this.screen, rowId);
+        if (!before) {
+            return;
+        }
+        const updated = updater(before);
+        this.screen = updateRow(this.screen, rowId, () => updated);
+        if (this.selectedRowId === rowId) {
+            this.selectedRowId = updated.id;
+        }
+        // A Row edit has no single proposed rect to outline; diagnostics alone report a failure.
+        this.lastEditedNodeId = null;
+        this.scheduleCompile(true);
+    }
+    /** Applies a screen-level inspector edit (layout spacing/padding, declared surface). */
+    applyScreenUpdate(updater) {
+        this.screen = updater(this.screen);
+        this.lastEditedNodeId = null;
+        this.scheduleCompile(true);
     }
     startDrag(event, nodeId) {
         if (event.button !== 0) {
