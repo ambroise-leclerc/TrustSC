@@ -43,7 +43,7 @@ mesa-vulkan-drivers`; a real GPU driver also works locally, see below).
 ```text
 generated/verification/<software-item>/<locale>/
     report.json          # schema v1, see below
-    screenshot.ppm        # the base (non-scenario) capture, tightly-packed RGBA8
+    screenshot.ppm        # the base (non-scenario) capture, binary PPM (P6) — RGB only, no alpha
     step-<scenario-id>-<label>.ppm   # one per scenario capture step, when scenarios ran
 generated/verification/<software-item>/baselines/lavapipe/<locale>.txt
     # committed lavapipe ColorHash baselines — see "Tier 2" below; empty/absent until bootstrapped
@@ -87,10 +87,11 @@ and it returns `false` for `no_baseline` exactly like it does for `fail`. This i
 guarantee ADR-016 §3 is about: a `ColorHash` check never silently passes just because there was
 nothing to compare against.
 
-**Baseline bootstrap.** The first lavapipe run for a given `(software item, screen, locale)` finds
-no baseline file and every `ColorHash` check on it reports `no_baseline`; `--verify-ui` then writes
-`baselines/lavapipe/<locale>.txt` (tab-separated `node_id\thex` lines, sorted) from what it just
-measured — self-bootstrapping, but a human still has to review and commit the result:
+**Baseline bootstrap.** The first lavapipe run for a given `(software item, locale)` finds no
+baseline file and every `ColorHash` check on it reports `no_baseline`; `--verify-ui` then writes
+`baselines/lavapipe/<locale>.txt` (tab-separated `node_id\thex` lines, sorted, one row per golden
+reference on the screen) from what it just measured — self-bootstrapping, but a human still has
+to review and commit the result:
 
 ```sh
 cargo run -p class_c_monitor -- --verify-ui=generated/verification --locales=all
@@ -100,7 +101,7 @@ git commit -m "Bootstrap lavapipe ColorHash baselines for NeuroSense500"
 
 **Refresh** (after an intentional visual change): delete the stale baseline file and rerun the
 same command — a fresh bootstrap replaces it. Once a baseline file exists and is committed, every
-future lavapipe run on that `(item, screen, locale)` compares against it: an unintended color
+future lavapipe run on that `(item, locale)` compares against it: an unintended color
 regression turns into a real `fail`, an intentional one needs the same delete-and-rebootstrap step
 with the diff reviewed like any other change to committed evidence.
 
@@ -111,12 +112,12 @@ done once and reviewed like any other evidence commit.
 
 ## Report schema (v1)
 
-`crates/trustsc-ui-verify::emit_report_json` renders `report.json` by hand (no serde in governed
-code — [ADR-020](../adr/ADR-020-ai-interaction-standardization.md)/the repo's general no-serde-in-
-`crates/`-except-`tools/` doctrine): fixed key order, integers only (coverage as parts-per-million,
-never floats — determinism across platforms), LF line endings, no trailing whitespace, a trailing
-newline. Byte-reproducible given identical inputs, so a report is diffable and can itself be
-byte-compared like any other evidence artifact.
+`crates/trustsc-ui-verify::emit_report_json` renders `report.json` by hand — no serde in governed
+or adapter code, an explicit decision in
+[ADR-016](../adr/ADR-016-automated-ui-verification-and-manual-generation.md) §5: fixed key order,
+integers only (coverage as parts-per-million, never floats — determinism across platforms), LF
+line endings, no trailing whitespace, a trailing newline. Byte-reproducible given identical
+inputs, so a report is diffable and can itself be byte-compared like any other evidence artifact.
 
 Top-level fields:
 
