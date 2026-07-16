@@ -130,7 +130,12 @@ export class Inspector {
                     box.setAttribute("disabled", "disabled");
                 }
                 box.addEventListener("change", () => {
-                    const next = box.checked ? [...current, check] : current.filter((c) => c !== check);
+                    const updated = box.checked ? [...current, check] : current.filter((c) => c !== check);
+                    // Normalize to a fixed order (matching the compiler's own Bounds-first convention,
+                    // e.g. `golden_references_push`): otherwise unchecking then rechecking a box reorders
+                    // the array without changing its meaning, which would misfire as an annotation change
+                    // in the wave-S14 diff (goldenAffected) for a semantically no-op edit.
+                    const next = ["Bounds", "ColorHash"].filter((candidate) => updated.includes(candidate));
                     if (next.length === 0) {
                         error.textContent = "at least one cv_check is required (a compile error otherwise)";
                         box.checked = true;
