@@ -16,19 +16,28 @@ export interface ProposeDialogOptions {
   baseSourceSha256: string;
 }
 
-function closeOnBackdrop(backdrop: HTMLElement, dialog: HTMLElement): void {
+/** Wires the modal's three passive close paths (backdrop click, Escape, and — via the returned
+ * `close()` — every explicit button) to a single teardown, so the document-level `keydown`
+ * listener is removed no matter which path the dialog actually closes through. Returns `close()`
+ * for the caller's own buttons (Cancel, the success screen's Close) to invoke. */
+function setUpDialogClose(backdrop: HTMLElement, dialog: HTMLElement): () => void {
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      close();
+    }
+  };
+  const close = (): void => {
+    document.removeEventListener("keydown", onKey);
+    backdrop.remove();
+  };
+  document.addEventListener("keydown", onKey);
   backdrop.addEventListener("click", (event) => {
     if (event.target === backdrop) {
-      backdrop.remove();
-    }
-  });
-  document.addEventListener("keydown", function onKey(event) {
-    if (event.key === "Escape") {
-      backdrop.remove();
-      document.removeEventListener("keydown", onKey);
+      close();
     }
   });
   dialog.addEventListener("click", (event) => event.stopPropagation());
+  return close;
 }
 
 /** Opens the propose-change modal, prefilled from the diff against the loaded file. Handles the
@@ -70,8 +79,8 @@ export function openProposeDialog(options: ProposeDialogOptions): void {
     el("div", { class: "propose-dialog__actions" }, [cancel, submit]),
   ]);
   const backdrop = el("div", { class: "propose-backdrop" }, [dialog]);
-  closeOnBackdrop(backdrop, dialog);
-  cancel.addEventListener("click", () => backdrop.remove());
+  const close = setUpDialogClose(backdrop, dialog);
+  cancel.addEventListener("click", close);
   document.body.append(backdrop);
   titleInput.focus();
   titleInput.select();
@@ -82,14 +91,14 @@ export function openProposeDialog(options: ProposeDialogOptions): void {
     const link = result.prUrl
       ? el("p", {}, [el("a", { href: result.prUrl, target: "_blank", rel: "noopener" }, [result.prUrl])])
       : el("p", { class: "propose-dialog__warning" }, [result.warning ?? "Branch pushed; no PR link available."]);
-    const close = el("button", { type: "button", class: "propose-dialog__submit" }, ["Close"]);
-    close.addEventListener("click", () => backdrop.remove());
+    const closeButton = el("button", { type: "button", class: "propose-dialog__submit" }, ["Close"]);
+    closeButton.addEventListener("click", close);
     body.replaceChildren(
       el("p", {}, [`Branch ${result.branch} pushed.`]),
       link,
       ...(result.prUrl && result.warning ? [el("p", { class: "propose-dialog__warning" }, [result.warning])] : []),
     );
-    dialog.querySelector(".propose-dialog__actions")?.replaceChildren(close);
+    dialog.querySelector(".propose-dialog__actions")?.replaceChildren(closeButton);
   };
 
   const submitProposal = async (): Promise<void> => {

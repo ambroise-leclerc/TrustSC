@@ -10,7 +10,7 @@
 //! `git` (and optionally `gh`) are invoked as external tools, documented in the crate README,
 //! not linked SOUP components.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Proposal configuration, read once at startup from the environment (see the crate README):
@@ -47,6 +47,24 @@ pub struct ProposalOutcome {
     /// `warning` then says why, so the change is never silently half-delivered.
     pub pr_url: Option<String>,
     pub warning: Option<String>,
+}
+
+/// Distinguishes the one *expected* rejection (nothing changed) from every other failure, so
+/// `api.rs` can map the former to a `4xx` with a machine-readable code instead of a `500` —
+/// review feedback: a caller submitting an unmodified document is a normal outcome, not an
+/// internal error.
+pub enum ProposalError {
+    /// The serialized document is byte-identical to the committed file — no commit was made.
+    NoChange,
+    /// A git/gh/filesystem operation failed; the message is safe to surface to the caller (it
+    /// never includes `config.token`).
+    Failed(String),
+}
+
+impl From<String> for ProposalError {
+    fn from(message: String) -> Self {
+        ProposalError::Failed(message)
+    }
 }
 
 /// True when the source contains `//` comment lines — which the canonical serializer drops
@@ -114,6 +132,55 @@ fn utc_timestamp() -> String {
     format!("{year:04}{month:02}{day:02}-{hh:02}{mm:02}{ss:02}")
 }
 
+/// Maps `stem` to a component safe to embed in a git ref name (`git-check-ref-format(1)`):
+/// ASCII alphanumerics, `_`, and `-` pass through; everything else — including `.`, which risks
+/// the `..`/trailing-`.lock` edge cases `check-ref-format` forbids — becomes `-`. Falls back to
+/// `"screen"` if nothing safe survives (e.g. `stem` was empty or entirely non-ASCII).
+/// `resolve_medui_path` (`api.rs`) already restricts a screen id to printable ASCII, but its
+/// `file_stem()` (everything before the last `.`) is a strict subset of that id and was never
+/// validated against ref-name rules specifically — this is that validation (ADR-022 wave S15
+/// review).
+fn sanitize_branch_component(stem: &str) -> String {
+    let mapped: String = stem
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '-' })
+        .collect();
+    let trimmed = mapped.trim_matches('-');
+    if trimmed.is_empty() { "screen".to_string() } else { trimmed.to_string() }
+}
+
+/// Allocates a fresh, unpredictable scratch directory under the system temp dir using exclusive
+/// `create_dir` (never `create_dir_all`, which happily reuses — and lets a pre-existing directory
+/// silently redirect writes into — anything already at the target path). The name mixes the pid,
+/// a process-local counter, wall-clock nanoseconds, and an ASLR-derived stack address through a
+/// hasher so it isn't guessable from pid+timestamp alone (no `rand`/`tempfile` dependency: this
+/// crate is host-only tooling and a new SOUP entry isn't worth it for one temp name). Retries a
+/// few times on an (extremely unlikely) collision before giving up.
+fn unique_scratch_dir() -> Result<PathBuf, String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let stack_marker = 0u8;
+    for _ in 0..8 {
+        let mut hasher = DefaultHasher::new();
+        std::process::id().hash(&mut hasher);
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed).hash(&mut hasher);
+        (std::ptr::addr_of!(stack_marker) as usize).hash(&mut hasher);
+        let candidate =
+            std::env::temp_dir().join(format!("trustsc-medui-studio-proposal-{:016x}", hasher.finish()));
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(format!("cannot create scratch dir: {error}")),
+        }
+    }
+    Err("cannot allocate a unique scratch directory after several attempts".to_string())
+}
+
 /// Creates the proposal: a commit on a fresh `medui-studio/<stem>-<timestamp>` branch whose only
 /// change against the base revision is `screen_rel_path` replaced by `serialized`, pushed to the
 /// configured remote, with a PR opened via `gh` when possible.
@@ -124,30 +191,24 @@ pub fn create_proposal(
     title: &str,
     description: &str,
     config: &ProposalConfig,
-) -> Result<ProposalOutcome, String> {
+) -> Result<ProposalOutcome, ProposalError> {
     let base = resolve_base(repo, &config.remote)?;
 
-    let stem = Path::new(screen_rel_path)
+    let raw_stem = Path::new(screen_rel_path)
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
-        .unwrap_or_else(|| "screen".to_string());
+        .unwrap_or_default();
+    let stem = sanitize_branch_component(&raw_stem);
     let branch = format!("medui-studio/{stem}-{}", utc_timestamp());
 
     // Build the commit with a throwaway index so the working tree/index of the serving checkout
-    // are never touched. The counter makes concurrent proposals (same pid, same second) use
-    // disjoint scratch dirs — pid+timestamp alone raced.
-    static SCRATCH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let scratch = std::env::temp_dir().join(format!(
-        "trustsc-medui-studio-proposal-{}-{}",
-        std::process::id(),
-        SCRATCH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&scratch).map_err(|error| format!("cannot create scratch dir: {error}"))?;
+    // are never touched.
+    let scratch = unique_scratch_dir()?;
     let index_path = scratch.join("index");
     let index = index_path.to_string_lossy().to_string();
     let index_env: [(&str, &str); 1] = [("GIT_INDEX_FILE", index.as_str())];
 
-    let result = (|| {
+    let result: Result<(String, String), ProposalError> = (|| {
         let blob_source = scratch.join("proposal.medui");
         std::fs::write(&blob_source, serialized)
             .map_err(|error| format!("cannot write scratch blob: {error}"))?;
@@ -172,7 +233,7 @@ pub fn create_proposal(
 
         let base_tree = run_git(repo, &[], &["rev-parse", &format!("{base}^{{tree}}")])?;
         if tree == base_tree {
-            return Err("the serialized screen is identical to the committed file; nothing to propose".to_string());
+            return Err(ProposalError::NoChange);
         }
 
         let message = if description.trim().is_empty() {
@@ -313,8 +374,29 @@ mod tests {
         assert_eq!(stamp.as_bytes()[8], b'-', "was: {stamp}");
         assert!(stamp[..8].chars().all(|c| c.is_ascii_digit()), "was: {stamp}");
         assert!(stamp[9..].chars().all(|c| c.is_ascii_digit()), "was: {stamp}");
-        // Sanity: the year is in a plausible range, catching an off-by-era bug.
+        // Sanity floor only (no upper bound — an upper bound is a future test failure waiting to
+        // happen): catches an off-by-era bug in the civil_from_days conversion without expiring.
         let year: u32 = stamp[..4].parse().unwrap();
-        assert!((2024..2100).contains(&year), "was: {stamp}");
+        assert!(year >= 2020, "was: {stamp}");
+    }
+
+    #[test]
+    fn sanitize_branch_component_produces_a_ref_safe_ascii_slug() {
+        assert_eq!(sanitize_branch_component("neurosense"), "neurosense");
+        assert_eq!(sanitize_branch_component("a b/c..d"), "a-b-c--d");
+        assert_eq!(sanitize_branch_component("--weird--"), "weird");
+        assert_eq!(sanitize_branch_component(""), "screen");
+        assert_eq!(sanitize_branch_component("héllo"), "h-llo");
+    }
+
+    #[test]
+    fn unique_scratch_dir_returns_a_freshly_created_distinct_directory_each_call() {
+        let a = unique_scratch_dir().expect("should allocate a scratch dir");
+        let b = unique_scratch_dir().expect("should allocate a scratch dir");
+        assert_ne!(a, b);
+        assert!(a.is_dir());
+        assert!(b.is_dir());
+        std::fs::remove_dir_all(&a).unwrap();
+        std::fs::remove_dir_all(&b).unwrap();
     }
 }

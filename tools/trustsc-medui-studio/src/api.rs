@@ -29,13 +29,17 @@ const DEFAULT_SURFACE: (u32, u32) = (800, 480);
 /// an absolute path or `..` components and simply replaces/walks out of the base, so the id must
 /// be validated first: every component must be a plain (`Normal`) segment — no `..`, no `.`, no
 /// root/prefix — and it must end in `.medui`, both to block path traversal and because nothing
-/// else is a legitimate screen id.
+/// else is a legitimate screen id. Also rejects control characters and `,`: wave S15's
+/// `POST /api/proposals` embeds this same id in a `git update-index --cacheinfo
+/// <mode>,<blob>,<path>` argument, where git itself splits on commas — an id containing one
+/// would corrupt that argument's parsing (ADR-022 wave S15 review).
 fn resolve_medui_path(repo: &StdPath, id: &str) -> Result<PathBuf, String> {
     let candidate = StdPath::new(id);
     let only_normal_components =
         !id.is_empty() && candidate.components().all(|component| matches!(component, Component::Normal(_)));
     let has_medui_extension = candidate.extension().map(|ext| ext == "medui").unwrap_or(false);
-    if !only_normal_components || !has_medui_extension {
+    let has_safe_characters = id.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b',');
+    if !only_normal_components || !has_medui_extension || !has_safe_characters {
         return Err(format!("invalid screen id: {id}"));
     }
     Ok(repo.join(candidate))
@@ -553,7 +557,16 @@ async fn create_proposal(
             warning: outcome.warning,
         })
         .into_response(),
-        Ok(Err(message)) => error_response(StatusCode::INTERNAL_SERVER_ERROR, message),
+        // A caller proposing an unmodified document is a normal outcome, not a server failure —
+        // a distinct 4xx + code, not the generic 500 every other proposal failure gets.
+        Ok(Err(crate::proposals::ProposalError::NoChange)) => coded_error(
+            StatusCode::BAD_REQUEST,
+            "no_change",
+            "the serialized screen is identical to the committed file; nothing to propose",
+        ),
+        Ok(Err(crate::proposals::ProposalError::Failed(message))) => {
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, message)
+        }
         Err(_) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "proposal task failed"),
     }
 }
@@ -600,6 +613,16 @@ mod tests {
         let resolved =
             resolve_medui_path(&repo, "examples/hello_world/hello_world.medui").unwrap();
         assert_eq!(resolved, repo.join("examples/hello_world/hello_world.medui"));
+    }
+
+    #[test]
+    fn resolve_medui_path_rejects_commas_and_control_characters() {
+        // Both would corrupt POST /api/proposals' `git update-index --cacheinfo mode,blob,path`
+        // argument, which git itself splits on commas.
+        let repo = repo_root();
+        assert!(resolve_medui_path(&repo, "screens/a,b.medui").is_err());
+        assert!(resolve_medui_path(&repo, "screens/a\nb.medui").is_err());
+        assert!(resolve_medui_path(&repo, "screens/a\tb.medui").is_err());
     }
 
     fn test_state() -> std::sync::Arc<AppState> {
