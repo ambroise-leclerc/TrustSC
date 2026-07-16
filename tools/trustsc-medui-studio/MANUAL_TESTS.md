@@ -1,4 +1,4 @@
-# Manual test checklist — previewer (wave S9) + canvas editor (wave S11)
+# Manual test checklist — previewer (wave S9) + canvas editor (waves S11/S12)
 
 Run before every release of the previewer. Requires a Vulkan ICD (`sudo apt install
 mesa-vulkan-drivers` for lavapipe, the same setup CI uses).
@@ -70,6 +70,29 @@ Open `NeuroSense500`:
       status line reports the owning Row was selected ("inspector lands in a later wave"), not a
       widget; nothing drags.
 
+## Palette drag-and-drop (wave S12)
+
+Open `NeuroSense500`:
+
+- [ ] **Palette panel**: a "Palette" sidebar lists all 10 governed widget kinds, each showing its
+      catalog description as a hover tooltip. None are greyed out on this repo (its default
+      packages provide text keys, colors, templates, and a baked image).
+- [ ] **Drop a Label on empty space**: drag "Label" from the palette onto an empty area of the
+      canvas (e.g. below `ack-button`). A new node appears in the rendered frame with the first
+      approved text key and color token, its id is `label-1` (hover it), its position is
+      grid-snapped (a multiple of 8px), it is selected (outline + resize handle), and the
+      diagnostics panel shows "No diagnostics.".
+- [ ] **Unique ids**: drop a second Label — its id is `label-2`.
+- [ ] **Drop an Image**: drag "Image" onto empty space — it is created at the baked logo's
+      intrinsic size (144×48, hover to check) and compiles.
+- [ ] **Drop onto an occupied area**: drag a "Button" directly onto `eeg-dsa` (the large
+      viewport). The diagnostics panel shows an overlap message, the new node's proposed rect is
+      outlined red at the drop point (not silently relocated), and the frame stays last-good.
+      Dragging the red-outlined node to empty space clears the diagnostic and renders it.
+- [ ] **Delete key**: select a dropped node and press Delete (or Backspace) — the node disappears
+      from the frame on the next render and the selection clears. This also works on committed
+      nodes (e.g. `ack-button`); reload the page to restore the file's state.
+
 ## Known limits (this wave)
 
 - No save/propose-change flow yet (wave S15): every canvas edit lives only in the browser tab's
@@ -77,6 +100,9 @@ Open `NeuroSense500`:
   re-fetches the screen from disk).
 - No inspector (wave S13): a Row's own properties (`spacing:`, `background:`) aren't editable,
   and clicking its background only reports the selection.
+- Palette-dropped nodes default their free-text properties to placeholders (`REQ-TODO`,
+  `DATA_SOURCE`, `STREAM_SOURCE`) and their governed properties to the first approved entry —
+  changing any of them needs the inspector (wave S13).
 - Render latency is the render bridge's own (ADR-022 wave S7): each frame is a fresh Vulkan
   instance, typically ~100-500ms on lavapipe, more under host load. During a drag, only the
   overlay rect moves (no re-render per mouse move, per the wave S11 compile-loop design); once

@@ -71,6 +71,58 @@ export function updateNode(screen, nodeId, updater) {
     });
     return changed ? { ...screen, items } : screen;
 }
+/** Every identifier already taken in the screen: component ids, Row ids, and Row-children ids.
+ * New-node id generation must avoid all of them — the compiler rejects duplicate ids wherever
+ * they appear, and a Row id colliding with a component id is just as fatal as two components. */
+export function collectIds(screen) {
+    const ids = new Set();
+    for (const item of screen.items) {
+        ids.add(item.id);
+        if (item.type === "Row") {
+            for (const child of item.children) {
+                ids.add(child.id);
+            }
+        }
+    }
+    return ids;
+}
+/** A fresh unique id for a palette-dropped node: the widget kind in kebab-case plus the first
+ * free counter (`label-1`, `critical-button-2`, ...), never colliding with any existing id. */
+export function generateNodeId(screen, kindName) {
+    const prefix = kindName.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+    const taken = collectIds(screen);
+    for (let n = 1;; n++) {
+        const candidate = `${prefix}-${n}`;
+        if (!taken.has(candidate)) {
+            return candidate;
+        }
+    }
+}
+/** Returns a new screen with `node` appended as a top-level `Component` item. Palette drops are
+ * always absolutely positioned, so appending never disturbs the flow layout of existing items. */
+export function appendNode(screen, node) {
+    return { ...screen, items: [...screen.items, { ...node, type: "Component" }] };
+}
+/** Returns a new screen with `nodeId`'s node removed — from the top-level items or from a Row's
+ * children (Rows themselves are never removed here, even when emptied). Returns `screen`
+ * unchanged, by reference, when the id names no node, mirroring `updateNode`'s contract. */
+export function removeNode(screen, nodeId) {
+    let changed = false;
+    const items = [];
+    for (const item of screen.items) {
+        if (item.type === "Component" && item.id === nodeId) {
+            changed = true;
+            continue;
+        }
+        if (item.type === "Row" && item.children.some((child) => child.id === nodeId)) {
+            changed = true;
+            items.push({ ...item, children: item.children.filter((child) => child.id !== nodeId) });
+            continue;
+        }
+        items.push(item);
+    }
+    return changed ? { ...screen, items } : screen;
+}
 /** Grid-snaps a coordinate/length to the nearest multiple of `grid` (8px, matching the examples'
  * coordinate style) unless `disabled` (Shift held), in which case the value passes through
  * unchanged. Always clamped to >= 0 either way: positions/sizes can never go negative. */
