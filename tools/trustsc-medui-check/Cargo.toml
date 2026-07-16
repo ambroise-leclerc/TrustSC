@@ -1,0 +1,9 @@
+[package]
+name = "trustsc-medui-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+trustsc-ui-dsl-authoring = { version = "0.1.0", path = "../../crates/trustsc-ui-dsl-authoring" }
+trustsc = { version = "0.1.0", path = "../../crates/trustsc" }
