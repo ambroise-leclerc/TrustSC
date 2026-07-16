@@ -78,16 +78,48 @@ field (the widget kind) — reusing `"kind"` for both would collide when interna
 - `POST /api/serialize` — `{ "screen": <AST DTO> }` → `{ "source": "..." }` via `serialize_screen`.
   Rejects (`400`) a submitted `Panel` node — compiler-synthesized only, no `.medui` syntax exists
   for it — before ever reaching the serializer, which would otherwise panic on one.
+- `POST /api/proposals` (wave S15) — body
+  `{ screen_id, screen: <AST DTO>, base_source_sha256, title, description?, allow_comment_loss? }`
+  → `{ branch, commit, pr_url, warning }`. See "Propose-change flow" below.
 - `GET /*` — serves the embedded `frontend/dist/` assets (the read-only previewer, wave S9).
 
 Every `/api/*` route above is behind the same bearer-token gate (see Auth).
 
-## Frontend (waves S9 + S11)
+## Propose-change flow (wave S15)
+
+`src/proposals.rs` turns a serialized `.medui` document into a pushed branch and (when possible)
+an opened pull request, without ever touching the serving checkout's working tree or index: the
+commit is built with git *plumbing* (`hash-object`, a temporary `GIT_INDEX_FILE`, `write-tree`,
+`commit-tree`, `update-ref`) against the base revision, so the running server keeps serving
+unmodified files throughout. `git` and (optionally) `gh` are invoked as external CLIs — no git
+library dependency, so no new SOUP entries; `gh` is skipped (with a `warning` in the response,
+never a failure) when the configured remote isn't a `github.com` URL.
+
+- **Optimistic concurrency**: `GET /api/screens/{id}` now also returns `source_sha256` (SHA-256 of
+  the file as read); `POST /api/proposals` echoes it back as `base_source_sha256` and gets `409`
+  (`code: "stale_base"`) if the on-disk file no longer matches — reload and re-apply the edit.
+- **Comment loss**: the canonical serializer has no trivia slots (S4), so a committed file
+  containing `//` comments needs `allow_comment_loss: true` to propose over it; otherwise `409`
+  (`code: "comment_loss"`). The frontend shows a confirmation dialog for this.
+- **Never proposes an uncompilable document**: the server re-runs `compile_screen_definition` on
+  the submitted AST and rejects (`422`, `code: "uncompilable"`) before ever building a commit —
+  the same gate CI's `--verify-ui` would apply, applied early.
+- **Branch naming**: `medui-studio/<screen-stem>-<yyyymmdd-hhmmss>` (UTC).
+- **Config** (environment, all optional):
+  - `TRUSTSC_STUDIO_GIT_REMOTE` — remote to fetch the base from and push to (default `origin`).
+  - `TRUSTSC_STUDIO_GIT_AUTHOR_NAME` / `TRUSTSC_STUDIO_GIT_AUTHOR_EMAIL` — commit author/committer
+    identity (default `MedUI Studio <medui-studio@localhost>`).
+  - `TRUSTSC_STUDIO_GIT_TOKEN` — forwarded to `gh` as `GH_TOKEN` for PR creation; unset means `gh`
+    uses whatever auth is already configured on the host (`gh auth login`).
+
+## Frontend (waves S9, S11–S15)
 
 `frontend/` is a plain-TypeScript, no-framework, no-bundler app: a screen list and a screen view
 (pixel-exact frame via `<img>`, a locale switcher, a zoom control, a node-bounds hover overlay, a
 golden-reference-outline toggle, a diagnostics panel, and a PNG download button — wave S9), plus
-canvas selection and drag/resize editing on top of it (wave S11).
+canvas selection and drag/resize editing (wave S11), palette drag-and-drop node creation
+(wave S12), a property inspector (wave S13), safety guard rails and undo/redo (wave S14), and a
+"Propose change" dialog (wave S15) on top of it.
 
 Routing is a plain `location.hash` (`#screen=<id>&locale=<tag>`), so any screen+locale view is a
 copy-pasteable, shareable URL — the server doesn't need a catch-all SPA route, since the hash
@@ -100,9 +132,10 @@ and `src/editor.ts` (`CanvasEditor` — all the DOM/interaction state: selection
 keyboard nudge, the context menu, the debounced compile loop) sit on top of `overlay.ts`'s
 `renderOverlay`/`boundsToStyle`, which wave S9 deliberately factored out for exactly this.
 
-- The client holds the AST DTO from `GET /api/screens/{id}` as the document; it's never persisted
-  anywhere in this wave (no save/propose-change flow until wave S15) — reload or navigate away
-  and an edit is gone.
+- The client holds the AST DTO from `GET /api/screens/{id}` as the document, mutated in memory
+  through waves S11–S14's editing and an undo/redo history; nothing is persisted until the
+  wave-S15 "Propose change" dialog explicitly submits it — reload or navigate away without
+  proposing and an edit is gone.
 - Only absolutely-positioned, fixed-px nodes (`position:` + fixed `width:`/`height:`) can be
   dragged/resized — the parser requires that pairing anyway (`parse_component_properties`). Flow
   nodes (no `position:`, or `Fill` dims) show a "flow" badge and offer "Convert to absolute" in a

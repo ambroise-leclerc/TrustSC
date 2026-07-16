@@ -5,10 +5,11 @@ import { ApiError, frameUrl, listScreens, palette, screenDetail, } from "./api.j
 import { renderOverlay, tooltipText } from "./overlay.js";
 import { CanvasEditor, WIDGET_DRAG_MIME } from "./editor.js";
 import { isDraggable } from "./ast.js";
-import { hasGoldenImpact } from "./changes.js";
+import { changeCount, describeChange, hasGoldenImpact } from "./changes.js";
 import { el } from "./dom.js";
 import { Inspector } from "./inspector.js";
 import { cannotCreateReason } from "./palette-defaults.js";
+import { openProposeDialog } from "./propose.js";
 const appEl = document.getElementById("app");
 if (!appEl) {
     throw new Error("missing #app container");
@@ -118,30 +119,20 @@ function buildPalettePanel(paletteData) {
         list,
     ]);
 }
-function changeEntryText(entry) {
-    const verb = entry.change === "added"
-        ? "added"
-        : entry.change === "removed"
-            ? "removed"
-            : entry.geometryChanged
-                ? "moved/resized"
-                : "edited";
-    const flags = `${entry.safetyCritical ? " \u{1F6E1} safety-critical" : ""}${entry.goldenAffected ? " ⚠ golden references affected" : ""}`;
-    return `${verb} ${entry.id}${flags}`;
-}
 /** Wave S14: the golden-impact warning banner and the changes-summary drawer, re-rendered from
- * the diff the editor reports after every commit and undo/redo. The drawer's entries become the
- * proposal summary in wave S15. */
-function renderChanges(banner, drawer, list, summary, diff) {
+ * the diff the editor reports after every commit and undo/redo. Wave S15's proposal dialog
+ * reuses `describeChange`/`changeCount` for the same entries. */
+function renderChanges(banner, drawer, list, summary, proposeButton, diff) {
     banner.hidden = !hasGoldenImpact(diff);
-    const count = diff.entries.length + (diff.screenChanged ? 1 : 0);
+    const count = changeCount(diff);
     drawer.hidden = count === 0;
     summary.textContent = `Changes vs. loaded file (${count})`;
-    const items = diff.entries.map((entry) => el("li", entry.goldenAffected ? { class: "changes-drawer__golden" } : {}, [changeEntryText(entry)]));
+    const items = diff.entries.map((entry) => el("li", entry.goldenAffected ? { class: "changes-drawer__golden" } : {}, [describeChange(entry)]));
     if (diff.screenChanged) {
         items.push(el("li", {}, ["screen layout/surface changed"]));
     }
     list.replaceChildren(...items);
+    proposeButton.disabled = count === 0;
 }
 function selectionStatusText(node) {
     const editable = isDraggable(node)
@@ -240,13 +231,21 @@ async function renderScreenView(screenId, requestedLocale) {
     const changesList = el("ul", { class: "changes-drawer__list" });
     const changesDrawer = el("details", { class: "changes-drawer" }, [changesSummary, changesList]);
     changesDrawer.hidden = true;
+    // Wave S15: disabled until there's something to propose, and while the document doesn't
+    // compile (a proposal the server would only reject anyway).
+    const proposeButton = el("button", { type: "button", class: "propose-button", disabled: "disabled" }, [
+        "Propose change…",
+    ]);
     if (detail.screen) {
         // Editable: the AST DTO is the document the CanvasEditor mutates in memory. It owns the
         // overlay entirely from here on (selection, drag/resize, flow badges, the compile loop) —
         // renderOverlay/boundsToStyle (overlay.ts) stay the shared geometry primitives underneath.
         const editor = new CanvasEditor(locale, stage, img, detail.screen, detail.compiled, paletteData, {
             onHover: (node) => setHoverLabel(hoverLabel, node),
-            onDiagnostics: (diagnostics) => renderDiagnostics(diagnosticsContainer, diagnostics),
+            onDiagnostics: (diagnostics) => {
+                renderDiagnostics(diagnosticsContainer, diagnostics);
+                proposeButton.disabled = diagnostics.length > 0 || !!changesDrawer.hidden;
+            },
             onSelectionChange: (node) => {
                 selectionLabel.textContent = node ? selectionStatusText(node) : " ";
                 inspector?.showNode(node?.id ?? null);
@@ -257,8 +256,9 @@ async function renderScreenView(screenId, requestedLocale) {
             },
             onCompileError: (message) => {
                 renderDiagnostics(diagnosticsContainer, [{ message, line: null, severity: "Error" }]);
+                proposeButton.disabled = true;
             },
-            onDocumentChanged: (diff) => renderChanges(safetyBanner, changesDrawer, changesList, changesSummary, diff),
+            onDocumentChanged: (diff) => renderChanges(safetyBanner, changesDrawer, changesList, changesSummary, proposeButton, diff),
         });
         currentEditor = editor;
         inspector = new Inspector(inspectorPanel, paletteData, editor);
@@ -268,6 +268,9 @@ async function renderScreenView(screenId, requestedLocale) {
         goldenCheckbox?.addEventListener("change", () => {
             showGoldenOutlines = goldenCheckbox.checked;
             editor.setShowGoldenOutlines(showGoldenOutlines);
+        });
+        proposeButton.addEventListener("click", () => {
+            openProposeDialog({ screenId, editor, baseSourceSha256: detail.source_sha256 });
         });
     }
     else {
@@ -296,6 +299,7 @@ async function renderScreenView(screenId, requestedLocale) {
             el("label", {}, ["Zoom: ", zoomSelect]),
             goldenToggle,
             downloadLink,
+            ...(detail.screen ? [proposeButton] : []),
         ]),
     ];
     if (localeWarning) {

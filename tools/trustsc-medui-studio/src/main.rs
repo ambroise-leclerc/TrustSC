@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 mod api;
 mod dto;
+mod proposals;
 mod render_bridge;
 
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
@@ -121,6 +122,8 @@ struct AppState {
     /// `/api/frame` requests wait their turn instead of racing to create Vulkan instances
     /// simultaneously.
     render_semaphore: tokio::sync::Semaphore,
+    /// Propose-change git/PR configuration (wave S15), read once from the environment.
+    proposals: proposals::ProposalConfig,
 }
 
 fn build_router(state: Arc<AppState>) -> Router {
@@ -166,6 +169,7 @@ async fn main() {
         display_texts,
         images,
         render_semaphore: tokio::sync::Semaphore::new(1),
+        proposals: proposals::ProposalConfig::from_env(),
     });
 
     let app = build_router(state);
@@ -322,6 +326,7 @@ mod tests {
             display_texts: trustsc::default_display_text_packages().expect("display packages"),
             images: trustsc::default_image_packages().expect("image packages"),
             render_semaphore: tokio::sync::Semaphore::new(1),
+            proposals: proposals::ProposalConfig::from_env(),
         })
     }
 

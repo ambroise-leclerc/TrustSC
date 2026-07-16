@@ -113,6 +113,9 @@ export interface ScreenDefinitionDto {
 
 export interface ScreenDetail {
   source: string;
+  /** SHA-256 of `source` as read from disk — echoed back as a proposal's optimistic-concurrency
+   * base (wave S15). */
+  source_sha256: string;
   screen: ScreenDefinitionDto | null;
   compiled: CompiledSummary;
 }
@@ -199,29 +202,34 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /** Machine-readable error code some endpoints attach (wave S15's proposals: "stale_base",
+     * "comment_loss", "uncompilable") so callers can branch without parsing prose. */
+    public readonly code: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
   }
 }
 
-async function errorMessageFrom(response: Response): Promise<string> {
+async function errorFrom(response: Response): Promise<ApiError> {
   let message = `${response.status} ${response.statusText}`;
+  let code: string | null = null;
   try {
-    const body = (await response.json()) as { error?: string };
+    const body = (await response.json()) as { error?: string; code?: string };
     if (body.error) {
       message = body.error;
     }
+    code = body.code ?? null;
   } catch {
     // Non-JSON error body (e.g. a 401 from the auth middleware) — the status text is enough.
   }
-  return message;
+  return new ApiError(response.status, message, code);
 }
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { accept: "application/json" } });
   if (!response.ok) {
-    throw new ApiError(response.status, await errorMessageFrom(response));
+    throw await errorFrom(response);
   }
   return (await response.json()) as T;
 }
@@ -239,8 +247,8 @@ export function palette(): Promise<Palette> {
 }
 
 /** The `/api/frame` URL for an `<img src>` — not fetched directly, since the browser handles
- * PNG loading (and caching) itself. Always renders the *saved* source (there is no save/PR flow
- * until wave S15, so this is never the in-progress edit — see `postFrame` for that). */
+ * PNG loading (and caching) itself. Always renders the *saved* source, never the in-progress
+ * edit — see `postFrame` for that. */
 export function frameUrl(screenId: string, locale: string): string {
   const params = new URLSearchParams({ screen: screenId, locale });
   return `/api/frame?${params.toString()}`;
@@ -256,7 +264,7 @@ export async function compileScreen(screen: ScreenDefinitionDto): Promise<Compil
     body: JSON.stringify({ screen }),
   });
   if (!response.ok) {
-    throw new ApiError(response.status, await errorMessageFrom(response));
+    throw await errorFrom(response);
   }
   return (await response.json()) as CompileResult;
 }
@@ -270,7 +278,48 @@ export async function postFrame(screen: ScreenDefinitionDto, locale: string): Pr
     body: JSON.stringify({ screen, locale }),
   });
   if (!response.ok) {
-    throw new ApiError(response.status, await errorMessageFrom(response));
+    throw await errorFrom(response);
   }
   return await response.blob();
+}
+
+export interface ProposalRequest {
+  screenId: string;
+  screen: ScreenDefinitionDto;
+  baseSourceSha256: string;
+  title: string;
+  description: string;
+  allowCommentLoss?: boolean;
+}
+
+export interface ProposalResult {
+  branch: string;
+  commit: string;
+  prUrl: string | null;
+  warning: string | null;
+}
+
+/** `POST /api/proposals` (wave S15): serializes `screen` server-side and turns it into a pushed
+ * branch (+ PR when possible). Throws `ApiError` with `code === "stale_base"` when the file
+ * changed upstream since `baseSourceSha256` was read, `"comment_loss"` when the committed file
+ * has `//` comments the caller hasn't confirmed dropping, or `"uncompilable"` when the server's
+ * own re-compile of `screen` fails — the caller branches on `error.code`, not on parsing prose. */
+export async function proposeChange(request: ProposalRequest): Promise<ProposalResult> {
+  const response = await fetch("/api/proposals", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      screen_id: request.screenId,
+      screen: request.screen,
+      base_source_sha256: request.baseSourceSha256,
+      title: request.title,
+      description: request.description,
+      allow_comment_loss: request.allowCommentLoss ?? false,
+    }),
+  });
+  if (!response.ok) {
+    throw await errorFrom(response);
+  }
+  const body = (await response.json()) as { branch: string; commit: string; pr_url: string | null; warning: string | null };
+  return { branch: body.branch, commit: body.commit, prUrl: body.pr_url, warning: body.warning };
 }
