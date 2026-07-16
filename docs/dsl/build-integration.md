@@ -65,6 +65,22 @@ generated `$OUT_DIR/trustsc_ml_model.rs`. Swapping which `package.json` this poi
 Face demonstrator vs. a manufacturer's own clinically-qualified weights, both baked by the
 identical pipeline — is the entire "weights are data" story: zero application source changes.
 
+## Checking a `.medui` file without building
+
+`tools/trustsc-medui-check` validates a single file and prints compiler diagnostics, for instant
+feedback while hand-editing a screen without building an example app or waiting on a `build.rs`
+run:
+
+```sh
+cargo run -p trustsc-medui-check -- path/to/screen.medui
+```
+
+Prints `OK <screen name> (<N> nodes)` and exits `0` on success; otherwise prints each diagnostic
+(with a line number when the parser produced one — semantic errors caught during compilation,
+like an unknown color token, don't carry one) to stderr and exits `1`. A screen with no `surface:`
+pin is checked against the same 800×480 default `tools/trustsc-medui-studio` and
+`examples/hello_world`'s own `build.rs` use.
+
 ## Manual / advanced flow
 
 `trustsc_ui_dsl_authoring::compile_medui_file_to_rust_module` remains available directly for callers

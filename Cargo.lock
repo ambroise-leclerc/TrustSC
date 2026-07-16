@@ -1862,6 +1862,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "trustsc-medui-check"
+version = "0.1.0"
+dependencies = [
+ "trustsc",
+ "trustsc-ui-dsl-authoring",
+]
+
+[[package]]
 name = "trustsc-medui-studio"
 version = "0.1.0"
 dependencies = [
