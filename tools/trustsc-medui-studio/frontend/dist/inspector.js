@@ -432,8 +432,12 @@ export class Inspector {
                 }
                 else {
                     px.removeAttribute("disabled");
-                    const value = Number(px.value);
-                    onCommit({ kind: "Px", value: Number.isFinite(value) && value >= 1 ? Math.round(value) : 100 });
+                    // The px input is usually blank here (Fill had disabled it) — reflect the committed
+                    // fallback in the control so the UI and the AST can't disagree.
+                    const raw = Number(px.value);
+                    const value = Number.isFinite(raw) && raw >= 1 ? Math.round(raw) : 100;
+                    px.value = String(value);
+                    onCommit({ kind: "Px", value });
                 }
             });
             wrapper.append(toggle);
