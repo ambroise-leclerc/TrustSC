@@ -355,6 +355,11 @@ cargo run -p class_c_vulkansc_device
 
 # inspect the text-asset pipeline tooling
 cargo run -p trustsc-text-authoring --bin trustsc-textc -- describe-pipeline
+
+# render a screen offscreen and check every golden reference against the rendered pixels
+# (ADR-016 — full operator guide: docs/verification/ui-verification.md)
+cargo run -p hello_world -- --verify-ui=generated/verification --locales=en-US
+cargo run -p class_c_monitor -- --verify-ui=generated/verification --locales=all
 ```
 
 The default `hello_world` example opens a real Vulkan window and requires a system Vulkan loader.

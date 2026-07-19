@@ -43,6 +43,13 @@ references (underlays by definition).
 
 - a safety-critical component still requires an explicit `requirement` property
 - the generated golden reference is static build output
-- the current demo exposes the generated entries for inspection and automated tests
+- golden references now have a real automated consumer: `--verify-ui`
+  ([operator guide](../verification/ui-verification.md), ADR-016) renders the compiled screen
+  offscreen and checks every golden reference's `Bounds` (property-based, every backend) and, on
+  lavapipe, its `ColorHash` (exact, gated by a committed baseline — see that page's Tier-2
+  section for the honest caveat: no baseline is committed anywhere in this repository yet, so
+  `ColorHash` self-bootstraps rather than gates until one is)
 
-Future work may add generated C-compatible tables for external safety monitors.
+Future work may add generated C-compatible tables for external safety monitors — `--verify-ui`'s
+check engine (`crates/trustsc-ui-verify`) is deliberately pure and dependency-free so an external
+monitor could reuse its check logic directly rather than reimplementing it.
