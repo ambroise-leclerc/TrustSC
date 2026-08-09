@@ -170,4 +170,5 @@ une assise technique et documentaire à ces activités ; il ne s'y substitue pas
 - [Référence du DSL MedUI](docs/dsl/overview.md)
 - [Décisions d'architecture](docs/adr/README.md)
 
-**Licence** : à finaliser.
+**Licence** : [EUPL-1.2](LICENSE), ou conditions commerciales séparées. Voir
+[LICENSING.md](LICENSING.md).
