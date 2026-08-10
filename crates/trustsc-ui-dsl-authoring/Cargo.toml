@@ -2,7 +2,7 @@
 name = "trustsc-ui-dsl-authoring"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "EUPL-1.2"
 publish = false
 
 [dependencies]

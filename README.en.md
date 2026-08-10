@@ -164,4 +164,5 @@ those activities; it does not replace them.
 - [MedUI DSL reference](docs/dsl/overview.md)
 - [Architecture decision records](docs/adr/README.md)
 
-**License**: to be finalized.
+**License**: [EUPL-1.2](LICENSE), or separate commercial terms. See
+[LICENSING.md](LICENSING.md).
