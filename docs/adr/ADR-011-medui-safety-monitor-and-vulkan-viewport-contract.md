@@ -1,5 +1,9 @@
 # ADR-011: MedUI safety-monitor and VulkanViewport contract
 
+This local record implements the safety annotation and golden-reference rules of
+[`MEDUI-DEC-004`](https://github.com/Compliatory/MedUI/blob/763499016fdf16e9ba697cc938647ea67e8f8145/decisions/MEDUI-DEC-004-safety-and-goldens.md).
+Its ADR number remains permanent and local.
+
 - **Status:** Accepted
 - **Date:** 2026-05-31
 - **Related issues:** #6, #7, #8

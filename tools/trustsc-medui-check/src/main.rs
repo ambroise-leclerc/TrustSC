@@ -7,7 +7,8 @@
 use std::process::ExitCode;
 
 use trustsc_ui_dsl_authoring::{
-    CompileOptions, Diagnostic, ImagePackages, TextPackages, compile_screen_definition, parse_medui_source,
+    CompileOptions, Diagnostic, ImagePackages, TextPackages, compile_screen_definition,
+    parse_medui_source,
 };
 
 /// Matches the fallback every other tool in this repo uses for a screen with no `surface:` pin
@@ -86,9 +87,19 @@ fn main() -> ExitCode {
 
 fn print_diagnostics(diagnostics: &[Diagnostic]) {
     for diagnostic in diagnostics {
-        match diagnostic.line {
-            Some(line) => eprintln!("trustsc-medui-check: line {line}: {}", diagnostic.message),
-            None => eprintln!("trustsc-medui-check: {}", diagnostic.message),
+        match (diagnostic.line, diagnostic.column) {
+            (Some(line), Some(column)) => eprintln!(
+                "trustsc-medui-check: [{}] {line}:{column}: {}",
+                diagnostic.code, diagnostic.message
+            ),
+            (Some(line), None) => eprintln!(
+                "trustsc-medui-check: [{}] line {line}: {}",
+                diagnostic.code, diagnostic.message
+            ),
+            (None, _) => eprintln!(
+                "trustsc-medui-check: [{}] {}",
+                diagnostic.code, diagnostic.message
+            ),
         }
     }
 }

@@ -19,6 +19,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Check out pinned MedUI conformance contract
+        uses: actions/checkout@v4
+        with:
+          repository: Compliatory/MedUI
+          ref: 763499016fdf16e9ba697cc938647ea67e8f8145
+          path: .medui-conformance
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -34,6 +41,8 @@ jobs:
         run: cargo build --locked --workspace
 
       - name: Run test suite
+        env:
+          MEDUI_CONFORMANCE_DIR: ${{ github.workspace }}/.medui-conformance
         run: cargo test --locked --quiet
 
       - name: Lint regulatory citations and Justification blocks (ADR-020)

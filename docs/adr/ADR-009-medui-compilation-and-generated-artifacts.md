@@ -4,6 +4,13 @@
 - **Date:** 2026-05-31
 - **Related issues:** #6, #7, #8
 
+## Shared decision identity
+
+This record is TrustSC's Rust realization of
+[`MEDUI-DEC-003`](https://github.com/Compliatory/MedUI/blob/763499016fdf16e9ba697cc938647ea67e8f8145/decisions/MEDUI-DEC-003-compiled-screen-semantics.md).
+The shared record defines compiled meaning; this ADR remains authoritative for generated Rust and
+TrustSC's build integration.
+
 ## Context
 
 The DSL must produce evidence that can be audited, diffed, and consumed by runtime code without parsing the original `.medui` source.

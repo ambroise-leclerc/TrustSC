@@ -4,13 +4,13 @@
 //! its governed-crate counterpart lives here, never there.
 
 use serde::{Deserialize, Serialize};
+use trustsc::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent};
 use trustsc_ui_dsl_authoring::{
     CompiledNodeSpec, CompiledScreenSpec, Diagnostic, Dimension, GoldenReferenceSpec, ImageInfo,
     LayoutDefinition, LocaleEntry, NodeDefinition, NodeKind, NumericTemplateInfo, PropDomain,
-    PropSchema, RowDefinition, SafetyCriticalDefinition, ScreenDefinition, ScreenItem,
-    Severity, TextKeyInfo, WidgetSchema,
+    PropSchema, RowDefinition, SafetyCriticalDefinition, ScreenDefinition, ScreenItem, Severity,
+    TextKeyInfo, WidgetSchema,
 };
-use trustsc::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent};
 
 // ---------------------------------------------------------------------------------------------
 // Small closed-set enums: trustsc_ui's own types can't derive serde (no serde in crates/), so
@@ -179,7 +179,11 @@ pub struct SafetyCriticalDto {
 impl From<SafetyCriticalDefinition> for SafetyCriticalDto {
     fn from(value: SafetyCriticalDefinition) -> Self {
         SafetyCriticalDto {
-            cv_checks: value.cv_checks.into_iter().map(CvCheckKindDto::from).collect(),
+            cv_checks: value
+                .cv_checks
+                .into_iter()
+                .map(CvCheckKindDto::from)
+                .collect(),
         }
     }
 }
@@ -269,13 +273,23 @@ impl From<NodeKind> for NodeKindDto {
             NodeKind::VulkanViewport { stream_source } => {
                 NodeKindDto::VulkanViewport { stream_source }
             }
-            NodeKind::SignalTrace { stream_source, color_token } => {
-                NodeKindDto::SignalTrace { stream_source, color_token }
-            }
-            NodeKind::Label { text_key, color_token } => {
-                NodeKindDto::Label { text_key, color_token }
-            }
-            NodeKind::Clock { format } => NodeKindDto::Clock { format: format.into() },
+            NodeKind::SignalTrace {
+                stream_source,
+                color_token,
+            } => NodeKindDto::SignalTrace {
+                stream_source,
+                color_token,
+            },
+            NodeKind::Label {
+                text_key,
+                color_token,
+            } => NodeKindDto::Label {
+                text_key,
+                color_token,
+            },
+            NodeKind::Clock { format } => NodeKindDto::Clock {
+                format: format.into(),
+            },
             NodeKind::NumericDisplay {
                 requirement_id,
                 template_id,
@@ -345,13 +359,23 @@ impl From<NodeKindDto> for NodeKind {
             NodeKindDto::VulkanViewport { stream_source } => {
                 NodeKind::VulkanViewport { stream_source }
             }
-            NodeKindDto::SignalTrace { stream_source, color_token } => {
-                NodeKind::SignalTrace { stream_source, color_token }
-            }
-            NodeKindDto::Label { text_key, color_token } => {
-                NodeKind::Label { text_key, color_token }
-            }
-            NodeKindDto::Clock { format } => NodeKind::Clock { format: format.into() },
+            NodeKindDto::SignalTrace {
+                stream_source,
+                color_token,
+            } => NodeKind::SignalTrace {
+                stream_source,
+                color_token,
+            },
+            NodeKindDto::Label {
+                text_key,
+                color_token,
+            } => NodeKind::Label {
+                text_key,
+                color_token,
+            },
+            NodeKindDto::Clock { format } => NodeKind::Clock {
+                format: format.into(),
+            },
             NodeKindDto::NumericDisplay {
                 requirement_id,
                 template_id,
@@ -463,7 +487,11 @@ impl From<RowDefinition> for RowDefinitionDto {
             height: value.height.into(),
             spacing: value.spacing,
             background: value.background,
-            children: value.children.into_iter().map(NodeDefinitionDto::from).collect(),
+            children: value
+                .children
+                .into_iter()
+                .map(NodeDefinitionDto::from)
+                .collect(),
         }
     }
 }
@@ -475,7 +503,11 @@ impl From<RowDefinitionDto> for RowDefinition {
             height: value.height.into(),
             spacing: value.spacing,
             background: value.background,
-            children: value.children.into_iter().map(NodeDefinition::from).collect(),
+            children: value
+                .children
+                .into_iter()
+                .map(NodeDefinition::from)
+                .collect(),
         }
     }
 }
@@ -555,29 +587,41 @@ pub fn contains_panel(screen: &ScreenDefinitionDto) -> bool {
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum SeverityDto {
     Error,
+    Warning,
+    Note,
 }
 
 impl From<Severity> for SeverityDto {
     fn from(value: Severity) -> Self {
         match value {
             Severity::Error => SeverityDto::Error,
+            Severity::Warning => SeverityDto::Warning,
+            Severity::Note => SeverityDto::Note,
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DiagnosticDto {
+    pub code: String,
+    pub file: String,
     pub message: String,
     pub line: Option<u32>,
+    pub column: Option<u32>,
     pub severity: SeverityDto,
+    pub fix_hint: String,
 }
 
 impl From<Diagnostic> for DiagnosticDto {
     fn from(value: Diagnostic) -> Self {
         DiagnosticDto {
+            code: value.code.to_string(),
+            file: value.file,
             message: value.message,
             line: value.line,
+            column: value.column,
             severity: value.severity.into(),
+            fix_hint: value.fix_hint,
         }
     }
 }
@@ -612,11 +656,21 @@ pub struct CompiledNodeSummaryDto {
     pub golden_checks: Vec<CvCheckKindDto>,
 }
 
-fn compiled_node_to_dto(node: CompiledNodeSpec, golden: &[GoldenReferenceSpec]) -> CompiledNodeSummaryDto {
+fn compiled_node_to_dto(
+    node: CompiledNodeSpec,
+    golden: &[GoldenReferenceSpec],
+) -> CompiledNodeSummaryDto {
     let golden_checks = golden
         .iter()
         .find(|entry| entry.node_id == node.id)
-        .map(|entry| entry.cv_checks.iter().copied().map(CvCheckKindDto::from).collect())
+        .map(|entry| {
+            entry
+                .cv_checks
+                .iter()
+                .copied()
+                .map(CvCheckKindDto::from)
+                .collect()
+        })
         .unwrap_or_default();
     CompiledNodeSummaryDto {
         id: node.id.clone(),
@@ -768,7 +822,11 @@ impl From<TextKeyInfo> for TextKeyInfoDto {
     fn from(value: TextKeyInfo) -> Self {
         TextKeyInfoDto {
             string_id: value.string_id,
-            entries: value.entries.into_iter().map(LocaleEntryDto::from).collect(),
+            entries: value
+                .entries
+                .into_iter()
+                .map(LocaleEntryDto::from)
+                .collect(),
         }
     }
 }

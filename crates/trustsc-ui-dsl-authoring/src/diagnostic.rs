@@ -6,13 +6,22 @@ use trustsc_core::ValidationError;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Severity {
     Error,
+    Warning,
+    Note,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic {
+    /// Stable implementation-neutral identity from `Compliatory/MedUI`.
+    pub code: &'static str,
+    /// Repository-relative source file when the caller knows it; empty for in-memory input.
+    pub file: String,
     pub message: String,
     pub line: Option<u32>,
+    /// 1-based UTF-8 byte column, or `None` when the legacy parser cannot locate it precisely.
+    pub column: Option<u32>,
     pub severity: Severity,
+    pub fix_hint: String,
 }
 
 impl Diagnostic {
@@ -25,10 +34,45 @@ impl Diagnostic {
         let message = error.to_string();
         let line = extract_line_number(&message);
         Diagnostic {
+            code: classify(&message),
+            file: String::new(),
             message,
             line,
+            column: None,
             severity: Severity::Error,
+            fix_hint: String::new(),
         }
+    }
+}
+
+/// Transitional classification for the line-oriented parser. Codes are canonical now; replacing
+/// message-based classification with positioned lexer errors is tracked by the shared syntax
+/// conformance migration and does not change this public envelope.
+fn classify(message: &str) -> &'static str {
+    if message.contains("nested Row") {
+        "MEDUI-E015"
+    } else if message.contains("unsupported component") {
+        "MEDUI-E011"
+    } else if message.contains("unsupported property")
+        || message.contains("unsupported Row property")
+    {
+        "MEDUI-E013"
+    } else if message.contains("must declare") {
+        "MEDUI-E012"
+    } else if message.contains("unknown color") || message.contains("unknown theme") {
+        "MEDUI-E030"
+    } else if message.contains("unknown text") || message.contains("unknown string") {
+        "MEDUI-E031"
+    } else if message.contains("widest") || message.contains("budget") || message.contains("fit") {
+        "MEDUI-E050"
+    } else if message.contains("outside") || message.contains("exceeds the available surface") {
+        "MEDUI-E052"
+    } else if message.contains("safety-critical") && message.contains("requirement") {
+        "MEDUI-E070"
+    } else if message.contains("CV check") {
+        "MEDUI-E071"
+    } else {
+        "MEDUI-E010"
     }
 }
 
