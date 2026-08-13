@@ -66,25 +66,14 @@ result is byte-identical to what's committed. This means:
 
 ## Continuous integration
 
-- `.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch.
-- It builds the Linux workspace with locked dependencies, runs the full test suite, verifies the
-  committed Roboto (16/48/160 px), Acme-logo image, SPIR-V, and `eeg-demo` ML model artifacts, and
-  exercises `hello_world` and `class_c_monitor` through `--headless-smoke`.
-- Replay the same checks locally:
-
-```bash
-source $HOME/.cargo/env
-cargo build --locked --workspace
-cargo test --locked --quiet
-cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-demo.toml generated/fonts/roboto-regular-16px/package.json generated/fonts/roboto-regular-16px/report.json
-cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-display-48px.toml generated/fonts/roboto-display-48px/package.json generated/fonts/roboto-display-48px/report.json
-cargo run --locked -q -p trustsc-font-baker -- verify tools/trustsc-font-baker/fixtures/roboto-display-160px.toml generated/fonts/roboto-display-160px/package.json generated/fonts/roboto-display-160px/report.json
-cargo run --locked -q -p trustsc-image-baker -- verify tools/trustsc-image-baker/fixtures/acme-logo.toml generated/images/acme-logo/package.json generated/images/acme-logo/report.json
-cargo run --locked -q -p trustsc-shader-baker -- verify tools/trustsc-shader-baker/fixtures/text-shaders.toml adapters/trustsc-vulkan-winit/shaders/generated adapters/trustsc-vulkan-winit/shaders/generated/report.json
-cargo run --locked -q -p trustsc-ml-baker -- verify tools/trustsc-ml-baker/fixtures/eeg-demo.toml generated/models/eeg-demo/package.json generated/models/eeg-demo/report.json
-cargo run --locked -q -p hello_world -- --headless-smoke
-cargo run --locked -q -p class_c_monitor -- --headless-smoke
-```
+`.github/workflows/ci.yml` runs on `push`, `pull_request`, and manual dispatch: it builds the
+Linux workspace with locked dependencies, runs the full test suite, lints regulatory citations,
+byte-verifies every committed evidence artifact (Roboto at three sizes, the Acme-logo image,
+SPIR-V shaders, the `eeg-demo` ML model), self-tests the MedUI Studio render bridge, exercises
+`hello_world` and `class_c_monitor` through `--headless-smoke`, then through `--verify-ui`
+(ADR-016 — [operator guide](verification/ui-verification.md)) and uploads
+`generated/verification/` as an artifact. The exact, kept-current replay command set lives in
+[AGENTS.md's CI-replay block](../AGENTS.md#replaying-ci-locally) rather than duplicated here.
 
 ## Default Roboto asset governance
 

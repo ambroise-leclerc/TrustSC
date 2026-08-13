@@ -117,7 +117,13 @@ register.
 - `Cargo.lock` is committed and CI builds with `--locked`; update the lockfile deliberately.
 - Everything under `generated/` (and `adapters/trustsc-vulkan-winit/shaders/generated/`) is
   deterministic build **evidence** — regenerate via the matching baker in `tools/`
-  (`bake` to produce, `verify` to check); never hand-edit it.
+  (`bake` to produce, `verify` to check); never hand-edit it. `generated/verification/` is a
+  different evidence class ([ADR-016](docs/adr/ADR-016-automated-ui-verification-and-manual-generation.md),
+  operator guide: [docs/verification/ui-verification.md](docs/verification/ui-verification.md)):
+  produced by an app's `--verify-ui` run mode rather than a `tools/*-baker`, `.gitignore`d and
+  regenerated fresh every run rather than committed, and uploaded as a CI artifact instead. The one
+  thing promoted out of it into a real committed gate is a lavapipe `ColorHash` baseline file, and
+  that promotion is a deliberate manual `git add -f`, never automatic.
 - `.medui` UI screens are compiled at build time only ([docs/dsl/](docs/dsl/overview.md)); no DSL
   parsing, layout solving, or text shaping ever happens on-device.
 - ADRs under [`docs/adr/`](docs/adr/README.md) are the authoritative source for *why* each
