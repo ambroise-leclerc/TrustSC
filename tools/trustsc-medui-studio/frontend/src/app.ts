@@ -102,8 +102,14 @@ function renderDiagnostics(container: HTMLElement, diagnostics: Diagnostic[]): v
     return;
   }
   const items = diagnostics.map((diagnostic) => {
-    const location = diagnostic.line !== null ? `line ${diagnostic.line}: ` : "";
-    return el("li", {}, [`${location}${diagnostic.message}`]);
+    const position = diagnostic.line === null
+      ? ""
+      : `line ${diagnostic.line}${diagnostic.column === null ? "" : `, column ${diagnostic.column}`}`;
+    const source = [diagnostic.file, position].filter(Boolean).join(": ");
+    const identity = diagnostic.code ? `[${diagnostic.code}]` : "";
+    const prefix = [identity, source].filter(Boolean).join(" ");
+    const hint = diagnostic.fix_hint ? ` Fix: ${diagnostic.fix_hint}` : "";
+    return el("li", {}, [`${prefix ? `${prefix}: ` : ""}${diagnostic.message}${hint}`]);
   });
   const severity = diagnostics.some((diagnostic) => diagnostic.severity === "Error")
     ? "error"
