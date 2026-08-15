@@ -13,6 +13,9 @@
 //! - Every capability claimed by `medui-conformance.toml` must be backed by at least one pinned
 //!   case that actually executed, and the claim must name a phase this harness knows how to
 //!   observe. Claiming a phase with no adapter fails the suite instead of passing silently.
+//! - A pinned position is checked against the precision the manifest declares, per
+//!   `spec/diagnostics.md`. A phase claimed at reduced precision is still claimed, and reporting
+//!   more position than declared is a failure, so precision cannot move without a manifest edit.
 //!
 //! Only the parse phase is observable here, which is why `capabilities` claims `syntax` alone.
 //! Claiming `semantics`, `layout`, or `safety` additionally requires driving
@@ -126,30 +129,51 @@ fn assert_diagnostics(case: &Case, actual: &[Diagnostic], manifest: &Manifest) {
             "{}: diagnostic code (message was {:?})",
             case.id, actual.message
         );
-        // `spec/diagnostics.md`: positions are 1-based and `0` means unknown.
-        assert_eq!(
-            i64::from(actual.line.unwrap_or(0)),
-            expected.line,
-            "{}: diagnostic line",
-            case.id
-        );
-
+        // `spec/diagnostics.md`, "Positions in conformance cases": a pinned position is matched
+        // as far as the declared precision goes, and reporting more than was declared fails. The
+        // declaration is checked rather than tolerated, so precision cannot move silently in
+        // either direction. `0` means unknown, which is how `None` maps.
         match manifest.positions {
-            Positions::Full => assert_eq!(
-                i64::from(actual.column.unwrap_or(0)),
-                expected.column,
-                "{}: diagnostic column",
-                case.id
-            ),
-            // Not "columns are unchecked" but "columns are known-absent": the moment the parser
-            // starts reporting one, this fails and forces `positions = "full"` and a real check.
-            Positions::LineOnly => assert!(
-                actual.column.is_none(),
-                "{}: medui-conformance.toml declares positions = \"line-only\", but the parser \
-                 reported column {:?}. Set positions = \"full\" so the pinned column {} is \
-                 actually checked.",
+            Positions::Full => {
+                assert_eq!(
+                    i64::from(actual.line.unwrap_or(0)),
+                    expected.line,
+                    "{}: diagnostic line",
+                    case.id
+                );
+                assert_eq!(
+                    i64::from(actual.column.unwrap_or(0)),
+                    expected.column,
+                    "{}: diagnostic column",
+                    case.id
+                );
+            }
+            Positions::LineOnly => {
+                assert_eq!(
+                    i64::from(actual.line.unwrap_or(0)),
+                    expected.line,
+                    "{}: diagnostic line",
+                    case.id
+                );
+                assert!(
+                    actual.column.is_none(),
+                    "{}: medui-conformance.toml declares positions = \"line-only\", but the parser \
+                     reported column {:?}. Raise the declaration to \"full\" so the pinned column \
+                     {} is checked.",
+                    case.id,
+                    actual.column,
+                    expected.column
+                );
+            }
+            Positions::None => assert!(
+                actual.line.is_none() && actual.column.is_none(),
+                "{}: medui-conformance.toml declares positions = \"none\", but the parser \
+                 reported {:?}:{:?}. Raise the declaration so the pinned position {}:{} is \
+                 checked.",
                 case.id,
+                actual.line,
                 actual.column,
+                expected.line,
                 expected.column
             ),
         }
@@ -183,12 +207,15 @@ fn conformance_root() -> Option<PathBuf> {
 // medui-conformance.toml
 // -------------------------------------------------------------------------------------------
 
+/// The declared diagnostic position precision from `spec/diagnostics.md`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum Positions {
-    /// Diagnostics carry exact 1-based UTF-8 byte columns; pinned columns are checked.
+    /// Line and exact 1-based UTF-8 byte column; both pinned positions are checked.
     Full,
-    /// Diagnostics carry no column at all; see the key's comment in `medui-conformance.toml`.
+    /// Line only; the pinned line is checked and every column is required to be absent.
     LineOnly,
+    /// Neither; both are required to be absent.
+    None,
 }
 
 #[derive(Debug)]
@@ -229,8 +256,10 @@ impl Manifest {
                     positions = Some(match unquote(path, index, value) {
                         "full" => Positions::Full,
                         "line-only" => Positions::LineOnly,
+                        "none" => Positions::None,
                         other => panic!(
-                            "{}:{}: positions must be \"full\" or \"line-only\", got {other:?}",
+                            "{}:{}: positions must be \"full\", \"line-only\" or \"none\", got \
+                             {other:?}",
                             path.display(),
                             index + 1
                         ),

@@ -3,13 +3,13 @@ version = "0.1.0-candidate"
 # The single source of truth for the pin: CI derives its `actions/checkout` ref from this line,
 # and `crates/trustsc-ui-dsl-authoring/tests/shared_conformance.rs` reads the same file, so the
 # workflow and the harness cannot drift apart.
-commit = "763499016fdf16e9ba697cc938647ea67e8f8145"
+commit = "f22f6046be46451ea3b7f56a3f36a220279037d8"
 # The implementation already has richer local behavior, but only syntax is claimed until each
 # shared phase has a complete adapter that checks its normalized observations.
 capabilities = ["syntax"]
-# How precisely this implementation can locate a diagnostic. `parse_screen` is line-oriented and
-# trims each line before matching, so no column survives to `Diagnostic::column`; the shared cases
-# nonetheless pin one. `line-only` records that deviation explicitly instead of dropping the
-# assertion: the harness then *requires* every diagnostic to carry no column, so the day a
-# positioned lexer lands the suite fails until this is set to `full` and the columns are checked.
+# Diagnostic position precision, per `spec/diagnostics.md`. `parse_screen` is line-oriented and
+# trims each line before matching, so no column survives to `Diagnostic::column`. The contract
+# checks this declaration in both directions: pinned lines are matched exactly, pinned columns are
+# required to be absent, and a diagnostic that started carrying one would fail the suite until
+# this is raised to `full`.
 positions = "line-only"
