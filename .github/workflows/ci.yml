@@ -19,11 +19,22 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Resolve the pinned MedUI contract commit
+        id: medui-contract
+        run: |
+          set -euo pipefail
+          commit="$(sed -n 's/^commit = "\([0-9a-f]\{40\}\)"$/\1/p' medui-conformance.toml)"
+          if [ -z "$commit" ]; then
+            echo "medui-conformance.toml has no 40-character commit pin" >&2
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
       - name: Check out pinned MedUI conformance contract
         uses: actions/checkout@v4
         with:
           repository: Compliatory/MedUI
-          ref: 763499016fdf16e9ba697cc938647ea67e8f8145
+          ref: ${{ steps.medui-contract.outputs.commit }}
           path: .medui-conformance
 
       - name: Install Rust toolchain
