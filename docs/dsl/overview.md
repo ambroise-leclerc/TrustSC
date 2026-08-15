@@ -1,5 +1,10 @@
 # MedUI DSL overview
 
+The implementation-neutral contract is versioned in
+[`Compliatory/MedUI`](https://github.com/Compliatory/MedUI) and pinned by the repository-root
+`medui-conformance.toml`. This directory documents TrustSC's Rust build, runtime, rendering, and
+evidence integration; where portable language rules differ, the pinned shared contract wins.
+
 The MedUI DSL is a deterministic build-time language for authored medical UI screens in `TrustSC`.
 
 ## Goals

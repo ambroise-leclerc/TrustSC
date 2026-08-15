@@ -7,3 +7,4 @@ publish = false
 [dependencies]
 trustsc-ui-dsl-authoring = { version = "0.1.0", path = "../../crates/trustsc-ui-dsl-authoring" }
 trustsc = { version = "0.1.0", path = "../../crates/trustsc" }
+serde_json = "1.0.150"

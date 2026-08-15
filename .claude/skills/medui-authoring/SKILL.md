@@ -6,7 +6,10 @@ description: Author or modify .medui UI screens — the build-time-only MedUI DS
 # MedUI authoring
 
 `.medui` files are compiled at build time into a static `CompiledScreenPackage` — nothing is
-parsed, laid out, or shaped on-device (ADR-008/009). The full reference lives in `docs/dsl/`:
+parsed, laid out, or shaped on-device (ADR-008/009). The implementation pins the canonical
+language contract in `medui-conformance.toml`; portable grammar, diagnostic, and authoring rules
+live in [`Compliatory/MedUI`](https://github.com/Compliatory/MedUI). TrustSC-specific integration
+reference lives in `docs/dsl/`:
 `overview.md`, `language-reference.md`, `component-dictionary.md`, `safety-monitor-contract.md`,
 `build-integration.md`. Worked examples: `examples/hello_world/hello_world.medui` (minimal) and
 `examples/class_c_monitor/` (full NeuroSense 500 screen).

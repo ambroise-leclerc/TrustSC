@@ -7,13 +7,55 @@ pub type TrustScResult<T> = Result<T, ValidationError>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationError {
     message: String,
+    code: Option<&'static str>,
+    line: Option<u32>,
+    column: Option<u32>,
 }
 
 impl ValidationError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            code: None,
+            line: None,
+            column: None,
         }
+    }
+
+    /// An error tagged with a stable machine-readable identity assigned by the producing crate.
+    ///
+    /// The identity is deliberately opaque here: this crate does not own any code registry, it
+    /// only carries the tag so a caller can route on it without re-deriving meaning from
+    /// [`Display`] output, which is free to be reworded.
+    pub fn with_code(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: Some(code),
+            line: None,
+            column: None,
+        }
+    }
+
+    /// Attaches a structured source position supplied by the producing crate.
+    pub fn with_position(mut self, line: Option<u32>, column: Option<u32>) -> Self {
+        self.line = line;
+        self.column = column;
+        self
+    }
+
+    /// The stable identity assigned at the point the error was raised, when there is one.
+    pub fn code(&self) -> Option<&'static str> {
+        self.code
+    }
+
+    /// The 1-based source line assigned at the raise site, when known.
+    pub fn line(&self) -> Option<u32> {
+        self.line
+    }
+
+    /// The 1-based source column assigned at the raise site, when known.
+    pub fn column(&self) -> Option<u32> {
+        self.column
     }
 }
 
@@ -152,5 +194,16 @@ mod tests {
             .expect_err("context should fail validation");
 
         assert_eq!(error.to_string(), "manufacturer must not be empty");
+    }
+
+    #[test]
+    fn validation_error_carries_structured_metadata() {
+        let error = ValidationError::with_code("TEST-E001", "message mentioning line 99")
+            .with_position(Some(7), Some(3));
+
+        assert_eq!(error.code(), Some("TEST-E001"));
+        assert_eq!(error.line(), Some(7));
+        assert_eq!(error.column(), Some(3));
+        assert_eq!(error.to_string(), "message mentioning line 99");
     }
 }

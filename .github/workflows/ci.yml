@@ -19,6 +19,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Resolve the pinned MedUI contract commit
+        id: medui-contract
+        run: |
+          set -euo pipefail
+          commit="$(sed -n 's/^[[:space:]]*commit[[:space:]]*=[[:space:]]*"\([0-9A-Fa-f]\{40\}\)"[[:space:]]*$/\1/p' medui-conformance.toml)"
+          if [ -z "$commit" ]; then
+            echo "medui-conformance.toml has no 40-character commit pin" >&2
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pinned MedUI conformance contract
+        uses: actions/checkout@v4
+        with:
+          repository: Compliatory/MedUI
+          ref: ${{ steps.medui-contract.outputs.commit }}
+          path: .medui-conformance
+          persist-credentials: false
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -34,6 +53,8 @@ jobs:
         run: cargo build --locked --workspace
 
       - name: Run test suite
+        env:
+          MEDUI_CONFORMANCE_DIR: ${{ github.workspace }}/.medui-conformance
         run: cargo test --locked --quiet
 
       - name: Lint regulatory citations and Justification blocks (ADR-020)

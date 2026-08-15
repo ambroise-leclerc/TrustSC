@@ -1865,6 +1865,7 @@ dependencies = [
 name = "trustsc-medui-check"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "trustsc",
  "trustsc-ui-dsl-authoring",
 ]

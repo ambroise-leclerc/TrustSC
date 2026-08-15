@@ -102,10 +102,21 @@ function renderDiagnostics(container: HTMLElement, diagnostics: Diagnostic[]): v
     return;
   }
   const items = diagnostics.map((diagnostic) => {
-    const location = diagnostic.line !== null ? `line ${diagnostic.line}: ` : "";
-    return el("li", {}, [`${location}${diagnostic.message}`]);
+    const position = diagnostic.line === null
+      ? ""
+      : `line ${diagnostic.line}${diagnostic.column === null ? "" : `, column ${diagnostic.column}`}`;
+    const source = [diagnostic.file, position].filter(Boolean).join(": ");
+    const identity = diagnostic.code ? `[${diagnostic.code}]` : "";
+    const prefix = [identity, source].filter(Boolean).join(" ");
+    const hint = diagnostic.fix_hint ? ` Fix: ${diagnostic.fix_hint}` : "";
+    return el("li", {}, [`${prefix ? `${prefix}: ` : ""}${diagnostic.message}${hint}`]);
   });
-  container.className = "diagnostics diagnostics--error";
+  const severity = diagnostics.some((diagnostic) => diagnostic.severity === "Error")
+    ? "error"
+    : diagnostics.some((diagnostic) => diagnostic.severity === "Warning")
+      ? "warning"
+      : "note";
+  container.className = `diagnostics diagnostics--${severity}`;
   container.replaceChildren(el("strong", {}, [`${diagnostics.length} diagnostic(s)`]), el("ul", {}, items));
 }
 
@@ -311,7 +322,15 @@ async function renderScreenView(screenId: string, requestedLocale: string | null
         inspector?.showRow(rowId);
       },
       onCompileError: (message) => {
-        renderDiagnostics(diagnosticsContainer, [{ message, line: null, severity: "Error" }]);
+        renderDiagnostics(diagnosticsContainer, [{
+          code: "MEDUI-E010",
+          file: "",
+          message,
+          line: null,
+          column: null,
+          severity: "Error",
+          fix_hint: "",
+        }]);
         proposeButton.disabled = true;
       },
       onDocumentChanged: (diff) => renderChanges(safetyBanner, changesDrawer, changesList, changesSummary, proposeButton, diff),
