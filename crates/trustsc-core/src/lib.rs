@@ -7,13 +7,32 @@ pub type TrustScResult<T> = Result<T, ValidationError>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationError {
     message: String,
+    code: Option<&'static str>,
 }
 
 impl ValidationError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            code: None,
         }
+    }
+
+    /// An error tagged with a stable machine-readable identity assigned by the producing crate.
+    ///
+    /// The identity is deliberately opaque here: this crate does not own any code registry, it
+    /// only carries the tag so a caller can route on it without re-deriving meaning from
+    /// [`Display`] output, which is free to be reworded.
+    pub fn with_code(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: Some(code),
+        }
+    }
+
+    /// The stable identity assigned at the point the error was raised, when there is one.
+    pub fn code(&self) -> Option<&'static str> {
+        self.code
     }
 }
 

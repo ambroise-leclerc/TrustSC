@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use trustsc_core::{TrustScResult, ValidationError};
+use trustsc_core::TrustScResult;
 use trustsc_image_schema::ImagePackage;
 use trustsc_text_schema::{CompiledTextRun, NumericGlyphSet, TextPackage};
 use trustsc_ui::{ClockFormat, CvCheckKind, LayoutKind, SystemEvent, THEME_COLORS, resolve_color_token};
@@ -58,11 +58,11 @@ fn resolve_display_template<'a>(
         .filter(|package| package.find_template(template_id).is_some());
     match (matches.next(), matches.next()) {
         (Some(package), None) => Ok(package),
-        (None, _) => Err(ValidationError::new(format!(
+        (None, _) => Err(coded(code::UNREGISTERED, format!(
             "NumericDisplay {node_id} references unknown template {template_id} (searched {} display packages)",
             displays.len()
         ))),
-        (Some(_), Some(_)) => Err(ValidationError::new(format!(
+        (Some(_), Some(_)) => Err(coded(code::UNREGISTERED, format!(
             "NumericDisplay {node_id} template {template_id} is ambiguous across display packages"
         ))),
     }
@@ -130,7 +130,9 @@ pub use catalog::{
     widget_catalog,
 };
 pub use serialize::serialize_screen;
-pub use diagnostic::{Diagnostic, Severity};
+pub use diagnostic::{Diagnostic, Severity, code};
+
+use diagnostic::coded;
 
 pub fn compile_medui_file_to_rust_module(
     input_path: impl AsRef<Path>,
@@ -142,7 +144,7 @@ pub fn compile_medui_file_to_rust_module(
     let input_path = input_path.as_ref();
     let output_path = output_path.as_ref();
     let source = fs::read_to_string(input_path).map_err(|error| {
-        ValidationError::new(format!(
+        coded(code::SOURCE_UNREADABLE, format!(
             "failed to read MedUI source {}: {error}",
             input_path.display()
         ))
@@ -152,14 +154,14 @@ pub fn compile_medui_file_to_rust_module(
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "failed to create MedUI output directory {}: {error}",
                 parent.display()
             ))
         })?;
     }
     fs::write(output_path, generated).map_err(|error| {
-        ValidationError::new(format!(
+        coded(code::UNREGISTERED, format!(
             "failed to write generated MedUI module {}: {error}",
             output_path.display()
         ))
@@ -176,16 +178,24 @@ pub fn compile_medui_source_to_rust(
 ) -> TrustScResult<String> {
     let compiled = compile_medui_source(source, &options, text_packages, image_packages)
         .map_err(|diagnostics| {
-            let joined = diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.message.as_str())
-                .collect::<Vec<_>>()
-                .join("; ");
-            ValidationError::new(if joined.is_empty() {
-                "compilation failed with no diagnostics".to_string()
-            } else {
-                joined
-            })
+            // A single diagnostic keeps its own identity: this string-returning entry point is
+            // what `build.rs` and the CLI use, and collapsing every failure to one catch-all code
+            // would lose exactly what the raise sites were tagged to preserve. Only a genuine
+            // multi-diagnostic join has no single identity to carry.
+            match diagnostics.as_slice() {
+                [] => coded(
+                    code::UNEXPECTED_TOKEN,
+                    "compilation failed with no diagnostics",
+                ),
+                [only] => coded(only.code, only.message.clone()),
+                many => coded(
+                    code::UNEXPECTED_TOKEN,
+                    many.iter()
+                        .map(|diagnostic| diagnostic.message.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ),
+            }
         })?;
     Ok(emit_rust_module(&compiled, options.crate_path))
 }
@@ -237,7 +247,8 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
         .collect::<Vec<_>>();
 
     if lines.len() < 3 {
-        return Err(ValidationError::new(
+        return Err(coded(
+            code::UNEXPECTED_TOKEN,
             "MedUI source must contain a screen header, layout, and closing brace",
         ));
     }
@@ -267,7 +278,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
         let (line_number, line) = &lines[cursor];
         if line == "}" {
             if cursor != lines.len() - 1 {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::UNEXPECTED_TOKEN, format!(
                     "unexpected content after screen closing brace at line {line_number}"
                 )));
             }
@@ -282,7 +293,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
 
         if line == "Row {" {
             if pending_safety.is_some() {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::FORBIDDEN_CONSTRUCT, format!(
                     "@safety_critical cannot annotate a Row container at line {line_number}"
                 )));
             }
@@ -316,7 +327,8 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
     }
 
     if items.is_empty() {
-        return Err(ValidationError::new(
+        return Err(coded(
+            code::MISSING_FIELD,
             "MedUI screen must declare at least one component",
         ));
     }
@@ -359,7 +371,7 @@ fn parse_row(
         }
 
         if line == "Row {" {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::NESTED_ROW, format!(
                 "nested Row containers are not supported at line {line_number}"
             )));
         }
@@ -399,7 +411,7 @@ fn parse_row(
         // Scalar Row property.
         let property_line = line.trim_end_matches(';');
         let (key, value) = property_line.split_once(':').ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "invalid Row property `{property_line}` at line {line_number}"
             ))
         })?;
@@ -413,7 +425,7 @@ fn parse_row(
                 background = Some(parse_non_empty(*line_number, "background", value.trim())?)
             }
             other => {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::UNKNOWN_FIELD, format!(
                     "unsupported Row property `{other}` at line {line_number}"
                 )));
             }
@@ -422,19 +434,19 @@ fn parse_row(
     }
 
     if !closed {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "Row starting at line {row_line_number} is missing its closing brace"
         )));
     }
 
     let id = id.ok_or_else(|| {
-        ValidationError::new(format!("Row at line {row_line_number} must declare `id`"))
+        coded(code::MISSING_FIELD, format!("Row at line {row_line_number} must declare `id`"))
     })?;
     let height = height.ok_or_else(|| {
-        ValidationError::new(format!("Row {id} must declare `height`"))
+        coded(code::MISSING_FIELD, format!("Row {id} must declare `height`"))
     })?;
     if children.is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::MISSING_FIELD, format!(
             "Row {id} must contain at least one component"
         )));
     }
@@ -457,7 +469,7 @@ fn parse_screen_header(line_number: usize, line: &str) -> TrustScResult<String> 
         .and_then(|rest| rest.strip_suffix('{'))
         .map(str::trim)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "expected `Screen <Name> {{` at line {line_number}"
             ))
         })?;
@@ -468,9 +480,14 @@ fn parse_layout(line_number: usize, line: &str) -> TrustScResult<LayoutDefinitio
     let payload = line
         .strip_prefix("layout:")
         .map(str::trim)
-        .ok_or_else(|| ValidationError::new(format!("expected layout declaration at line {line_number}")))?;
+        .ok_or_else(|| {
+            coded(
+                code::UNEXPECTED_TOKEN,
+                format!("expected layout declaration at line {line_number}"),
+            )
+        })?;
     let (kind_name, block) = payload.split_once('{').ok_or_else(|| {
-        ValidationError::new(format!(
+        coded(code::UNEXPECTED_TOKEN, format!(
             "layout declaration must contain an inline block at line {line_number}"
         ))
     })?;
@@ -478,7 +495,7 @@ fn parse_layout(line_number: usize, line: &str) -> TrustScResult<LayoutDefinitio
         "Vertical" => LayoutKind::Vertical,
         "Horizontal" => LayoutKind::Horizontal,
         other => {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::UNREGISTERED, format!(
                 "unsupported layout `{other}` at line {line_number}"
             )))
         }
@@ -500,13 +517,16 @@ fn parse_inline_px_property(line_number: usize, block: &str, key: &str) -> Trust
         .map(str::trim)
         .find(|entry| entry.starts_with(&format!("{key}:")))
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::MISSING_FIELD, format!(
                 "layout block at line {line_number} must declare `{key}`"
             ))
         })
         .and_then(|entry| {
             let (_, value) = entry.split_once(':').ok_or_else(|| {
-                ValidationError::new(format!("invalid layout property `{entry}` at line {line_number}"))
+                coded(
+                    code::UNEXPECTED_TOKEN,
+                    format!("invalid layout property `{entry}` at line {line_number}"),
+                )
             })?;
             parse_px_allowing_zero(line_number, key, value.trim())
         })
@@ -518,7 +538,7 @@ fn parse_safety_critical(line_number: usize, line: &str) -> TrustScResult<Safety
         .and_then(|(_, rest)| rest.split_once(']'))
         .map(|(checks, _)| checks)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "expected `@safety_critical(cv_check: [...])` at line {line_number}"
             ))
         })?;
@@ -528,14 +548,14 @@ fn parse_safety_critical(line_number: usize, line: &str) -> TrustScResult<Safety
         .map(|entry| match entry {
             "Bounds" => Ok(CvCheckKind::Bounds),
             "ColorHash" => Ok(CvCheckKind::ColorHash),
-            other => Err(ValidationError::new(format!(
+            other => Err(coded(code::UNKNOWN_CV_CHECK, format!(
                 "unsupported CV check `{other}` at line {line_number}"
             ))),
         })
         .collect::<TrustScResult<Vec<_>>>()?;
 
     if cv_checks.is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::MISSING_FIELD, format!(
             "safety-critical annotation at line {line_number} must declare at least one CV check"
         )));
     }
@@ -561,7 +581,12 @@ fn parse_component_start(line_number: usize, line: &str) -> TrustScResult<Compon
     let kind = line
         .strip_suffix('{')
         .map(str::trim)
-        .ok_or_else(|| ValidationError::new(format!("expected component block at line {line_number}")))?;
+        .ok_or_else(|| {
+            coded(
+                code::UNEXPECTED_TOKEN,
+                format!("expected component block at line {line_number}"),
+            )
+        })?;
     match kind {
         "CriticalButton" => Ok(ComponentKind::CriticalButton),
         "VulkanViewport" => Ok(ComponentKind::VulkanViewport),
@@ -573,7 +598,7 @@ fn parse_component_start(line_number: usize, line: &str) -> TrustScResult<Compon
         "Image" => Ok(ComponentKind::Image),
         "Button" => Ok(ComponentKind::Button),
         "TextInput" => Ok(ComponentKind::TextInput),
-        other => Err(ValidationError::new(format!(
+        other => Err(coded(code::UNKNOWN_COMPONENT, format!(
             "unsupported component `{other}` at line {line_number}"
         ))),
     }
@@ -606,7 +631,7 @@ fn parse_component_properties(
     for (property_line_number, property_line) in properties {
         let property_line = property_line.trim_end_matches(';');
         let (key, value) = property_line.split_once(':').ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "invalid property `{property_line}` at line {property_line_number}"
             ))
         })?;
@@ -647,7 +672,7 @@ fn parse_component_properties(
             }
             "charset" => charset = Some(parse_charset(*property_line_number, value)?),
             other => {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::UNKNOWN_FIELD, format!(
                     "unsupported property `{other}` at line {property_line_number}"
                 )))
             }
@@ -655,17 +680,17 @@ fn parse_component_properties(
     }
 
     let id = id.ok_or_else(|| {
-        ValidationError::new(format!("component at line {line_number} must declare `id`"))
+        coded(code::MISSING_FIELD, format!("component at line {line_number} must declare `id`"))
     })?;
     let width = width.ok_or_else(|| {
-        ValidationError::new(format!("component {id} must declare `width`"))
+        coded(code::MISSING_FIELD, format!("component {id} must declare `width`"))
     })?;
     let height = height.ok_or_else(|| {
-        ValidationError::new(format!("component {id} must declare `height`"))
+        coded(code::MISSING_FIELD, format!("component {id} must declare `height`"))
     })?;
 
     if position.is_some() && (width == Dimension::Fill || height == Dimension::Fill) {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::LAYOUT_OVERFLOW, format!(
             "component {id}: `position` requires fixed `width`/`height` — Fill is flow-only"
         )));
     }
@@ -673,77 +698,77 @@ fn parse_component_properties(
     let kind = match component_kind {
         ComponentKind::CriticalButton => NodeKind::CriticalButton {
             requirement_id: requirement_id.ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::MISSING_FIELD, format!(
                     "CriticalButton {id} must declare `requirement`"
                 ))
             })?,
             label_text_key: label_text_key.ok_or_else(|| {
-                ValidationError::new(format!("CriticalButton {id} must declare `label`"))
+                coded(code::MISSING_FIELD, format!("CriticalButton {id} must declare `label`"))
             })?,
             color_token: color_token.ok_or_else(|| {
-                ValidationError::new(format!("CriticalButton {id} must declare `color`"))
+                coded(code::MISSING_FIELD, format!("CriticalButton {id} must declare `color`"))
             })?,
             on_press: on_press.ok_or_else(|| {
-                ValidationError::new(format!("CriticalButton {id} must declare `on_press`"))
+                coded(code::MISSING_FIELD, format!("CriticalButton {id} must declare `on_press`"))
             })?,
         },
         ComponentKind::VulkanViewport => NodeKind::VulkanViewport {
             stream_source: stream_source.ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::MISSING_FIELD, format!(
                     "VulkanViewport {id} must declare `stream_source`"
                 ))
             })?,
         },
         ComponentKind::SignalTrace => NodeKind::SignalTrace {
             stream_source: stream_source.ok_or_else(|| {
-                ValidationError::new(format!("SignalTrace {id} must declare `stream_source`"))
+                coded(code::MISSING_FIELD, format!("SignalTrace {id} must declare `stream_source`"))
             })?,
             color_token: color_token.ok_or_else(|| {
-                ValidationError::new(format!("SignalTrace {id} must declare `color`"))
+                coded(code::MISSING_FIELD, format!("SignalTrace {id} must declare `color`"))
             })?,
         },
         ComponentKind::Label => NodeKind::Label {
             text_key: text_key.ok_or_else(|| {
-                ValidationError::new(format!("Label {id} must declare `text`"))
+                coded(code::MISSING_FIELD, format!("Label {id} must declare `text`"))
             })?,
             color_token: color_token.ok_or_else(|| {
-                ValidationError::new(format!("Label {id} must declare `color`"))
+                coded(code::MISSING_FIELD, format!("Label {id} must declare `color`"))
             })?,
         },
         ComponentKind::Clock => NodeKind::Clock {
             format: clock_format.ok_or_else(|| {
-                ValidationError::new(format!("Clock {id} must declare `format`"))
+                coded(code::MISSING_FIELD, format!("Clock {id} must declare `format`"))
             })?,
         },
         ComponentKind::NumericDisplay => NodeKind::NumericDisplay {
             requirement_id: requirement_id.ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::MISSING_FIELD, format!(
                     "NumericDisplay {id} must declare `requirement`"
                 ))
             })?,
             template_id: template_id.ok_or_else(|| {
-                ValidationError::new(format!("NumericDisplay {id} must declare `template`"))
+                coded(code::MISSING_FIELD, format!("NumericDisplay {id} must declare `template`"))
             })?,
             source: {
                 let (source_line, raw) = source.ok_or_else(|| {
-                    ValidationError::new(format!("NumericDisplay {id} must declare `source`"))
+                    coded(code::MISSING_FIELD, format!("NumericDisplay {id} must declare `source`"))
                 })?;
                 parse_quoted(source_line, "source", &raw)?
             },
             color_token: color_token.ok_or_else(|| {
-                ValidationError::new(format!("NumericDisplay {id} must declare `color`"))
+                coded(code::MISSING_FIELD, format!("NumericDisplay {id} must declare `color`"))
             })?,
         },
         ComponentKind::StatusIndicator => {
             let state_text_keys = state_text_keys.ok_or_else(|| {
-                ValidationError::new(format!("StatusIndicator {id} must declare `states`"))
+                coded(code::MISSING_FIELD, format!("StatusIndicator {id} must declare `states`"))
             })?;
             // `colors` is optional: absent means every state uses the neutral status token.
             let color_tokens = color_tokens.unwrap_or_else(|| {
                 vec!["Theme.Colors.Neutral".to_string(); state_text_keys.len()]
             });
             if color_tokens.len() != state_text_keys.len() {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::UNREGISTERED, format!(
                     "StatusIndicator {id} declares {} states but {} colors",
                     state_text_keys.len(),
                     color_tokens.len()
@@ -751,13 +776,13 @@ fn parse_component_properties(
             }
             NodeKind::StatusIndicator {
                 requirement_id: requirement_id.ok_or_else(|| {
-                    ValidationError::new(format!(
+                    coded(code::MISSING_FIELD, format!(
                         "StatusIndicator {id} must declare `requirement`"
                     ))
                 })?,
                 source: {
                     let (source_line, raw) = source.ok_or_else(|| {
-                        ValidationError::new(format!(
+                        coded(code::MISSING_FIELD, format!(
                             "StatusIndicator {id} must declare `source`"
                         ))
                     })?;
@@ -770,27 +795,27 @@ fn parse_component_properties(
         ComponentKind::Image => NodeKind::Image {
             image_id: {
                 let (source_line, raw) = source.ok_or_else(|| {
-                    ValidationError::new(format!("Image {id} must declare `source`"))
+                    coded(code::MISSING_FIELD, format!("Image {id} must declare `source`"))
                 })?;
                 parse_image_key(source_line, &raw)?
             },
         },
         ComponentKind::Button => {
             if on_press.is_some() {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::FORBIDDEN_CONSTRUCT, format!(
                     "Button {id} must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
                 )));
             }
             NodeKind::Button {
                 label_text_key: label_text_key.ok_or_else(|| {
-                    ValidationError::new(format!("Button {id} must declare `label`"))
+                    coded(code::MISSING_FIELD, format!("Button {id} must declare `label`"))
                 })?,
                 color_token: color_token.ok_or_else(|| {
-                    ValidationError::new(format!("Button {id} must declare `color`"))
+                    coded(code::MISSING_FIELD, format!("Button {id} must declare `color`"))
                 })?,
                 source: {
                     let (source_line, raw) = source.ok_or_else(|| {
-                        ValidationError::new(format!("Button {id} must declare `source`"))
+                        coded(code::MISSING_FIELD, format!("Button {id} must declare `source`"))
                     })?;
                     parse_quoted(source_line, "source", &raw)?
                 },
@@ -799,25 +824,25 @@ fn parse_component_properties(
         }
         ComponentKind::TextInput => {
             if on_press.is_some() {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::FORBIDDEN_CONSTRUCT, format!(
                     "TextInput {id} must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
                 )));
             }
             NodeKind::TextInput {
                 source: {
                     let (source_line, raw) = source.ok_or_else(|| {
-                        ValidationError::new(format!("TextInput {id} must declare `source`"))
+                        coded(code::MISSING_FIELD, format!("TextInput {id} must declare `source`"))
                     })?;
                     parse_quoted(source_line, "source", &raw)?
                 },
                 max_length: max_length.ok_or_else(|| {
-                    ValidationError::new(format!("TextInput {id} must declare `max_length`"))
+                    coded(code::MISSING_FIELD, format!("TextInput {id} must declare `max_length`"))
                 })?,
                 // `charset` is optional: absent means the printable-ASCII default (ADR-015).
                 glyph_set_id: charset
                     .unwrap_or_else(|| ASCII_TEXT_GLYPH_SET_ID.to_string()),
                 color_token: color_token.ok_or_else(|| {
-                    ValidationError::new(format!("TextInput {id} must declare `color`"))
+                    coded(code::MISSING_FIELD, format!("TextInput {id} must declare `color`"))
                 })?,
                 requirement_id,
             }
@@ -837,7 +862,7 @@ fn parse_component_properties(
 fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if value.is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "{field_name} must not be empty at line {line_number}"
         )));
     }
@@ -845,7 +870,7 @@ fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScR
         .chars()
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "{field_name} contains unsupported characters at line {line_number}"
         )));
     }
@@ -855,7 +880,7 @@ fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScR
 fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if value.is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "{field_name} must not be empty at line {line_number}"
         )));
     }
@@ -865,13 +890,13 @@ fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> TrustScRe
 fn parse_quoted(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if !(value.starts_with('"') && value.ends_with('"')) {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "{field_name} must be a quoted string at line {line_number}"
         )));
     }
     let inner = &value[1..value.len() - 1];
     if inner.trim().is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "{field_name} must not be empty at line {line_number}"
         )));
     }
@@ -884,7 +909,7 @@ fn parse_text_key(line_number: usize, raw: &str) -> TrustScResult<String> {
         .strip_prefix("t(")
         .and_then(|rest| rest.strip_suffix(')'))
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "text references must use t(\"key\") at line {line_number}"
             ))
         })?;
@@ -895,7 +920,7 @@ fn parse_system_event(line_number: usize, raw: &str) -> TrustScResult<SystemEven
     match raw.trim() {
         "SystemEvent.NoOp" => Ok(SystemEvent::NoOp),
         "SystemEvent.TriggerHalt" => Ok(SystemEvent::TriggerHalt),
-        other => Err(ValidationError::new(format!(
+        other => Err(coded(code::UNREGISTERED, format!(
             "unsupported system event `{other}` at line {line_number}"
         ))),
     }
@@ -905,7 +930,7 @@ fn parse_clock_format(line_number: usize, raw: &str) -> TrustScResult<ClockForma
     match raw.trim() {
         "TimeSeconds" => Ok(ClockFormat::TimeSeconds),
         "DateTimeSeconds" => Ok(ClockFormat::DateTimeSeconds),
-        other => Err(ValidationError::new(format!(
+        other => Err(coded(code::UNREGISTERED, format!(
             "unsupported clock format `{other}` at line {line_number}"
         ))),
     }
@@ -914,12 +939,12 @@ fn parse_clock_format(line_number: usize, raw: &str) -> TrustScResult<ClockForma
 /// Parses `max_length: <N>;` — a plain positive integer (a character count, not pixels).
 fn parse_max_length(line_number: usize, raw: &str) -> TrustScResult<u16> {
     let value = raw.trim().parse::<u16>().map_err(|_| {
-        ValidationError::new(format!(
+        coded(code::UNEXPECTED_TOKEN, format!(
             "max_length must be a positive integer at line {line_number}"
         ))
     })?;
     if value == 0 {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "max_length must be greater than zero at line {line_number}"
         )));
     }
@@ -931,7 +956,7 @@ fn parse_max_length(line_number: usize, raw: &str) -> TrustScResult<u16> {
 fn parse_charset(line_number: usize, raw: &str) -> TrustScResult<String> {
     match raw.trim() {
         "AsciiText" => Ok(ASCII_TEXT_GLYPH_SET_ID.to_string()),
-        other => Err(ValidationError::new(format!(
+        other => Err(coded(code::UNREGISTERED, format!(
             "unsupported charset `{other}` at line {line_number}; approved charsets are: AsciiText"
         ))),
     }
@@ -945,7 +970,7 @@ fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> TrustS
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "{field_name} must be a [..] list at line {line_number}"
             ))
         })?;
@@ -956,7 +981,7 @@ fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> TrustS
         .map(str::to_string)
         .collect::<Vec<_>>();
     if entries.is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::MISSING_FIELD, format!(
             "{field_name} must declare at least one entry at line {line_number}"
         )));
     }
@@ -984,7 +1009,7 @@ fn parse_image_key(line_number: usize, raw: &str) -> TrustScResult<String> {
         .strip_prefix("img(")
         .and_then(|rest| rest.strip_suffix(')'))
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "Image source must use `img(\"IMAGE-ID\")` at line {line_number}"
             ))
         })?;
@@ -1001,7 +1026,7 @@ fn parse_dimension(line_number: usize, field_name: &str, raw: &str) -> TrustScRe
 fn parse_px(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<u16> {
     let px_value = parse_px_allowing_zero(line_number, field_name, raw)?;
     if px_value == 0 {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNEXPECTED_TOKEN, format!(
             "{field_name} must be greater than zero at line {line_number}"
         )));
     }
@@ -1014,13 +1039,13 @@ fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> Tr
     raw.trim()
         .strip_suffix("px")
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "{field_name} must use a px unit at line {line_number}"
             ))
         })?
         .parse::<u16>()
         .map_err(|_| {
-            ValidationError::new(format!(
+            coded(code::UNEXPECTED_TOKEN, format!(
                 "{field_name} must be a non-negative integer px value at line {line_number}"
             ))
         })
@@ -1029,7 +1054,7 @@ fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> Tr
 /// Parses `<X>px, <Y>px` — the absolute screen coordinates of a positioned component.
 fn parse_position(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
     let (x_raw, y_raw) = raw.split_once(',').ok_or_else(|| {
-        ValidationError::new(format!(
+        coded(code::UNEXPECTED_TOKEN, format!(
             "position must be `<X>px, <Y>px` at line {line_number}"
         ))
     })?;
@@ -1041,7 +1066,7 @@ fn parse_position(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
 /// Parses `<W>px, <H>px` — the screen's declared surface pin.
 fn parse_surface(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
     let (w_raw, h_raw) = raw.split_once(',').ok_or_else(|| {
-        ValidationError::new(format!(
+        coded(code::UNEXPECTED_TOKEN, format!(
             "surface must be `<W>px, <H>px` at line {line_number}"
         ))
     })?;
@@ -1057,14 +1082,15 @@ fn compile_screen(
     image_packages: ImagePackages<'_>,
 ) -> TrustScResult<CompiledScreenSpec> {
     if options.surface_width == 0 || options.surface_height == 0 {
-        return Err(ValidationError::new(
+        return Err(coded(
+            code::UNREGISTERED,
             "compile options surface dimensions must be greater than zero",
         ));
     }
 
     if let Some((declared_width, declared_height)) = screen.declared_surface {
         if (declared_width, declared_height) != (options.surface_width, options.surface_height) {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::UNREGISTERED, format!(
                 "screen {} declares surface {declared_width}x{declared_height} but the build configured {}x{} — align build.rs .surface(...) with the declaration",
                 screen.id, options.surface_width, options.surface_height
             )));
@@ -1074,18 +1100,19 @@ fn compile_screen(
     let content_width = options
         .surface_width
         .checked_sub(u32::from(screen.layout.padding) * 2)
-        .ok_or_else(|| ValidationError::new("layout padding exceeds surface width"))?;
+        .ok_or_else(|| coded(code::SURFACE_EXCEEDED, "layout padding exceeds surface width"))?;
     let content_height = options
         .surface_height
         .checked_sub(u32::from(screen.layout.padding) * 2)
-        .ok_or_else(|| ValidationError::new("layout padding exceeds surface height"))?;
+        .ok_or_else(|| coded(code::SURFACE_EXCEEDED, "layout padding exceeds surface height"))?;
 
     let has_rows = screen
         .items
         .iter()
         .any(|item| matches!(item, ScreenItem::Row(_)));
     if has_rows && screen.layout.kind != LayoutKind::Vertical {
-        return Err(ValidationError::new(
+        return Err(coded(
+            code::FORBIDDEN_CONSTRUCT,
             "Row containers require a Vertical screen layout",
         ));
     }
@@ -1224,7 +1251,7 @@ fn compile_screen(
                             height: fixed_dimension(&child, child.height)?,
                         };
                         if !rect_contains(row_bounds, bounds) {
-                            return Err(ValidationError::new(format!(
+                            return Err(coded(code::LAYOUT_OVERFLOW, format!(
                                 "component {} (position {},{}, size {}x{}) escapes its Row {} (bounds {},{} {}x{})",
                                 child.id, bounds.x, bounds.y, bounds.width, bounds.height,
                                 row.id, row_bounds.x, row_bounds.y, row_bounds.width,
@@ -1241,7 +1268,7 @@ fn compile_screen(
                         Dimension::Px(value) => u32::from(value),
                     };
                     if child_height > row_height {
-                        return Err(ValidationError::new(format!(
+                        return Err(coded(code::LAYOUT_OVERFLOW, format!(
                             "component {} is taller than its Row {}",
                             child.id, row.id
                         )));
@@ -1281,7 +1308,7 @@ fn compile_screen(
 fn fixed_dimension(node: &NodeDefinition, dimension: Dimension) -> TrustScResult<u32> {
     match dimension {
         Dimension::Px(value) => Ok(u32::from(value)),
-        Dimension::Fill => Err(ValidationError::new(format!(
+        Dimension::Fill => Err(coded(code::LAYOUT_OVERFLOW, format!(
             "component {}: `position` requires fixed `width`/`height` — Fill is flow-only",
             node.id
         ))),
@@ -1310,7 +1337,7 @@ fn validate_unique_node_ids(nodes: &[CompiledNodeSpec]) -> TrustScResult<()> {
     let mut seen = std::collections::BTreeSet::new();
     for node in nodes {
         if !seen.insert(node.id.as_str()) {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::DUPLICATE_NODE_ID, format!(
                 "duplicate node id {} in compiled screen",
                 node.id
             )));
@@ -1335,7 +1362,7 @@ fn validate_no_overlap(
                 continue;
             }
             if rects_strictly_overlap(a.bounds, b.bounds) {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::LAYOUT_OVERFLOW, format!(
                     "component {} (position {},{}, size {}x{}) overlaps component {} (bounds {},{} {}x{}); positioned components must not overlap any other component",
                     a.id, a.bounds.x, a.bounds.y, a.bounds.width, a.bounds.height,
                     b.id, b.bounds.x, b.bounds.y, b.bounds.width, b.bounds.height
@@ -1361,7 +1388,7 @@ struct CompileContext<'a, 'p> {
 impl CompileContext<'_, '_> {
     fn compile_leaf(&mut self, node: NodeDefinition, bounds: RectSpec) -> TrustScResult<()> {
         if bounds.x < self.padding || bounds.y < self.padding {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::SURFACE_EXCEEDED, format!(
                 "component {} resolved outside the padded surface",
                 node.id
             )));
@@ -1370,7 +1397,7 @@ impl CompileContext<'_, '_> {
             || bounds.y + bounds.height as i32
                 > self.options.surface_height as i32 - self.padding
         {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::SURFACE_EXCEEDED, format!(
                 "component {} exceeds the available surface",
                 node.id
             )));
@@ -1385,7 +1412,7 @@ impl CompileContext<'_, '_> {
         // compiles always round-trips.
         if let Some(safety) = &node.safety_critical {
             if safety.cv_checks.is_empty() {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::MISSING_FIELD, format!(
                     "component {} safety-critical annotation must declare at least one CV check",
                     node.id
                 )));
@@ -1394,21 +1421,21 @@ impl CompileContext<'_, '_> {
 
         if let NodeKind::Image { image_id } = &node.kind {
             let package = self.image_packages.find(image_id).ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::UNREGISTERED, format!(
                     "Image {} references unknown image package {image_id}",
                     node.id
                 ))
             })?;
             // ADR-014: images render at intrinsic size only — no runtime scaling.
             if (bounds.width, bounds.height) != (package.width, package.height) {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::UNREGISTERED, format!(
                     "Image {} declares {}x{} but image package {image_id} is {}x{}; images render at intrinsic size only (no scaling)",
                     node.id, bounds.width, bounds.height, package.width, package.height
                 )));
             }
             if let Some(safety) = &node.safety_critical {
                 if safety.cv_checks.contains(&CvCheckKind::ColorHash) {
-                    return Err(ValidationError::new(format!(
+                    return Err(coded(code::UNKNOWN_CV_CHECK, format!(
                         "Image {} cannot use the ColorHash CV check (image-content hashing is not a supported golden check); use Bounds",
                         node.id
                     )));
@@ -1507,7 +1534,7 @@ fn validate_color_tokens(node_id: &str, kind: &NodeKind) -> TrustScResult<()> {
                 .map(|(name, _)| *name)
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::UNKNOWN_COLOR_TOKEN, format!(
                 "component {node_id} references unknown theme color token `{token}`; approved tokens are: {approved}"
             )));
         }
@@ -1594,7 +1621,7 @@ fn validate_node_text_budget(
         NodeKind::Panel { .. } | NodeKind::Image { .. } => Ok(()),
         NodeKind::NumericDisplay { template_id, .. } => {
             if text_packages.displays.is_empty() {
-                return Err(ValidationError::new(format!(
+                return Err(coded(code::UNREGISTERED, format!(
                     "NumericDisplay {} requires a display text package (none was provided to the compiler)",
                     node.id
                 )));
@@ -1621,7 +1648,7 @@ fn validate_static_text_budget(
         .collect::<Vec<_>>();
 
     if locales.is_empty() {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::UNKNOWN_TEXT_KEY, format!(
             "text key {text_key} for component {} does not exist in the approved text package",
             node.id
         )));
@@ -1631,14 +1658,14 @@ fn validate_static_text_budget(
         let run = text_package
             .find_run_for_string(text_key, locale)
             .ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::TEXT_KEY_MISSING_LOCALE, format!(
                     "text key {text_key} for component {} is missing a compiled run for locale {locale}",
                     node.id
                 ))
             })?;
         let run_bounds = measure_text_run_bounds(text_package, run)?;
         if run_bounds.width() > bounds.width || run_bounds.height() > bounds.height {
-            return Err(ValidationError::new(format!(
+            return Err(coded(code::TEXT_BUDGET_EXCEEDED, format!(
                 "text key {text_key} for component {} exceeds bounds in locale {locale}: required width={} height={}, available width={} height={}",
                 node.id,
                 run_bounds.width(),
@@ -1664,7 +1691,7 @@ fn validate_clock_budget(
     let glyph_set = text_package
         .find_numeric_glyph_set(CLOCK_GLYPH_SET_ID)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "Clock {} requires glyph set {CLOCK_GLYPH_SET_ID} in the approved text package",
                 node.id
             ))
@@ -1682,7 +1709,7 @@ fn validate_clock_budget(
         measure_glyph_run(node, glyph_set, characters, text_package)?;
 
     if required_width > bounds.width || required_height > bounds.height {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::TEXT_BUDGET_EXCEEDED, format!(
             "Clock {} does not fit its bounds: required width={required_width} height={required_height}, available width={} height={}",
             node.id, bounds.width, bounds.height
         )));
@@ -1706,7 +1733,7 @@ fn validate_text_input_budget(
     let glyph_set = text_package
         .find_numeric_glyph_set(glyph_set_id)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "TextInput {} requires glyph set {glyph_set_id} in the approved text package",
                 node.id
             ))
@@ -1717,7 +1744,7 @@ fn validate_text_input_budget(
         .iter()
         .max_by_key(|entry| entry.advance_x)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "TextInput {} charset glyph set {glyph_set_id} is empty",
                 node.id
             ))
@@ -1727,7 +1754,7 @@ fn validate_text_input_budget(
     let atlas_glyph = text_package
         .find_glyph(widest.atlas_index, widest.glyph_id)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "component {} references glyph set {} entry '{}', but atlas index {} glyph {} does not exist in the package — under-measuring height would let an out-of-budget component compile",
                 node.id, glyph_set.id, widest.character, widest.atlas_index, widest.glyph_id
             ))
@@ -1736,7 +1763,7 @@ fn validate_text_input_budget(
     let required_height = u32::from(atlas_glyph.height);
 
     if required_width > bounds.width || required_height > bounds.height {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::TEXT_BUDGET_EXCEEDED, format!(
             "TextInput {} does not fit its bounds: max_length {max_length} of the widest '{}' glyph requires width={required_width} height={required_height}, available width={} height={}",
             node.id, widest.character, bounds.width, bounds.height
         )));
@@ -1754,7 +1781,7 @@ fn validate_numeric_display_budget(
     display_package: &TextPackage,
 ) -> TrustScResult<()> {
     let template = display_package.find_template(template_id).ok_or_else(|| {
-        ValidationError::new(format!(
+        coded(code::UNREGISTERED, format!(
             "NumericDisplay {} references unknown template {template_id} in the display package",
             node.id
         ))
@@ -1762,7 +1789,7 @@ fn validate_numeric_display_budget(
     let glyph_set = display_package
         .find_numeric_glyph_set(&template.glyph_set_id)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "NumericDisplay {} template references unknown glyph set {}",
                 node.id, template.glyph_set_id
             ))
@@ -1774,7 +1801,7 @@ fn validate_numeric_display_budget(
         .iter()
         .max_by_key(|entry| entry.advance_x)
         .ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "NumericDisplay {} template glyph set is empty",
                 node.id
             ))
@@ -1788,7 +1815,7 @@ fn validate_numeric_display_budget(
         .flatten()
     {
         let run = display_package.find_run(affix_run_id).ok_or_else(|| {
-            ValidationError::new(format!(
+            coded(code::UNREGISTERED, format!(
                 "NumericDisplay {} template references unknown affix run {affix_run_id}",
                 node.id
             ))
@@ -1799,7 +1826,7 @@ fn validate_numeric_display_budget(
     }
 
     if required_width > bounds.width || required_height > bounds.height {
-        return Err(ValidationError::new(format!(
+        return Err(coded(code::TEXT_BUDGET_EXCEEDED, format!(
             "NumericDisplay {} does not fit its bounds: required width={required_width} height={required_height}, available width={} height={}",
             node.id, bounds.width, bounds.height
         )));
@@ -1825,7 +1852,7 @@ fn measure_glyph_run(
             .iter()
             .find(|entry| entry.character == *character)
             .ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::UNREGISTERED, format!(
                     "component {} requires character '{character}' missing from glyph set {}",
                     node.id, glyph_set.id
                 ))
@@ -1834,7 +1861,7 @@ fn measure_glyph_run(
         let atlas_glyph = text_package
             .find_glyph(entry.atlas_index, entry.glyph_id)
             .ok_or_else(|| {
-                ValidationError::new(format!(
+                coded(code::UNREGISTERED, format!(
                     "component {} references glyph set {} entry '{character}', but atlas index {} glyph {} does not exist in the package — under-measuring height would let an out-of-budget component compile",
                     node.id, glyph_set.id, entry.atlas_index, entry.glyph_id
                 ))
@@ -1882,11 +1909,12 @@ fn resolve_axis_sizes(
     let total_spacing = spacing as u32 * dimensions.len().saturating_sub(1) as u32;
     let available = total_fill_space
         .checked_sub(fixed_total + total_spacing)
-        .ok_or_else(|| ValidationError::new("layout exceeds available surface"))?;
+        .ok_or_else(|| coded(code::SURFACE_EXCEEDED, "layout exceeds available surface"))?;
 
     let fill_size = if fill_count == 0 { 0 } else { available / fill_count };
     if fill_count > 0 && fill_size == 0 {
-        return Err(ValidationError::new(
+        return Err(coded(
+            code::LAYOUT_OVERFLOW,
             "Fill layout items do not have enough remaining space",
         ));
     }
@@ -3415,6 +3443,118 @@ Screen InteractivePanel {
             let second = parse_medui_source(source).expect("example screen should parse");
             assert_eq!(first, second);
         }
+    }
+
+    /// Wraps `body` in the smallest screen that reaches component parsing.
+    fn screen_with(body: &str) -> String {
+        format!(
+            "Screen Broken {{\n\
+             layout: Vertical {{ spacing: 8px; padding: 0px; }}\n\
+             {body}\n\
+             }}\n"
+        )
+    }
+
+    #[test]
+    fn parse_time_diagnostics_carry_their_registered_code() {
+        // The code is assigned where the condition is detected, so this table pins raise site to
+        // identity. It is the regression guard for the message-matching classifier this replaced:
+        // rewording any message below must not change the code it reports.
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "unknown component",
+                "Bogus {\nid: x;\n}",
+                code::UNKNOWN_COMPONENT,
+            ),
+            (
+                "unknown field",
+                "CriticalButton {\nbogus_prop: 1;\n}",
+                code::UNKNOWN_FIELD,
+            ),
+            (
+                "missing field",
+                "CriticalButton {\nid: x;\n}",
+                code::MISSING_FIELD,
+            ),
+            (
+                "nested row",
+                "Row {\nid: outer;\nheight: 80px;\nRow {\nid: inner;\nheight: 40px;\n}\n}",
+                code::NESTED_ROW,
+            ),
+            (
+                "safety annotation on a Row",
+                "@safety_critical(cv_check: [Bounds])\nRow {\nid: outer;\nheight: 80px;\n}",
+                code::FORBIDDEN_CONSTRUCT,
+            ),
+            (
+                "unknown CV check",
+                "@safety_critical(cv_check: [Bogus])\nLabel {\nid: x;\n}",
+                code::UNKNOWN_CV_CHECK,
+            ),
+            (
+                "identifier with a space",
+                "Label {\nid: not an id;\n}",
+                code::UNEXPECTED_TOKEN,
+            ),
+            (
+                "position with a Fill dimension",
+                "Label {\nid: x;\nwidth: Fill;\nheight: 40px;\nposition: 0px, 0px;\n}",
+                code::LAYOUT_OVERFLOW,
+            ),
+        ];
+
+        for (what, body, expected) in cases {
+            let source = screen_with(body);
+            let diagnostics =
+                parse_medui_source(&source).expect_err(&format!("{what} should not parse"));
+            assert_eq!(diagnostics.len(), 1, "{what}");
+            assert_eq!(
+                diagnostics[0].code, *expected,
+                "{what}: message was {:?}",
+                diagnostics[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn compile_time_errors_carry_their_registered_code() {
+        // `MEDUI-E014` and `MEDUI-E030` are raised after parsing, so they are reached through a
+        // full compile rather than `parse_medui_source`. Going through the string-returning entry
+        // point also covers the single-diagnostic path that must not flatten the identity.
+        let duplicate = POSITIONED_MEDUI.replace(
+            "        id: sedation-index;",
+            "        id: topbar-background;",
+        );
+        assert_eq!(
+            compile_positioned(&duplicate)
+                .expect_err("duplicate node id must fail")
+                .code(),
+            Some(code::DUPLICATE_NODE_ID)
+        );
+
+        let unknown_token = POSITIONED_MEDUI.replace(
+            "            color: Theme.Colors.Title;",
+            "            color: Theme.Colors.Titel;",
+        );
+        assert_eq!(
+            compile_positioned(&unknown_token)
+                .expect_err("unknown theme color token must fail")
+                .code(),
+            Some(code::UNKNOWN_COLOR_TOKEN)
+        );
+    }
+
+    #[test]
+    fn every_raise_site_declares_a_code() {
+        // The needle is assembled at runtime so this assertion does not match itself in the
+        // source text it scans.
+        let needle = concat!("ValidationError", "::new(");
+        let occurrences = include_str!("lib.rs").matches(needle).count();
+        assert_eq!(
+            occurrences, 0,
+            "an untagged raise site would report the `code::UNEXPECTED_TOKEN` fallback instead of \
+             its own identity; raise it through `coded(code::…, …)` instead"
+        );
     }
 
     #[test]
