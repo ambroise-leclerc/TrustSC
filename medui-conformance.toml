@@ -3,7 +3,7 @@ version = "0.1.0-candidate"
 # The single source of truth for the pin: CI derives its `actions/checkout` ref from this line,
 # and `crates/trustsc-ui-dsl-authoring/tests/shared_conformance.rs` reads the same file, so the
 # workflow and the harness cannot drift apart.
-commit = "f22f6046be46451ea3b7f56a3f36a220279037d8"
+commit = "c8cc45ecec2f2dfd84940b9efc17c613e691cc0d"
 # The implementation already has richer local behavior, but only syntax is claimed until each
 # shared phase has a complete adapter that checks its normalized observations.
 capabilities = ["syntax"]
