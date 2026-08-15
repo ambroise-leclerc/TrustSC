@@ -14,7 +14,7 @@ pub enum Severity {
 pub struct Diagnostic {
     /// Stable implementation-neutral identity from `Compliatory/MedUI`.
     pub code: &'static str,
-    /// Repository-relative source file when the caller knows it; empty for in-memory input.
+    /// Source path supplied by the caller; empty for in-memory input.
     pub file: String,
     pub message: String,
     pub line: Option<u32>,
@@ -32,14 +32,11 @@ impl Diagnostic {
     /// "may be reworded" while a code's meaning is stable, so inferring one from the other would
     /// make a stable identity depend on prose.
     ///
-    /// The line number is still recovered from the message: every parser error embeds it as
-    /// `line {N}` somewhere in the text (not always at the end — e.g.
-    /// `"component at line {n} must declare \`id\`"`). That stays message-coupled until the
-    /// line-oriented parser is replaced by a positioned lexer, which is also what would supply
-    /// the column the shared cases pin.
+    /// Source positions are carried independently of the human-readable message. The current
+    /// line-oriented parser supplies a line but no column; compilation failures without a
+    /// source anchor leave both absent.
     pub fn from_validation_error(error: &ValidationError) -> Diagnostic {
         let message = error.to_string();
-        let line = extract_line_number(&message);
         Diagnostic {
             // An untagged error means a raise site in this crate forgot its code, or an error
             // crossed in from another crate. `assigns_a_code_to_every_raise_site` covers the
@@ -47,8 +44,8 @@ impl Diagnostic {
             code: error.code().unwrap_or(code::UNEXPECTED_TOKEN),
             file: String::new(),
             message,
-            line,
-            column: None,
+            line: error.line(),
+            column: error.column(),
             severity: Severity::Error,
             fix_hint: String::new(),
         }
@@ -111,18 +108,13 @@ pub(crate) fn coded(code: &'static str, message: impl Into<String>) -> Validatio
     ValidationError::with_code(code, message)
 }
 
-fn extract_line_number(message: &str) -> Option<u32> {
-    let mut search = message;
-    let mut found = None;
-    while let Some(index) = search.find("line ") {
-        let after = &search[index + "line ".len()..];
-        let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if !digits.is_empty() {
-            found = digits.parse().ok();
-        }
-        search = &search[index + "line ".len()..];
-    }
-    found
+/// Raises a parser error with its structured 1-based line position.
+pub(crate) fn coded_at(
+    line_number: usize,
+    code: &'static str,
+    message: impl Into<String>,
+) -> ValidationError {
+    coded(code, message).with_position(u32::try_from(line_number).ok(), None)
 }
 
 #[cfg(test)]
@@ -130,23 +122,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extracts_line_number_mid_sentence() {
+    fn diagnostic_uses_structured_position_instead_of_message_text() {
+        let positioned = ValidationError::with_code(code::UNEXPECTED_TOKEN, "no line in prose")
+            .with_position(Some(12), None);
+        let unpositioned =
+            ValidationError::with_code(code::UNKNOWN_COLOR_TOKEN, "untrusted token says line 99");
+
         assert_eq!(
-            extract_line_number("component at line 12 must declare `id`"),
+            Diagnostic::from_validation_error(&positioned).line,
             Some(12)
         );
-    }
-
-    #[test]
-    fn extracts_line_number_at_end() {
-        assert_eq!(
-            extract_line_number("unexpected content after screen closing brace at line 40"),
-            Some(40)
-        );
-    }
-
-    #[test]
-    fn returns_none_without_line_number() {
-        assert_eq!(extract_line_number("id must not be empty"), None);
+        assert_eq!(Diagnostic::from_validation_error(&unpositioned).line, None);
     }
 }

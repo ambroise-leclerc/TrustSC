@@ -11,8 +11,8 @@
 use std::process::ExitCode;
 
 use trustsc_ui_dsl_authoring::{
-    CompileOptions, Diagnostic, ImagePackages, Severity, TextPackages, compile_screen_definition,
-    parse_medui_source,
+    CompileOptions, Diagnostic, ImagePackages, Severity, TextPackages, code,
+    compile_screen_definition, parse_medui_source,
 };
 
 /// Matches the fallback every other tool in this repo uses for a screen with no `surface:` pin
@@ -33,21 +33,31 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut format = Format::Text;
     let mut positional = Vec::new();
+    let mut argument_error = None;
     for arg in &args {
         match arg.as_str() {
             "--format=text" => format = Format::Text,
             "--format=json" => format = Format::Json,
             other if other.starts_with("--") => {
-                eprintln!("trustsc-medui-check: unknown option {other}");
-                return ExitCode::from(2);
+                argument_error.get_or_insert_with(|| format!("unknown option {other}"));
             }
             other => positional.push(other),
         }
     }
+    if let Some(message) = argument_error {
+        report_early_failure(&message, "<arguments>", code::UNEXPECTED_TOKEN, format);
+        return ExitCode::from(2);
+    }
     let path = match positional.as_slice() {
         [path] => *path,
         _ => {
-            eprintln!("usage: trustsc-medui-check [--format=text|json] <path/to/screen.medui>");
+            let message = "usage: trustsc-medui-check [--format=text|json] <path/to/screen.medui>";
+            match format {
+                Format::Text => eprintln!("{message}"),
+                Format::Json => {
+                    report_early_failure(message, "<arguments>", code::UNEXPECTED_TOKEN, format)
+                }
+            }
             return ExitCode::from(2);
         }
     };
@@ -55,7 +65,12 @@ fn main() -> ExitCode {
     let source = match std::fs::read_to_string(path) {
         Ok(source) => source,
         Err(error) => {
-            eprintln!("trustsc-medui-check: failed to read {path}: {error}");
+            report_early_failure(
+                &format!("failed to read {path}: {error}"),
+                path,
+                code::SOURCE_UNREADABLE,
+                format,
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -71,14 +86,24 @@ fn main() -> ExitCode {
     let standard_package = match trustsc::default_standard_text_package() {
         Ok(package) => package,
         Err(error) => {
-            eprintln!("trustsc-medui-check: failed to load the standard text package: {error}");
+            report_early_failure(
+                &format!("failed to load the standard text package: {error}"),
+                path,
+                code::UNREGISTERED,
+                format,
+            );
             return ExitCode::FAILURE;
         }
     };
     let display_packages = match trustsc::default_display_text_packages() {
         Ok(packages) => packages,
         Err(error) => {
-            eprintln!("trustsc-medui-check: failed to load the display text packages: {error}");
+            report_early_failure(
+                &format!("failed to load the display text packages: {error}"),
+                path,
+                code::UNREGISTERED,
+                format,
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -86,7 +111,12 @@ fn main() -> ExitCode {
     let image_packages = match trustsc::default_image_packages() {
         Ok(packages) => packages,
         Err(error) => {
-            eprintln!("trustsc-medui-check: failed to load the image packages: {error}");
+            report_early_failure(
+                &format!("failed to load the image packages: {error}"),
+                path,
+                code::UNREGISTERED,
+                format,
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -112,6 +142,27 @@ fn main() -> ExitCode {
             report(&diagnostics, path, format);
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Reports failures that occur before the parser or compiler can return a diagnostic. JSON mode
+/// still emits the standard envelope, while text mode preserves the CLI's concise stderr form.
+fn report_early_failure(message: &str, path: &str, error_code: &'static str, format: Format) {
+    match format {
+        Format::Text => eprintln!("trustsc-medui-check: {message}"),
+        Format::Json => report(
+            &[Diagnostic {
+                code: error_code,
+                file: String::new(),
+                message: message.to_string(),
+                line: None,
+                column: None,
+                severity: Severity::Error,
+                fix_hint: String::new(),
+            }],
+            path,
+            format,
+        ),
     }
 }
 

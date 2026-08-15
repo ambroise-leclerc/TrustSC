@@ -132,7 +132,7 @@ pub use catalog::{
 pub use serialize::serialize_screen;
 pub use diagnostic::{Diagnostic, Severity, code};
 
-use diagnostic::coded;
+use diagnostic::{coded, coded_at};
 
 pub fn compile_medui_file_to_rust_module(
     input_path: impl AsRef<Path>,
@@ -187,7 +187,8 @@ pub fn compile_medui_source_to_rust(
                     code::UNEXPECTED_TOKEN,
                     "compilation failed with no diagnostics",
                 ),
-                [only] => coded(only.code, only.message.clone()),
+                [only] => coded(only.code, only.message.clone())
+                    .with_position(only.line, only.column),
                 many => coded(
                     code::UNEXPECTED_TOKEN,
                     many.iter()
@@ -247,7 +248,8 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
         .collect::<Vec<_>>();
 
     if lines.len() < 3 {
-        return Err(coded(
+        return Err(coded_at(
+            lines.first().map_or(1, |(line, _)| *line),
             code::UNEXPECTED_TOKEN,
             "MedUI source must contain a screen header, layout, and closing brace",
         ));
@@ -278,7 +280,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
         let (line_number, line) = &lines[cursor];
         if line == "}" {
             if cursor != lines.len() - 1 {
-                return Err(coded(code::UNEXPECTED_TOKEN, format!(
+                return Err(coded_at(*line_number, code::UNEXPECTED_TOKEN, format!(
                     "unexpected content after screen closing brace at line {line_number}"
                 )));
             }
@@ -293,7 +295,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
 
         if line == "Row {" {
             if pending_safety.is_some() {
-                return Err(coded(code::FORBIDDEN_CONSTRUCT, format!(
+                return Err(coded_at(*line_number, code::FORBIDDEN_CONSTRUCT, format!(
                     "@safety_critical cannot annotate a Row container at line {line_number}"
                 )));
             }
@@ -327,7 +329,8 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
     }
 
     if items.is_empty() {
-        return Err(coded(
+        return Err(coded_at(
+            *screen_line,
             code::MISSING_FIELD,
             "MedUI screen must declare at least one component",
         ));
@@ -371,7 +374,7 @@ fn parse_row(
         }
 
         if line == "Row {" {
-            return Err(coded(code::NESTED_ROW, format!(
+            return Err(coded_at(*line_number, code::NESTED_ROW, format!(
                 "nested Row containers are not supported at line {line_number}"
             )));
         }
@@ -411,7 +414,7 @@ fn parse_row(
         // Scalar Row property.
         let property_line = line.trim_end_matches(';');
         let (key, value) = property_line.split_once(':').ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(*line_number, code::UNEXPECTED_TOKEN, format!(
                 "invalid Row property `{property_line}` at line {line_number}"
             ))
         })?;
@@ -425,7 +428,7 @@ fn parse_row(
                 background = Some(parse_non_empty(*line_number, "background", value.trim())?)
             }
             other => {
-                return Err(coded(code::UNKNOWN_FIELD, format!(
+                return Err(coded_at(*line_number, code::UNKNOWN_FIELD, format!(
                     "unsupported Row property `{other}` at line {line_number}"
                 )));
             }
@@ -434,19 +437,19 @@ fn parse_row(
     }
 
     if !closed {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(row_line_number, code::UNEXPECTED_TOKEN, format!(
             "Row starting at line {row_line_number} is missing its closing brace"
         )));
     }
 
     let id = id.ok_or_else(|| {
-        coded(code::MISSING_FIELD, format!("Row at line {row_line_number} must declare `id`"))
+        coded_at(row_line_number, code::MISSING_FIELD, format!("Row at line {row_line_number} must declare `id`"))
     })?;
     let height = height.ok_or_else(|| {
-        coded(code::MISSING_FIELD, format!("Row {id} must declare `height`"))
+        coded_at(row_line_number, code::MISSING_FIELD, format!("Row {id} must declare `height`"))
     })?;
     if children.is_empty() {
-        return Err(coded(code::MISSING_FIELD, format!(
+        return Err(coded_at(row_line_number, code::MISSING_FIELD, format!(
             "Row {id} must contain at least one component"
         )));
     }
@@ -469,7 +472,7 @@ fn parse_screen_header(line_number: usize, line: &str) -> TrustScResult<String> 
         .and_then(|rest| rest.strip_suffix('{'))
         .map(str::trim)
         .ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "expected `Screen <Name> {{` at line {line_number}"
             ))
         })?;
@@ -481,13 +484,14 @@ fn parse_layout(line_number: usize, line: &str) -> TrustScResult<LayoutDefinitio
         .strip_prefix("layout:")
         .map(str::trim)
         .ok_or_else(|| {
-            coded(
+            coded_at(
+                line_number,
                 code::UNEXPECTED_TOKEN,
                 format!("expected layout declaration at line {line_number}"),
             )
         })?;
     let (kind_name, block) = payload.split_once('{').ok_or_else(|| {
-        coded(code::UNEXPECTED_TOKEN, format!(
+        coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "layout declaration must contain an inline block at line {line_number}"
         ))
     })?;
@@ -495,7 +499,7 @@ fn parse_layout(line_number: usize, line: &str) -> TrustScResult<LayoutDefinitio
         "Vertical" => LayoutKind::Vertical,
         "Horizontal" => LayoutKind::Horizontal,
         other => {
-            return Err(coded(code::UNREGISTERED, format!(
+            return Err(coded_at(line_number, code::UNREGISTERED, format!(
                 "unsupported layout `{other}` at line {line_number}"
             )))
         }
@@ -517,13 +521,14 @@ fn parse_inline_px_property(line_number: usize, block: &str, key: &str) -> Trust
         .map(str::trim)
         .find(|entry| entry.starts_with(&format!("{key}:")))
         .ok_or_else(|| {
-            coded(code::MISSING_FIELD, format!(
+            coded_at(line_number, code::MISSING_FIELD, format!(
                 "layout block at line {line_number} must declare `{key}`"
             ))
         })
         .and_then(|entry| {
             let (_, value) = entry.split_once(':').ok_or_else(|| {
-                coded(
+                coded_at(
+                    line_number,
                     code::UNEXPECTED_TOKEN,
                     format!("invalid layout property `{entry}` at line {line_number}"),
                 )
@@ -538,7 +543,7 @@ fn parse_safety_critical(line_number: usize, line: &str) -> TrustScResult<Safety
         .and_then(|(_, rest)| rest.split_once(']'))
         .map(|(checks, _)| checks)
         .ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "expected `@safety_critical(cv_check: [...])` at line {line_number}"
             ))
         })?;
@@ -548,14 +553,14 @@ fn parse_safety_critical(line_number: usize, line: &str) -> TrustScResult<Safety
         .map(|entry| match entry {
             "Bounds" => Ok(CvCheckKind::Bounds),
             "ColorHash" => Ok(CvCheckKind::ColorHash),
-            other => Err(coded(code::UNKNOWN_CV_CHECK, format!(
+            other => Err(coded_at(line_number, code::UNKNOWN_CV_CHECK, format!(
                 "unsupported CV check `{other}` at line {line_number}"
             ))),
         })
         .collect::<TrustScResult<Vec<_>>>()?;
 
     if cv_checks.is_empty() {
-        return Err(coded(code::MISSING_FIELD, format!(
+        return Err(coded_at(line_number, code::MISSING_FIELD, format!(
             "safety-critical annotation at line {line_number} must declare at least one CV check"
         )));
     }
@@ -582,7 +587,8 @@ fn parse_component_start(line_number: usize, line: &str) -> TrustScResult<Compon
         .strip_suffix('{')
         .map(str::trim)
         .ok_or_else(|| {
-            coded(
+            coded_at(
+                line_number,
                 code::UNEXPECTED_TOKEN,
                 format!("expected component block at line {line_number}"),
             )
@@ -598,7 +604,7 @@ fn parse_component_start(line_number: usize, line: &str) -> TrustScResult<Compon
         "Image" => Ok(ComponentKind::Image),
         "Button" => Ok(ComponentKind::Button),
         "TextInput" => Ok(ComponentKind::TextInput),
-        other => Err(coded(code::UNKNOWN_COMPONENT, format!(
+        other => Err(coded_at(line_number, code::UNKNOWN_COMPONENT, format!(
             "unsupported component `{other}` at line {line_number}"
         ))),
     }
@@ -631,7 +637,7 @@ fn parse_component_properties(
     for (property_line_number, property_line) in properties {
         let property_line = property_line.trim_end_matches(';');
         let (key, value) = property_line.split_once(':').ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(*property_line_number, code::UNEXPECTED_TOKEN, format!(
                 "invalid property `{property_line}` at line {property_line_number}"
             ))
         })?;
@@ -672,7 +678,7 @@ fn parse_component_properties(
             }
             "charset" => charset = Some(parse_charset(*property_line_number, value)?),
             other => {
-                return Err(coded(code::UNKNOWN_FIELD, format!(
+                return Err(coded_at(*property_line_number, code::UNKNOWN_FIELD, format!(
                     "unsupported property `{other}` at line {property_line_number}"
                 )))
             }
@@ -680,17 +686,17 @@ fn parse_component_properties(
     }
 
     let id = id.ok_or_else(|| {
-        coded(code::MISSING_FIELD, format!("component at line {line_number} must declare `id`"))
+        coded_at(line_number, code::MISSING_FIELD, format!("component at line {line_number} must declare `id`"))
     })?;
     let width = width.ok_or_else(|| {
-        coded(code::MISSING_FIELD, format!("component {id} must declare `width`"))
+        coded_at(line_number, code::MISSING_FIELD, format!("component {id} must declare `width`"))
     })?;
     let height = height.ok_or_else(|| {
-        coded(code::MISSING_FIELD, format!("component {id} must declare `height`"))
+        coded_at(line_number, code::MISSING_FIELD, format!("component {id} must declare `height`"))
     })?;
 
     if position.is_some() && (width == Dimension::Fill || height == Dimension::Fill) {
-        return Err(coded(code::LAYOUT_OVERFLOW, format!(
+        return Err(coded_at(line_number, code::LAYOUT_OVERFLOW, format!(
             "component {id}: `position` requires fixed `width`/`height` — Fill is flow-only"
         )));
     }
@@ -698,77 +704,77 @@ fn parse_component_properties(
     let kind = match component_kind {
         ComponentKind::CriticalButton => NodeKind::CriticalButton {
             requirement_id: requirement_id.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!(
+                coded_at(line_number, code::MISSING_FIELD, format!(
                     "CriticalButton {id} must declare `requirement`"
                 ))
             })?,
             label_text_key: label_text_key.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("CriticalButton {id} must declare `label`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("CriticalButton {id} must declare `label`"))
             })?,
             color_token: color_token.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("CriticalButton {id} must declare `color`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("CriticalButton {id} must declare `color`"))
             })?,
             on_press: on_press.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("CriticalButton {id} must declare `on_press`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("CriticalButton {id} must declare `on_press`"))
             })?,
         },
         ComponentKind::VulkanViewport => NodeKind::VulkanViewport {
             stream_source: stream_source.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!(
+                coded_at(line_number, code::MISSING_FIELD, format!(
                     "VulkanViewport {id} must declare `stream_source`"
                 ))
             })?,
         },
         ComponentKind::SignalTrace => NodeKind::SignalTrace {
             stream_source: stream_source.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("SignalTrace {id} must declare `stream_source`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("SignalTrace {id} must declare `stream_source`"))
             })?,
             color_token: color_token.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("SignalTrace {id} must declare `color`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("SignalTrace {id} must declare `color`"))
             })?,
         },
         ComponentKind::Label => NodeKind::Label {
             text_key: text_key.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("Label {id} must declare `text`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("Label {id} must declare `text`"))
             })?,
             color_token: color_token.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("Label {id} must declare `color`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("Label {id} must declare `color`"))
             })?,
         },
         ComponentKind::Clock => NodeKind::Clock {
             format: clock_format.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("Clock {id} must declare `format`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("Clock {id} must declare `format`"))
             })?,
         },
         ComponentKind::NumericDisplay => NodeKind::NumericDisplay {
             requirement_id: requirement_id.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!(
+                coded_at(line_number, code::MISSING_FIELD, format!(
                     "NumericDisplay {id} must declare `requirement`"
                 ))
             })?,
             template_id: template_id.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("NumericDisplay {id} must declare `template`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("NumericDisplay {id} must declare `template`"))
             })?,
             source: {
                 let (source_line, raw) = source.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!("NumericDisplay {id} must declare `source`"))
+                    coded_at(line_number, code::MISSING_FIELD, format!("NumericDisplay {id} must declare `source`"))
                 })?;
                 parse_quoted(source_line, "source", &raw)?
             },
             color_token: color_token.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("NumericDisplay {id} must declare `color`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("NumericDisplay {id} must declare `color`"))
             })?,
         },
         ComponentKind::StatusIndicator => {
             let state_text_keys = state_text_keys.ok_or_else(|| {
-                coded(code::MISSING_FIELD, format!("StatusIndicator {id} must declare `states`"))
+                coded_at(line_number, code::MISSING_FIELD, format!("StatusIndicator {id} must declare `states`"))
             })?;
             // `colors` is optional: absent means every state uses the neutral status token.
             let color_tokens = color_tokens.unwrap_or_else(|| {
                 vec!["Theme.Colors.Neutral".to_string(); state_text_keys.len()]
             });
             if color_tokens.len() != state_text_keys.len() {
-                return Err(coded(code::UNREGISTERED, format!(
+                return Err(coded_at(line_number, code::UNREGISTERED, format!(
                     "StatusIndicator {id} declares {} states but {} colors",
                     state_text_keys.len(),
                     color_tokens.len()
@@ -776,13 +782,13 @@ fn parse_component_properties(
             }
             NodeKind::StatusIndicator {
                 requirement_id: requirement_id.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!(
+                    coded_at(line_number, code::MISSING_FIELD, format!(
                         "StatusIndicator {id} must declare `requirement`"
                     ))
                 })?,
                 source: {
                     let (source_line, raw) = source.ok_or_else(|| {
-                        coded(code::MISSING_FIELD, format!(
+                        coded_at(line_number, code::MISSING_FIELD, format!(
                             "StatusIndicator {id} must declare `source`"
                         ))
                     })?;
@@ -795,27 +801,27 @@ fn parse_component_properties(
         ComponentKind::Image => NodeKind::Image {
             image_id: {
                 let (source_line, raw) = source.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!("Image {id} must declare `source`"))
+                    coded_at(line_number, code::MISSING_FIELD, format!("Image {id} must declare `source`"))
                 })?;
                 parse_image_key(source_line, &raw)?
             },
         },
         ComponentKind::Button => {
             if on_press.is_some() {
-                return Err(coded(code::FORBIDDEN_CONSTRUCT, format!(
+                return Err(coded_at(line_number, code::FORBIDDEN_CONSTRUCT, format!(
                     "Button {id} must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
                 )));
             }
             NodeKind::Button {
                 label_text_key: label_text_key.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!("Button {id} must declare `label`"))
+                    coded_at(line_number, code::MISSING_FIELD, format!("Button {id} must declare `label`"))
                 })?,
                 color_token: color_token.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!("Button {id} must declare `color`"))
+                    coded_at(line_number, code::MISSING_FIELD, format!("Button {id} must declare `color`"))
                 })?,
                 source: {
                     let (source_line, raw) = source.ok_or_else(|| {
-                        coded(code::MISSING_FIELD, format!("Button {id} must declare `source`"))
+                        coded_at(line_number, code::MISSING_FIELD, format!("Button {id} must declare `source`"))
                     })?;
                     parse_quoted(source_line, "source", &raw)?
                 },
@@ -824,25 +830,25 @@ fn parse_component_properties(
         }
         ComponentKind::TextInput => {
             if on_press.is_some() {
-                return Err(coded(code::FORBIDDEN_CONSTRUCT, format!(
+                return Err(coded_at(line_number, code::FORBIDDEN_CONSTRUCT, format!(
                     "TextInput {id} must not declare `on_press` — framework-governed system events belong to CriticalButton (ADR-015)"
                 )));
             }
             NodeKind::TextInput {
                 source: {
                     let (source_line, raw) = source.ok_or_else(|| {
-                        coded(code::MISSING_FIELD, format!("TextInput {id} must declare `source`"))
+                        coded_at(line_number, code::MISSING_FIELD, format!("TextInput {id} must declare `source`"))
                     })?;
                     parse_quoted(source_line, "source", &raw)?
                 },
                 max_length: max_length.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!("TextInput {id} must declare `max_length`"))
+                    coded_at(line_number, code::MISSING_FIELD, format!("TextInput {id} must declare `max_length`"))
                 })?,
                 // `charset` is optional: absent means the printable-ASCII default (ADR-015).
                 glyph_set_id: charset
                     .unwrap_or_else(|| ASCII_TEXT_GLYPH_SET_ID.to_string()),
                 color_token: color_token.ok_or_else(|| {
-                    coded(code::MISSING_FIELD, format!("TextInput {id} must declare `color`"))
+                    coded_at(line_number, code::MISSING_FIELD, format!("TextInput {id} must declare `color`"))
                 })?,
                 requirement_id,
             }
@@ -862,7 +868,7 @@ fn parse_component_properties(
 fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if value.is_empty() {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "{field_name} must not be empty at line {line_number}"
         )));
     }
@@ -870,7 +876,7 @@ fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScR
         .chars()
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "{field_name} contains unsupported characters at line {line_number}"
         )));
     }
@@ -880,7 +886,7 @@ fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScR
 fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
     if value.is_empty() {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "{field_name} must not be empty at line {line_number}"
         )));
     }
@@ -889,14 +895,14 @@ fn parse_non_empty(line_number: usize, field_name: &str, raw: &str) -> TrustScRe
 
 fn parse_quoted(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
     let value = raw.trim();
-    if !(value.starts_with('"') && value.ends_with('"')) {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+    if value.len() < 2 || !(value.starts_with('"') && value.ends_with('"')) {
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "{field_name} must be a quoted string at line {line_number}"
         )));
     }
     let inner = &value[1..value.len() - 1];
     if inner.trim().is_empty() {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "{field_name} must not be empty at line {line_number}"
         )));
     }
@@ -909,7 +915,7 @@ fn parse_text_key(line_number: usize, raw: &str) -> TrustScResult<String> {
         .strip_prefix("t(")
         .and_then(|rest| rest.strip_suffix(')'))
         .ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "text references must use t(\"key\") at line {line_number}"
             ))
         })?;
@@ -920,7 +926,7 @@ fn parse_system_event(line_number: usize, raw: &str) -> TrustScResult<SystemEven
     match raw.trim() {
         "SystemEvent.NoOp" => Ok(SystemEvent::NoOp),
         "SystemEvent.TriggerHalt" => Ok(SystemEvent::TriggerHalt),
-        other => Err(coded(code::UNREGISTERED, format!(
+        other => Err(coded_at(line_number, code::UNREGISTERED, format!(
             "unsupported system event `{other}` at line {line_number}"
         ))),
     }
@@ -930,7 +936,7 @@ fn parse_clock_format(line_number: usize, raw: &str) -> TrustScResult<ClockForma
     match raw.trim() {
         "TimeSeconds" => Ok(ClockFormat::TimeSeconds),
         "DateTimeSeconds" => Ok(ClockFormat::DateTimeSeconds),
-        other => Err(coded(code::UNREGISTERED, format!(
+        other => Err(coded_at(line_number, code::UNREGISTERED, format!(
             "unsupported clock format `{other}` at line {line_number}"
         ))),
     }
@@ -939,12 +945,12 @@ fn parse_clock_format(line_number: usize, raw: &str) -> TrustScResult<ClockForma
 /// Parses `max_length: <N>;` — a plain positive integer (a character count, not pixels).
 fn parse_max_length(line_number: usize, raw: &str) -> TrustScResult<u16> {
     let value = raw.trim().parse::<u16>().map_err(|_| {
-        coded(code::UNEXPECTED_TOKEN, format!(
+        coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "max_length must be a positive integer at line {line_number}"
         ))
     })?;
     if value == 0 {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "max_length must be greater than zero at line {line_number}"
         )));
     }
@@ -956,7 +962,7 @@ fn parse_max_length(line_number: usize, raw: &str) -> TrustScResult<u16> {
 fn parse_charset(line_number: usize, raw: &str) -> TrustScResult<String> {
     match raw.trim() {
         "AsciiText" => Ok(ASCII_TEXT_GLYPH_SET_ID.to_string()),
-        other => Err(coded(code::UNREGISTERED, format!(
+        other => Err(coded_at(line_number, code::UNREGISTERED, format!(
             "unsupported charset `{other}` at line {line_number}; approved charsets are: AsciiText"
         ))),
     }
@@ -970,7 +976,7 @@ fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> TrustS
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
         .ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "{field_name} must be a [..] list at line {line_number}"
             ))
         })?;
@@ -981,7 +987,7 @@ fn parse_bracket_list(line_number: usize, field_name: &str, raw: &str) -> TrustS
         .map(str::to_string)
         .collect::<Vec<_>>();
     if entries.is_empty() {
-        return Err(coded(code::MISSING_FIELD, format!(
+        return Err(coded_at(line_number, code::MISSING_FIELD, format!(
             "{field_name} must declare at least one entry at line {line_number}"
         )));
     }
@@ -1009,7 +1015,7 @@ fn parse_image_key(line_number: usize, raw: &str) -> TrustScResult<String> {
         .strip_prefix("img(")
         .and_then(|rest| rest.strip_suffix(')'))
         .ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "Image source must use `img(\"IMAGE-ID\")` at line {line_number}"
             ))
         })?;
@@ -1026,7 +1032,7 @@ fn parse_dimension(line_number: usize, field_name: &str, raw: &str) -> TrustScRe
 fn parse_px(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<u16> {
     let px_value = parse_px_allowing_zero(line_number, field_name, raw)?;
     if px_value == 0 {
-        return Err(coded(code::UNEXPECTED_TOKEN, format!(
+        return Err(coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "{field_name} must be greater than zero at line {line_number}"
         )));
     }
@@ -1039,13 +1045,13 @@ fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> Tr
     raw.trim()
         .strip_suffix("px")
         .ok_or_else(|| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "{field_name} must use a px unit at line {line_number}"
             ))
         })?
         .parse::<u16>()
         .map_err(|_| {
-            coded(code::UNEXPECTED_TOKEN, format!(
+            coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
                 "{field_name} must be a non-negative integer px value at line {line_number}"
             ))
         })
@@ -1054,7 +1060,7 @@ fn parse_px_allowing_zero(line_number: usize, field_name: &str, raw: &str) -> Tr
 /// Parses `<X>px, <Y>px` — the absolute screen coordinates of a positioned component.
 fn parse_position(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
     let (x_raw, y_raw) = raw.split_once(',').ok_or_else(|| {
-        coded(code::UNEXPECTED_TOKEN, format!(
+        coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "position must be `<X>px, <Y>px` at line {line_number}"
         ))
     })?;
@@ -1066,7 +1072,7 @@ fn parse_position(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
 /// Parses `<W>px, <H>px` — the screen's declared surface pin.
 fn parse_surface(line_number: usize, raw: &str) -> TrustScResult<(u32, u32)> {
     let (w_raw, h_raw) = raw.split_once(',').ok_or_else(|| {
-        coded(code::UNEXPECTED_TOKEN, format!(
+        coded_at(line_number, code::UNEXPECTED_TOKEN, format!(
             "surface must be `<W>px, <H>px` at line {line_number}"
         ))
     })?;
@@ -3605,6 +3611,17 @@ Screen InteractivePanel {
             );
             assert_eq!(diagnostics[0].severity, Severity::Error);
         }
+    }
+
+    #[test]
+    fn lone_quote_returns_a_positioned_diagnostic_instead_of_panicking() {
+        let error = parse_quoted(7, "requirement", "\"")
+            .expect_err("a lone quote is not a delimited string");
+        let diagnostic = Diagnostic::from_validation_error(&error);
+
+        assert_eq!(diagnostic.code, code::UNEXPECTED_TOKEN);
+        assert_eq!(diagnostic.line, Some(7));
+        assert!(diagnostic.message.contains("must be a quoted string"));
     }
 
     #[test]

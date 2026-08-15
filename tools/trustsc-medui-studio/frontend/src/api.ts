@@ -51,12 +51,16 @@ export interface CompiledNodeSummary {
   golden_checks: CvCheckKind[];
 }
 
-export type Severity = "Error";
+export type Severity = "Error" | "Warning" | "Note";
 
 export interface Diagnostic {
+  code: string;
+  file: string;
   message: string;
   line: number | null;
+  column: number | null;
   severity: Severity;
+  fix_hint: string;
 }
 
 export interface CompiledSummary {

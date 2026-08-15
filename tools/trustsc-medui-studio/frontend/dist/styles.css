@@ -5,6 +5,10 @@
   --golden: #d4a72b;
   --error-bg: #fdecea;
   --error-fg: #7a1f14;
+  --warning-bg: #fff4d6;
+  --warning-fg: #6b4b00;
+  --note-bg: #eaf2ff;
+  --note-fg: #244a7c;
 }
 
 * {
@@ -191,6 +195,16 @@ h1 {
 .diagnostics--error {
   background: var(--error-bg);
   color: var(--error-fg);
+}
+
+.diagnostics--warning {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.diagnostics--note {
+  background: var(--note-bg);
+  color: var(--note-fg);
 }
 
 .diagnostics ul {

@@ -7,7 +7,7 @@
 ## Shared decision identity
 
 This TrustSC decision implements
-[`MEDUI-DEC-001`](https://github.com/Compliatory/MedUI/blob/763499016fdf16e9ba697cc938647ea67e8f8145/decisions/MEDUI-DEC-001-build-time-compilation.md)
+[`MEDUI-DEC-001`](https://github.com/Compliatory/MedUI/blob/c8cc45ecec2f2dfd84940b9efc17c613e691cc0d/decisions/MEDUI-DEC-001-build-time-compilation.md)
 and the closed-language part of `MEDUI-DEC-002`. ADR-008 remains the permanent local identity;
 cross-repository citations use the shared identifier.
 

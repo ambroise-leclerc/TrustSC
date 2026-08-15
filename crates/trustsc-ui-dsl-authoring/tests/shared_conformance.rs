@@ -26,6 +26,7 @@ use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use trustsc_ui_dsl_authoring::{Diagnostic, parse_medui_source};
@@ -50,6 +51,7 @@ fn pinned_shared_conformance_cases() {
     let Some(root) = conformance_root() else {
         return;
     };
+    assert_checkout_matches(&root, &manifest.commit);
 
     let cases = load_cases(&root);
     assert!(
@@ -201,6 +203,36 @@ fn conformance_root() -> Option<PathBuf> {
             None
         }
     }
+}
+
+/// Verifies that the cases came from the commit named in the conformance report. Using Git to
+/// resolve `HEAD` also handles worktrees, symbolic refs, and packed refs without duplicating
+/// Git's repository-layout rules here.
+fn assert_checkout_matches(root: &Path, commit: &str) {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "cannot run git to verify the MedUI checkout at {}: {error}",
+                root.display()
+            )
+        });
+    assert!(
+        output.status.success(),
+        "cannot resolve HEAD for the MedUI checkout at {}: {}",
+        root.display(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+    let resolved =
+        String::from_utf8(output.stdout).expect("the MedUI checkout's commit id should be UTF-8");
+    let resolved = resolved.trim();
+    assert!(
+        resolved.eq_ignore_ascii_case(commit),
+        "MEDUI_CONFORMANCE_DIR is at {resolved}, but medui-conformance.toml pins {commit}"
+    );
 }
 
 // -------------------------------------------------------------------------------------------

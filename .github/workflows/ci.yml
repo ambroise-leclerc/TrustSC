@@ -23,7 +23,7 @@ jobs:
         id: medui-contract
         run: |
           set -euo pipefail
-          commit="$(sed -n 's/^commit = "\([0-9a-f]\{40\}\)"$/\1/p' medui-conformance.toml)"
+          commit="$(sed -n 's/^[[:space:]]*commit[[:space:]]*=[[:space:]]*"\([0-9A-Fa-f]\{40\}\)"[[:space:]]*$/\1/p' medui-conformance.toml)"
           if [ -z "$commit" ]; then
             echo "medui-conformance.toml has no 40-character commit pin" >&2
             exit 1
@@ -36,6 +36,7 @@ jobs:
           repository: Compliatory/MedUI
           ref: ${{ steps.medui-contract.outputs.commit }}
           path: .medui-conformance
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

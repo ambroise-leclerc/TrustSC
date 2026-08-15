@@ -28,6 +28,23 @@ fn run_json(path: &Path) -> Output {
 }
 
 #[test]
+fn json_mode_envelopes_source_read_failures() {
+    let missing = std::env::temp_dir().join(format!(
+        "trustsc-medui-check-missing-{}-{:?}.medui",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let output = run_json(&missing);
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty(), "stderr was: {}", String::from_utf8_lossy(&output.stderr));
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("--format=json should emit an envelope for an unreadable source");
+    assert_eq!(envelope["findings"][0]["code"], "MEDUI-E003");
+    assert_eq!(envelope["findings"][0]["file"], missing.to_string_lossy().as_ref());
+}
+
+#[test]
 fn a_valid_screen_prints_ok_and_exits_zero() {
     let path = repo_root().join("examples/hello_world/hello_world.medui");
     let output = run(&path);
@@ -136,9 +153,19 @@ fn json_output_satisfies_the_pinned_diagnostic_schema() {
     // A screen with a genuine syntax error, so there is a finding to inspect.
     let original = std::fs::read_to_string(repo_root().join("examples/hello_world/hello_world.medui"))
         .expect("hello_world.medui should read");
-    let file = TempMeduiFile::new(&original.replace("hello-world-label", "hello world label"));
+    let broken = original.replace("hello-world-label", "hello world label");
+    assert_ne!(
+        broken, original,
+        "the fixture anchor `hello-world-label` is gone from hello_world.medui; pick a new one so \
+         this test still produces a syntax error"
+    );
+    let file = TempMeduiFile::new(&broken);
     let output = run_json(file.path());
-    assert!(!output.status.success());
+    assert!(
+        !output.status.success(),
+        "the broken screen should be rejected; stderr was {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let envelope: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&output.stdout))
         .expect("--format=json should emit valid JSON");
