@@ -1,7 +1,45 @@
 /target
 .DS_Store
+
+# Tool-specific AI assistant files (local only).
+# AGENTS.md and .agents/skills/**/SKILL.md are the public, tool-neutral sources.
 CLAUDE.md
-.claude/settings.local.json
+CLAUDE.local.md
+.claude/
+.clauderules
+.cursorrules
+.cursor/
+.windsurfrules
+.windsurf/
+.aider.conf.yml
+.aiderrules
+.aider.chat.history.md
+.cline/
+.clinerules
+.clinerules/
+.continuerules
+.continue/
+.codeium/
+.amazonq/
+.junie/
+.roorules
+.roo/
+GEMINI.md
+.gemini/
+.codex/
+.opencode/
+opencode.json
+.kiro/
+.devin/
+.factory/
+.tabnine/
+.augment/
+.augment-guidelines
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+.github/agents/
+.github/chatmodes/
 
 # Frontend build tooling (wave S9): node_modules is reproducible from the committed
 # package-lock.json via `npm ci`; frontend/dist/ is committed (built output embedded into the

@@ -22,9 +22,9 @@ project's version needed to avoid:
   portions of them on a public repository is a real legal exposure, not a hypothetical one.
 - It carried three overlapping tiers per standard (modular files, a monolithic "AI Reference" doc, and
   a project-specific "Framework" doc) that had visibly drifted apart from each other over time.
-- Its top-level `docs/` had no index tying the tree together, and its own `CLAUDE.md` never referenced
-  the regulatory docs at all — so an AI coding agent would not discover them unprompted even though
-  they existed.
+- Its top-level `docs/` had no index tying the tree together, and its local tool-specific guidance
+  never referenced the regulatory docs at all — so a coding agent would not discover them
+  unprompted even though they existed.
 - Its IEC 62304 clause numbering did not match the standard's actual structure (flat top-level
   "clauses" 5-16 where the real standard has one clause 5 with subclauses 5.1-5.8), which undermines
   the entire point of a citable reference.
@@ -50,10 +50,11 @@ project's version needed to avoid:
   so a future `serde`-based JSON export from `ComplianceProgram` (not built in this change) can match
   these schemas without a redesign. `trustsc_core::SafetyClass`'s Class-B/Class-C-only scope is carried
   into every schema that touches classification — no schema implies Class A support.
-- `docs/README.md`, `docs/regulatory-compliance.md`, root `README.md`, and this repo's own (gitignored,
-  untracked) `CLAUDE.md` are each updated, across the PR stack that implements this ADR, to point at
-  the new corpus and at `software_development_file/`, closing the discovery gap found in the C++
-  project's version. The `docs/README.md`/`docs/regulatory-compliance.md`/`README.md` updates land in
+- `docs/README.md`, `docs/regulatory-compliance.md`, root `README.md`, and the repository's
+  contributor and agent guidance are each updated, across the PR stack that implements this ADR,
+  to point at the new corpus and at `software_development_file/`, closing the discovery gap found
+  in the C++ project's version. The `docs/README.md`/`docs/regulatory-compliance.md`/`README.md`
+  updates land in
   the final PR of that stack, once the corpus and SDF tree they link to already exist.
 - `software_development_file/templates/` holds blank, standard-by-standard fill-in-the-blank documents
   any manufacturer can start from; `software_development_file/regulatory/` holds the same tree filled

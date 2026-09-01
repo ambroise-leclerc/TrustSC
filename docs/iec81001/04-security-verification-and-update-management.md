@@ -49,11 +49,11 @@ directly:
   sole defense against a deliberately crafted malicious package.
 - **`tools/*-baker verify` in CI** (ADR-007) independently re-derives every committed evidence
   artifact's digest and fails the build on mismatch — functionally a build-integrity verification
-  step, run on every CI invocation per `CLAUDE.md`'s "Replaying CI locally" section, not just at
+  step, run on every CI invocation per `AGENTS.md`'s "Replaying CI locally" section, not just at
   release time.
 
 Static analysis and dependency vulnerability scanning (e.g. `cargo audit` or equivalent) are not
-currently wired into this repository's CI as described in `CLAUDE.md`; this is a gap for a
+currently wired into this repository's CI as described in `AGENTS.md`; this is a gap for a
 manufacturer's own security verification plan to close, in the same spirit that
 [`../iec62304/07-configuration-management-process.md §8.3.2`](../iec62304/07-configuration-management-process.md#832-soup-anomaly-list)
 flags SOUP anomaly tracking as a gap rather than an implemented feature.
@@ -106,7 +106,7 @@ Concretely, this means:
   incompatible model package, the runtime would refuse to start rather than silently classify signals
   incorrectly. This is a device-side safety net, not an update-delivery mechanism.
 - If a future adapter crate does add networking (e.g. for telemetry, remote configuration, or update
-  delivery), it would need its own ADR per `CLAUDE.md`'s "When adding a dependency, first ask which
+  delivery), it would need its own ADR per `AGENTS.md`'s "When adding a dependency, first ask which
   zone the crate lives in" guidance, and this module's "not yet applicable" framing would need to be
   revisited alongside that ADR — this corpus should not be read as permanently ruling that out, only
   as accurately describing today's repository.
