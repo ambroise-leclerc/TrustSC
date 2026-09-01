@@ -146,7 +146,7 @@ changes re-reviewed/re-approved. External documents (including standards) determ
 QMS operation must be identified and their distribution controlled.
 
 TrustSC's own analogue, scoped to source and generated artifacts rather than QMS documents proper,
-is `Cargo.lock` committed and built with `--locked` (per `CLAUDE.md`'s replay-CI instructions) for
+is `Cargo.lock` committed and built with `--locked` (per `AGENTS.md`'s replay-CI instructions) for
 "what exact version was used," and the bake/`verify` pattern (ADR-007) for "was the currently
 committed generated artifact produced from the currently reviewed source" — a CI check that fails
 if a generated `package.json` no longer matches its `report.json` digest is a mechanized instance of
