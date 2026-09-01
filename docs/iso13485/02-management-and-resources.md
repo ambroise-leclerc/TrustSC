@@ -59,7 +59,7 @@ framework for quality objectives, and is communicated, understood, and reviewed 
 suitability throughout the organization.
 
 Entirely an organizational document; TrustSC has no quality policy of its own to point to, and a
-project README or CLAUDE.md file is not a substitute for one, regardless of how much engineering
+project README or agent-guidance file is not a substitute for one, regardless of how much engineering
 rigor either document describes.
 
 ### §5.4 Planning
@@ -161,7 +161,7 @@ supporting services (transport, communication, information systems), with docume
 where infrastructure activities including maintenance could affect product quality.
 
 TrustSC is process equipment (software) in this sub-clause's sense when a manufacturer builds it
-into their toolchain. `CLAUDE.md`'s "Replaying CI locally" section, and `.github/workflows/ci.yml`
+into their toolchain. `AGENTS.md`'s "Replaying CI locally" section, and `.github/workflows/ci.yml`
 itself, are the closest thing TrustSC offers to a documented, reproducible build infrastructure
 specification: pinned dependencies (`Cargo.lock`, `--locked` builds), a named Vulkan software
 rasterizer for CI (`lavapipe`, ADR-016 §8), and named prerequisite system packages

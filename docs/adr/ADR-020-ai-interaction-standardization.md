@@ -7,11 +7,10 @@ Accepted
 ## Context
 
 ADR-019 built the regulatory reference corpus to be "LLM- and human-navigable" and explicitly
-called out the C++ prototype's discovery gap: its regulatory docs existed but no agent
-instruction file pointed at them. This repository half-closed that gap by referencing the corpus
-from `CLAUDE.md` — but `CLAUDE.md` is gitignored (a personal, single-tool, single-machine file),
-so the project itself still shipped **no** committed agent instructions at all. Three further
-gaps followed from that:
+called out the C++ prototype's discovery gap: its regulatory docs existed but no public agent
+instruction file pointed at them. This repository half-closed that gap in a gitignored,
+tool-specific local file, so the project itself still shipped **no** committed agent instructions
+at all. Three further gaps followed from that:
 
 - No standardized instruction file readable by the broader agent tooling ecosystem (the
   `AGENTS.md` convention is read by Codex, Cursor, Gemini CLI, Zed, Claude Code, and others).
@@ -32,10 +31,9 @@ gaps followed from that:
   It carries the trust-zone table, the command set (mirroring `.github/workflows/ci.yml`), the
   regulatory-corpus usage protocol (navigation, citation keys, `Justification` objects, the
   no-reproduction rule), coding/artifact rules, and git conventions. It is the map, not the
-  territory: it links into `docs/` rather than duplicating it. `CLAUDE.md` remains gitignored
-  and becomes a thin personal overlay that imports `AGENTS.md`; nothing project-shared may live
-  only in a gitignored file.
-- **Task-scoped expertise ships as Agent Skills under `.claude/skills/`** (committed), in the
+  territory: it links into `docs/` rather than duplicating it. Tool-specific personal overlays
+  remain gitignored; nothing project-shared may live only in one of them.
+- **Task-scoped expertise ships as Agent Skills under `.agents/skills/`** (committed), in the
   open `SKILL.md` format (YAML `name`/`description` frontmatter + markdown body): four skills —
   `regulatory-citations`, `evidence-pipeline`, `medui-authoring`, `sdf-documents`. Each is a
   short operational recipe pointing into the authoritative docs (progressive disclosure), so the
@@ -100,4 +98,4 @@ gaps followed from that:
 - [ADR-019](ADR-019-regulatory-standards-reference-corpus.md) — the corpus this standardizes
   access to
 - [`docs/governance/citation-convention.md`](../governance/citation-convention.md)
-- [`AGENTS.md`](../../AGENTS.md), [`.claude/skills/`](../../.claude/skills/)
+- [`AGENTS.md`](../../AGENTS.md), [`.agents/skills/`](../../.agents/skills/)

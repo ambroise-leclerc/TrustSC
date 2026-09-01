@@ -22,7 +22,7 @@ quickstart; the pages below go deeper.
   every third-party dependency reachable from host tooling and presentation adapters.
 - **[AI agent onboarding](../AGENTS.md)** — the canonical, tool-neutral instruction file for AI
   coding agents (trust zones, commands, the regulatory citation protocol), with task-scoped
-  skills under `.claude/skills/` and the MCP policy in
+  skills under `.agents/skills/` and the MCP policy in
   [ADR-020](adr/ADR-020-ai-interaction-standardization.md). Citation keys and `Justification`
   blocks across `docs/` and `software_development_file/` are machine-checked in CI by
   `tools/trustsc-docs-lint`.

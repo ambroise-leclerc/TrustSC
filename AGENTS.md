@@ -137,7 +137,7 @@ register.
 
 ## AI tooling
 
-- **Skills** — `.claude/skills/` holds task-specific playbooks in the open Agent Skills
+- **Skills** — `.agents/skills/` holds task-specific playbooks in the open Agent Skills
   `SKILL.md` format (regulatory citations, evidence pipeline, MedUI authoring, SDF documents).
   Tools that support the format load them automatically; any other agent or human can read them
   as ordinary markdown.
