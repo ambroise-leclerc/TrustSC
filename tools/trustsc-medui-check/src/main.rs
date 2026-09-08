@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use trustsc_ui_dsl_authoring::{
     CompileOptions, Diagnostic, ImagePackages, Severity, TextPackages, code,
-    compile_screen_definition, parse_medui_source,
+    compile_screen_definition, parse_medui_bytes,
 };
 
 /// Matches the fallback every other tool in this repo uses for a screen with no `surface:` pin
@@ -62,7 +62,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let source = match std::fs::read_to_string(path) {
+    let source = match std::fs::read(path) {
         Ok(source) => source,
         Err(error) => {
             report_early_failure(
@@ -75,7 +75,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let screen = match parse_medui_source(&source) {
+    let screen = match parse_medui_bytes(&source) {
         Ok(screen) => screen,
         Err(diagnostics) => {
             report(&diagnostics, path, format);

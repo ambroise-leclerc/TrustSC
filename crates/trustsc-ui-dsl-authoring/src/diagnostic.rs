@@ -57,12 +57,14 @@ impl Diagnostic {
 ///
 /// A code's meaning never changes and a retired number is never reused (`MEDUI-DEC-005`), so
 /// these constants are append-only. Codes the contract registers but this implementation never
-/// raises — `MEDUI-E004` (source is not UTF-8), `MEDUI-E017` (hardcoded product string),
+/// raises — `MEDUI-E017` (hardcoded product string),
 /// `MEDUI-E053` (dynamic text escapes its charset) — are deliberately absent rather than
 /// declared and unused.
 pub mod code {
     /// `MEDUI-E003` — the `.medui` source could not be read.
     pub const SOURCE_UNREADABLE: &str = "MEDUI-E003";
+    /// `MEDUI-E004` — the source bytes are not valid UTF-8.
+    pub const SOURCE_NOT_UTF8: &str = "MEDUI-E004";
     /// `MEDUI-E010` — the source does not parse.
     pub const UNEXPECTED_TOKEN: &str = "MEDUI-E010";
     /// `MEDUI-E011` — the component name is not in the closed dictionary.

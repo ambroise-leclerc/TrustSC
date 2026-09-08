@@ -1,9 +1,9 @@
 repository = "https://github.com/Compliatory/MedUI"
-version = "0.1.0-candidate"
+version = "0.3.0-rc.1"
 # The single source of truth for the pin: CI derives its `actions/checkout` ref from this line,
 # and `crates/trustsc-ui-dsl-authoring/tests/shared_conformance.rs` reads the same file, so the
 # workflow and the harness cannot drift apart.
-commit = "c8cc45ecec2f2dfd84940b9efc17c613e691cc0d"
+commit = "9a57f6462b6f8dbdf1f0b8b4519674f1c6235dbb"
 # The implementation already has richer local behavior, but only syntax is claimed until each
 # shared phase has a complete adapter that checks its normalized observations.
 capabilities = ["syntax"]

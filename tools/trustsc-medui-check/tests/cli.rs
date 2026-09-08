@@ -239,3 +239,15 @@ fn assert_object_matches(value: &serde_json::Value, schema: &serde_json::Value, 
         );
     }
 }
+
+#[test]
+fn invalid_utf8_is_a_positioned_encoding_diagnostic_not_an_io_failure() {
+    let file = TempMeduiFile::new("");
+    std::fs::write(file.path(), b"// comment\r\n\xff").unwrap();
+    let output = run_json(file.path());
+    assert!(!output.status.success());
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(envelope["findings"][0]["code"], "MEDUI-E004");
+    assert_eq!(envelope["findings"][0]["line"], 2);
+    assert_eq!(envelope["findings"][0]["column"], 0);
+}
