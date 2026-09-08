@@ -5,6 +5,9 @@ The implementation-neutral contract is versioned in
 `medui-conformance.toml`. This directory documents TrustSC's Rust build, runtime, rendering, and
 evidence integration; where portable language rules differ, the pinned shared contract wins.
 
+The [shared conformance baseline](conformance.md) records exactly which pinned observations
+TrustSC claims and how CI checks them.
+
 The MedUI DSL is a deterministic build-time language for authored medical UI screens in `TrustSC`.
 
 ## Goals

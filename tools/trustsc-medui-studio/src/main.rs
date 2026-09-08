@@ -236,9 +236,9 @@ fn scan_screens(repo: &Path) -> Vec<ScreenEntry> {
                 .unwrap_or(&absolute)
                 .to_string_lossy()
                 .replace('\\', "/");
-            let screen_name = std::fs::read_to_string(&absolute)
+            let screen_name = std::fs::read(&absolute)
                 .ok()
-                .and_then(|source| trustsc_ui_dsl_authoring::parse_medui_source(&source).ok())
+                .and_then(|source| trustsc_ui_dsl_authoring::parse_medui_bytes(&source).ok())
                 .map(|screen| screen.id)
                 .unwrap_or_else(|| "<unparsed>".to_string());
             ScreenEntry {

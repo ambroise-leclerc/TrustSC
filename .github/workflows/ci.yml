@@ -52,6 +52,11 @@ jobs:
       - name: Build workspace
         run: cargo build --locked --workspace
 
+      - name: Gate claimed MedUI conformance against the pinned corpus
+        env:
+          MEDUI_CONFORMANCE_DIR: ${{ github.workspace }}/.medui-conformance
+        run: cargo test --locked -p trustsc-ui-dsl-authoring --test shared_conformance -- --nocapture
+
       - name: Run test suite
         env:
           MEDUI_CONFORMANCE_DIR: ${{ github.workspace }}/.medui-conformance

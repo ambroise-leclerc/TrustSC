@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::{
+    collections::BTreeSet,
     fmt::Write as _,
     fs,
     path::Path,
@@ -143,14 +144,15 @@ pub fn compile_medui_file_to_rust_module(
 ) -> TrustScResult<()> {
     let input_path = input_path.as_ref();
     let output_path = output_path.as_ref();
-    let source = fs::read_to_string(input_path).map_err(|error| {
+    let bytes = fs::read(input_path).map_err(|error| {
         coded(code::SOURCE_UNREADABLE, format!(
             "failed to read MedUI source {}: {error}",
             input_path.display()
         ))
     })?;
+    let source = decode_medui_source(&bytes)?;
     let generated =
-        compile_medui_source_to_rust(&source, options, text_packages, image_packages)?;
+        compile_medui_source_to_rust(source, options, text_packages, image_packages)?;
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -199,6 +201,29 @@ pub fn compile_medui_source_to_rust(
             }
         })?;
     Ok(emit_rust_module(&compiled, options.crate_path))
+}
+
+/// Parses source bytes, reporting invalid UTF-8 as `MEDUI-E004` before parsing.
+/// Diagnostic positions retain the parser's line-only precision, including decoding failures.
+/// File-based callers should use this entry point so encoding failures are distinct from I/O.
+pub fn parse_medui_bytes(source: &[u8]) -> Result<ScreenDefinition, Vec<Diagnostic>> {
+    let source = decode_medui_source(source)
+        .map_err(|error| vec![Diagnostic::from_validation_error(&error)])?;
+    parse_medui_source(source)
+}
+
+fn decode_medui_source(source: &[u8]) -> TrustScResult<&str> {
+    std::str::from_utf8(source).map_err(|error| {
+        let line = 1 + source[..error.valid_up_to()]
+            .iter()
+            .filter(|&&byte| byte == b'\n')
+            .count();
+        coded_at(
+            line,
+            code::SOURCE_NOT_UTF8,
+            "MedUI source is not valid UTF-8",
+        )
+    })
 }
 
 /// Parses `.medui` source into its AST without compiling it — the entry point a GUI (MedUI
@@ -260,6 +285,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
     let (layout_line, layout_header) = &lines[1];
     let layout = parse_layout(*layout_line, layout_header)?;
     let mut items = Vec::new();
+    let mut node_ids = Vec::new();
     let mut pending_safety: Option<SafetyCriticalDefinition> = None;
     let mut cursor = 2usize;
 
@@ -299,7 +325,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
                     "@safety_critical cannot annotate a Row container at line {line_number}"
                 )));
             }
-            let (row, next_cursor) = parse_row(&lines, cursor)?;
+            let (row, next_cursor) = parse_row(&lines, cursor, &mut node_ids)?;
             items.push(ScreenItem::Row(row));
             cursor = next_cursor;
             continue;
@@ -324,6 +350,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
             component_kind,
             pending_safety.take(),
             &properties,
+            &mut node_ids,
         )?;
         items.push(ScreenItem::Component(node));
     }
@@ -336,6 +363,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
         ));
     }
 
+    validate_authored_node_ids(&mut node_ids)?;
     Ok(ScreenDefinition {
         id: screen_id,
         layout,
@@ -351,6 +379,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
 fn parse_row(
     lines: &[(usize, String)],
     start: usize,
+    node_ids: &mut Vec<(usize, String)>,
 ) -> TrustScResult<(RowDefinition, usize)> {
     let (row_line_number, _) = &lines[start];
     let row_line_number = *row_line_number;
@@ -406,6 +435,7 @@ fn parse_row(
                 component_kind,
                 pending_safety.take(),
                 &properties,
+                node_ids,
             )?;
             children.push(node);
             continue;
@@ -419,7 +449,9 @@ fn parse_row(
             ))
         })?;
         match key.trim() {
-            "id" => id = Some(parse_identifier(*line_number, "Row id", value.trim())?),
+            "id" => {
+                id = Some((*line_number, parse_identifier(*line_number, "Row id", value.trim())?));
+            }
             "height" => height = Some(parse_dimension(*line_number, "height", value.trim())?),
             "spacing" => {
                 spacing = Some(parse_px_allowing_zero(*line_number, "spacing", value.trim())?)
@@ -442,7 +474,7 @@ fn parse_row(
         )));
     }
 
-    let id = id.ok_or_else(|| {
+    let (id_line, id) = id.ok_or_else(|| {
         coded_at(row_line_number, code::MISSING_FIELD, format!("Row at line {row_line_number} must declare `id`"))
     })?;
     let height = height.ok_or_else(|| {
@@ -454,6 +486,7 @@ fn parse_row(
         )));
     }
 
+    node_ids.push((id_line, id.clone()));
     Ok((
         RowDefinition {
             id,
@@ -615,6 +648,7 @@ fn parse_component_properties(
     component_kind: ComponentKind,
     safety_critical: Option<SafetyCriticalDefinition>,
     properties: &[(usize, String)],
+    node_ids: &mut Vec<(usize, String)>,
 ) -> TrustScResult<NodeDefinition> {
     let mut id = None;
     let mut width = None;
@@ -644,7 +678,12 @@ fn parse_component_properties(
         let key = key.trim();
         let value = value.trim();
         match key {
-            "id" => id = Some(parse_identifier(*property_line_number, "component id", value)?),
+            "id" => {
+                id = Some((
+                    *property_line_number,
+                    parse_identifier(*property_line_number, "component id", value)?,
+                ));
+            }
             "width" => width = Some(parse_dimension(*property_line_number, "width", value)?),
             "height" => height = Some(parse_dimension(*property_line_number, "height", value)?),
             "requirement" => {
@@ -685,7 +724,7 @@ fn parse_component_properties(
         }
     }
 
-    let id = id.ok_or_else(|| {
+    let (id_line, id) = id.ok_or_else(|| {
         coded_at(line_number, code::MISSING_FIELD, format!("component at line {line_number} must declare `id`"))
     })?;
     let width = width.ok_or_else(|| {
@@ -855,6 +894,7 @@ fn parse_component_properties(
         }
     };
 
+    node_ids.push((id_line, id.clone()));
     Ok(NodeDefinition {
         id,
         width,
@@ -863,6 +903,25 @@ fn parse_component_properties(
         kind,
         safety_critical,
     })
+}
+
+/// Check only the final ID of each authored node, in declaration order. Repeated `id:`
+/// properties retain the parser's last-value-wins behavior; overwritten values reserve nothing.
+/// Rows finish parsing after their children, so sort by the effective declaration's source line.
+/// The compiled-node check still covers synthetic panels and caller-edited ASTs.
+fn validate_authored_node_ids(node_ids: &mut [(usize, String)]) -> TrustScResult<()> {
+    node_ids.sort_by_key(|(line, _)| *line);
+    let mut seen = BTreeSet::new();
+    for (line, id) in node_ids.iter() {
+        if !seen.insert(id.as_str()) {
+            return Err(coded_at(
+                *line,
+                code::DUPLICATE_NODE_ID,
+                format!("duplicate node id {id}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
@@ -3441,6 +3500,121 @@ Screen InteractivePanel {
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/class_c_monitor/neurosense.medui"
     ));
+
+    #[test]
+    fn source_bytes_distinguish_encoding_failures_and_preserve_line_precision() {
+        assert_eq!(
+            parse_medui_bytes(HELLO_WORLD_MEDUI.as_bytes()),
+            parse_medui_source(HELLO_WORLD_MEDUI)
+        );
+        for source in [
+            b"\xff".as_slice(),
+            b"// valid UTF-8: \xc3\xa9\r\n\n\xe2\x82".as_slice(),
+        ] {
+            let diagnostics =
+                parse_medui_bytes(source).expect_err("invalid UTF-8 must fail before parsing");
+            assert_eq!(diagnostics[0].code, code::SOURCE_NOT_UTF8);
+            assert_eq!(
+                diagnostics[0].line,
+                Some(if source[0] == 0xff { 1 } else { 3 })
+            );
+            assert_eq!(diagnostics[0].column, None);
+        }
+    }
+
+    #[test]
+    fn authored_ids_are_unique_across_rows_and_root_components_at_parse_time() {
+        let leaf = |id| {
+            format!(
+                "Label {{\nid: {id};\nwidth: 10px;\nheight: 10px;\ntext: t(\"STR-X\");\ncolor: Theme.Colors.Title;\n}}\n"
+            )
+        };
+        let row = |id, child| format!("Row {{\nid: {id};\nheight: 10px;\n{} }}\n", leaf(child));
+        for body in [
+            format!("{}{}", row("row-a", "shared"), row("row-b", "shared")),
+            format!("{}{}", leaf("shared"), row("row", "shared")),
+            format!("{}{}", row("shared", "child-a"), row("shared", "child-b")),
+        ] {
+            let source = screen_with(&body);
+            let error = parse_medui_source(&source)
+                .expect_err("duplicate authored id must fail during parsing");
+            let second = source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| line.trim() == "id: shared;")
+                .nth(1)
+                .unwrap()
+                .0
+                + 1;
+            assert_eq!(error[0].code, code::DUPLICATE_NODE_ID);
+            assert_eq!(error[0].line, Some(second as u32));
+            assert_eq!(error[0].column, None);
+        }
+    }
+
+    #[test]
+    fn overwritten_id_properties_do_not_reserve_authored_names() {
+        let leaf = |id| {
+            format!(
+                "Label {{\nid: {id};\nwidth: 10px;\nheight: 10px;\ntext: t(\"STR-X\");\ncolor: Theme.Colors.Title;\n}}\n"
+            )
+        };
+        let canonical = format!("{}{}", leaf("first"), leaf("second"));
+        for source in [
+            canonical.replace("id: first;", "id: second;\nid: first;"),
+            canonical.replace("id: second;", "id: first;\nid: second;"),
+            canonical.replace("id: first;", "id: first;\nid: first;"),
+        ] {
+            assert_eq!(
+                parse_medui_source(&screen_with(&source))
+                    .expect("overwritten IDs must not collide"),
+                parse_medui_source(&screen_with(&canonical)).expect("canonical IDs are unique")
+            );
+        }
+        let canonical = format!(
+            "Row {{\nid: row;\nheight: 10px;\n{} }}\n{}",
+            leaf("child"),
+            leaf("other")
+        );
+        for source in [
+            canonical.replace("id: row;", "id: other;\nid: row;"),
+            canonical.replace("id: row;", "id: child;\nid: row;"),
+            canonical.replace("id: child;", "id: row;\nid: child;"),
+            canonical.replace("id: row;", "id: row;\nid: row;"),
+            canonical
+                .replace("id: row;", "id: child;")
+                .replace("\n }", "\nid: row;\n}"),
+        ] {
+            assert_eq!(
+                parse_medui_source(&screen_with(&source))
+                    .expect("overwritten IDs must not collide"),
+                parse_medui_source(&screen_with(&canonical)).expect("canonical IDs are unique")
+            );
+        }
+    }
+
+    #[test]
+    fn final_duplicate_ids_report_the_later_effective_declaration() {
+        let leaf = "Label {\nid: shared;\nwidth: 10px;\nheight: 10px;\ntext: t(\"STR-X\");\ncolor: Theme.Colors.Title;\n}\n";
+        for body in [
+            format!("Row {{\nid: discarded;\nid: shared;\nheight: 10px;\n{leaf}}}\n"),
+            format!("Row {{\nid: discarded;\nheight: 10px;\n{leaf}id: shared;\n}}\n"),
+        ] {
+            let source = screen_with(&body);
+            let last_id_line = source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| *line == "id: shared;")
+                .last()
+                .unwrap()
+                .0
+                + 1;
+            let errors =
+                parse_medui_source(&source).expect_err("the final row and child IDs still collide");
+            assert_eq!(errors[0].code, code::DUPLICATE_NODE_ID);
+            assert_eq!(errors[0].line, Some(last_id_line as u32));
+        }
+    }
 
     #[test]
     fn parse_medui_source_is_deterministic_for_example_screens() {

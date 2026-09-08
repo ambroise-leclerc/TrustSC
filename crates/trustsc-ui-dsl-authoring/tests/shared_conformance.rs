@@ -29,7 +29,7 @@ use std::{
     process::Command,
 };
 
-use trustsc_ui_dsl_authoring::{Diagnostic, parse_medui_source};
+use trustsc_ui_dsl_authoring::{Diagnostic, parse_medui_bytes};
 
 /// Phases this harness can genuinely observe. Anything else claimed in `medui-conformance.toml`
 /// is a claim without an adapter behind it.
@@ -39,14 +39,7 @@ const RUNNABLE_CAPABILITIES: &[&str] = &["syntax"];
 fn pinned_shared_conformance_cases() {
     let manifest = Manifest::read(&repo_root().join("medui-conformance.toml"));
 
-    for capability in &manifest.capabilities {
-        assert!(
-            RUNNABLE_CAPABILITIES.contains(&capability.as_str()),
-            "medui-conformance.toml claims `{capability}`, but this harness can only observe \
-             {RUNNABLE_CAPABILITIES:?}. Add the adapter that checks that phase's normalized \
-             observations before claiming it."
-        );
-    }
+    assert_supported_claims(&manifest);
 
     let Some(root) = conformance_root() else {
         return;
@@ -81,7 +74,8 @@ fn pinned_shared_conformance_cases() {
     }
 
     eprintln!(
-        "MedUI conformance: {} case(s) at {}; claimed {:?}; unclaimed and not asserted: {}",
+        "MedUI conformance: {} executed / {} compiler case(s) at {}; claimed {:?}; unclaimed and not asserted: {}",
+        cases.len() - skipped.len(),
         cases.len(),
         manifest.commit,
         manifest.capabilities,
@@ -93,12 +87,27 @@ fn pinned_shared_conformance_cases() {
     );
 }
 
+fn assert_supported_claims(manifest: &Manifest) {
+    for capability in &manifest.capabilities {
+        assert!(
+            RUNNABLE_CAPABILITIES.contains(&capability.as_str()),
+            "medui-conformance.toml claims `{capability}`, but this harness can only observe \
+             {RUNNABLE_CAPABILITIES:?}. Add the adapter that checks that phase's normalized \
+             observations before claiming it."
+        );
+    }
+}
+
 fn run_case(case: &Case, manifest: &Manifest) {
-    let source = fs::read_to_string(&case.source).unwrap_or_else(|error| {
+    let source = fs::read(&case.source).unwrap_or_else(|error| {
         panic!("{}: source {:?} should read: {error}", case.id, case.source)
     });
 
-    match parse_medui_source(&source) {
+    assert_case_observation(case, manifest, &source);
+}
+
+fn assert_case_observation(case: &Case, manifest: &Manifest, source: &[u8]) {
+    match parse_medui_bytes(source) {
         Ok(_) => assert!(
             case.expect_valid,
             "{}: this implementation accepted a source the pinned contract rejects",
@@ -677,4 +686,44 @@ fn parse_integer(bytes: &[u8], at: &mut usize, path: &Path) -> Json {
             panic!("{}: invalid integer {text:?}: {error}", path.display())
         }),
     )
+}
+
+#[test]
+#[should_panic(expected = "but this harness can only observe")]
+fn a_phase_without_an_adapter_cannot_be_claimed() {
+    let mut manifest = Manifest::read(&repo_root().join("medui-conformance.toml"));
+    manifest.capabilities.push("semantics".to_string());
+    assert_supported_claims(&manifest);
+}
+
+#[test]
+fn the_gate_rejects_an_adapter_disagreement() {
+    let manifest = Manifest::read(&repo_root().join("medui-conformance.toml"));
+    let Some(root) = conformance_root() else {
+        return;
+    };
+    assert_checkout_matches(&root, &manifest.commit);
+    let mut case = load_cases(&root)
+        .into_iter()
+        .find(|case| manifest.capabilities.contains(&case.phase) && case.expect_valid)
+        .expect("the pinned claimed phases must exercise an accepted source");
+    // I/O and the positive control are outside the caught assertion: neither a missing fixture
+    // nor a parser rejection may masquerade as the expected adapter disagreement.
+    let source = fs::read(&case.source).expect("the accepted corpus source should read");
+    assert_case_observation(&case, &manifest, &source);
+    case.expect_valid = false;
+    let panic = std::panic::catch_unwind(|| assert_case_observation(&case, &manifest, &source))
+        .expect_err("the inverted expectation must fail");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .expect("the disagreement assertion must provide its message");
+    assert_eq!(
+        message,
+        format!(
+            "{}: this implementation accepted a source the pinned contract rejects",
+            case.id
+        )
+    );
 }
