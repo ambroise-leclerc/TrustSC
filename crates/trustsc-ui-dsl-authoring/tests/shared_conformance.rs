@@ -103,7 +103,11 @@ fn run_case(case: &Case, manifest: &Manifest) {
         panic!("{}: source {:?} should read: {error}", case.id, case.source)
     });
 
-    match parse_medui_bytes(&source) {
+    assert_case_observation(case, manifest, &source);
+}
+
+fn assert_case_observation(case: &Case, manifest: &Manifest, source: &[u8]) {
+    match parse_medui_bytes(source) {
         Ok(_) => assert!(
             case.expect_valid,
             "{}: this implementation accepted a source the pinned contract rejects",
@@ -703,7 +707,23 @@ fn the_gate_rejects_an_adapter_disagreement() {
         .into_iter()
         .find(|case| manifest.capabilities.contains(&case.phase) && case.expect_valid)
         .expect("the pinned claimed phases must exercise an accepted source");
-    // The negative derives its source and expectations from the corpus too.
+    // I/O and the positive control are outside the caught assertion: neither a missing fixture
+    // nor a parser rejection may masquerade as the expected adapter disagreement.
+    let source = fs::read(&case.source).expect("the accepted corpus source should read");
+    assert_case_observation(&case, &manifest, &source);
     case.expect_valid = false;
-    assert!(std::panic::catch_unwind(|| run_case(&case, &manifest)).is_err());
+    let panic = std::panic::catch_unwind(|| assert_case_observation(&case, &manifest, &source))
+        .expect_err("the inverted expectation must fail");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .expect("the disagreement assertion must provide its message");
+    assert_eq!(
+        message,
+        format!(
+            "{}: this implementation accepted a source the pinned contract rejects",
+            case.id
+        )
+    );
 }

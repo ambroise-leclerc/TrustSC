@@ -17,7 +17,7 @@ harness. This adoption is tracked by [MduX #335](https://github.com/ambroise-lec
 The new pin adds three syntax cases to the two previously checked. Duplicate authored IDs now fail
 while parsing, across root components, Rows and their children; the compiled-node check remains
 necessary for synthesized panel IDs and caller-edited ASTs. Invalid UTF-8 now produces `MEDUI-E004`
-at its source line, through the public byte parser, file compiler and checker. I/O failures remain
+at its source line, through the public byte parser, file compiler, checker and Studio file endpoints. I/O failures remain
 `MEDUI-E003`. The parser still carries no columns.
 
 The harness reports executed and unclaimed cases separately: five of the 27 compiler cases execute.
@@ -25,6 +25,24 @@ It fails if the checkout is absent in CI, its revision differs from the manifest
 has no adapter or no cases, or an observation disagrees with the corpus. Regression tests also
 exercise a deliberately inverted corpus expectation and an unsupported phase claim. CI exposes
 this gate as a named step before the broader test suite.
+
+## Known diagnostic gaps at this pin
+
+The diagnostic constants are an implementation subset, not a complete registry. E000/E001/E002
+belong to a recipe reader this crate does not provide. E017, E033/E034/E035 and E054 still use
+legacy error paths instead of their registered identities; E053 is not implemented here. E070
+is a behavioral divergence:
+a safety annotation does not require an otherwise optional Button/TextInput requirement, so such
+a node can compile when its other checks succeed. The shared safety phase remains unclaimed.
+These are local gaps against the newer registry, not missing definitions in MedUI itself.
+
+Duplicate-ID checking uses only each node's final `id:` value, preserving the parser's existing
+last-value-wins behavior for repeated fields. Effective declarations are compared in source order,
+including a Row whose final ID appears after its children. Overwritten values reserve no names.
+Studio distinguishes missing/unreadable files (E003) from invalid UTF-8 (E004) on detail, frame and
+proposal endpoints; valid UTF-8 syntax errors retain their original source text and hash for editing.
+The gate's disagreement negative loads its source and runs a positive control before catching the
+inverted expectation, then checks the exact mismatch message.
 
 ## Reproduction and review
 

@@ -56,10 +56,20 @@ impl Diagnostic {
 /// so a raise site reads as the condition it detects.
 ///
 /// A code's meaning never changes and a retired number is never reused (`MEDUI-DEC-005`), so
-/// these constants are append-only. Codes the contract registers but this implementation never
-/// raises — `MEDUI-E017` (hardcoded product string),
-/// `MEDUI-E053` (dynamic text escapes its charset) — are deliberately absent rather than
-/// declared and unused.
+/// these constants are append-only. This is an implementation subset of the `0.3.0-rc.1` registry,
+/// not a declaration that every registered diagnostic is implemented. Missing here are:
+///
+/// - E000/E001/E002: recipe diagnostics (this crate has no recipe reader).
+/// - E017: hardcoded product string; the legacy parser instead reports E010.
+/// - E033/E034/E035: semantic kind, closed-set member and resource identity; older local
+///   diagnostic mappings remain instead of these dedicated identities.
+/// - E053: dynamic text escaping its charset.
+/// - E054: positioned node without fixed dimensions; the legacy parser reports E051.
+/// - E070: a safety-critical annotation without a requirement. In particular, an annotated
+///   Button or TextInput with no requirement is currently accepted; this is a behavioral gap,
+///   not simply an unnamed error. Semantics, layout and safety remain unclaimed by the harness.
+///
+/// See `docs/dsl/conformance.md` for the coverage limits at the pinned contract.
 pub mod code {
     /// `MEDUI-E003` — the `.medui` source could not be read.
     pub const SOURCE_UNREADABLE: &str = "MEDUI-E003";
@@ -94,14 +104,11 @@ pub mod code {
     /// `MEDUI-E071` — a CV check is not one the contract defines for this node.
     pub const UNKNOWN_CV_CHECK: &str = "MEDUI-E071";
 
-    /// A condition the pinned registry has no code for, reported as `MEDUI-E010` until one
-    /// exists.
+    /// Legacy fallback for conditions without a dedicated raise-site identity in this crate.
     ///
-    /// `spec/component-model.md` makes unknown image IDs, templates, charsets, clock formats,
-    /// system events, and layout kinds fatal, but registers a code only for colour tokens
-    /// (`MEDUI-E030`) and CV checks (`MEDUI-E071`). Marking these sites explicitly keeps them
-    /// greppable as registry gaps to raise upstream, instead of letting them fall through a
-    /// catch-all unnoticed.
+    /// Some now have registered identities in the pinned contract (notably E034 for clock/event
+    /// members and E035 for image/template IDs); others still lack one. This name records a
+    /// local implementation gap, not a claim that the shared registry has no matching code.
     pub const UNREGISTERED: &str = UNEXPECTED_TOKEN;
 }
 

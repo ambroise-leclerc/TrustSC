@@ -12,8 +12,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use trustsc_ui_dsl_authoring::{
     CompileOptions, CompiledScreenSpec, Diagnostic, ImagePackages, ScreenDefinition,
-    TextPackages, compile_screen_definition, enumerate_images, enumerate_numeric_templates,
-    enumerate_text_keys, parse_medui_source, serialize_screen, widget_catalog,
+    TextPackages, code, compile_screen_definition, enumerate_images, enumerate_numeric_templates,
+    enumerate_text_keys, parse_medui_bytes, parse_medui_source, serialize_screen, widget_catalog,
 };
 
 use crate::render_bridge;
@@ -76,7 +76,14 @@ struct CompileOutcome {
 }
 
 fn compile_source_with_defaults(state: &AppState, source: &str) -> CompileOutcome {
-    match parse_medui_source(source) {
+    compile_parsed_with_defaults(state, parse_medui_source(source))
+}
+
+fn compile_parsed_with_defaults(
+    state: &AppState,
+    parsed: Result<ScreenDefinition, Vec<Diagnostic>>,
+) -> CompileOutcome {
+    match parsed {
         Ok(screen) => compile_screen_with_defaults(state, screen),
         Err(diagnostics) => CompileOutcome {
             screen: None,
@@ -134,6 +141,70 @@ fn diagnostics_message(diagnostics: &[Diagnostic]) -> String {
         .join("; ")
 }
 
+/// Source text stays lossless for editing and concurrency hashes. A valid UTF-8 file may still
+/// contain syntax errors: detail can show them and proposals can repair the original source.
+struct LoadedMeduiSource {
+    text: String,
+    parsed: Result<ScreenDefinition, Vec<Diagnostic>>,
+}
+
+fn source_diagnostics_error(diagnostics: Vec<Diagnostic>) -> Response {
+    #[derive(Serialize)]
+    struct Envelope {
+        error: String,
+        code: &'static str,
+        diagnostics: Vec<dto::DiagnosticDto>,
+    }
+    let error = diagnostics_message(&diagnostics);
+    let code = diagnostics
+        .first()
+        .map(|diagnostic| diagnostic.code)
+        .unwrap_or(code::UNEXPECTED_TOKEN);
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(Envelope {
+            error,
+            code,
+            diagnostics: dto::diagnostics_to_dto(diagnostics),
+        }),
+    )
+        .into_response()
+}
+
+async fn load_medui_source(file_path: PathBuf, id: &str) -> Result<LoadedMeduiSource, Response> {
+    let bytes = match tokio::task::spawn_blocking(move || std::fs::read(file_path)).await {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(error)) => {
+            let status = if error.kind() == std::io::ErrorKind::NotFound {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            return Err(coded_error(
+                status,
+                code::SOURCE_UNREADABLE,
+                format!("failed to read screen: {id}"),
+            ));
+        }
+        Err(_) => {
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "read task failed",
+            ));
+        }
+    };
+    let parsed = parse_medui_bytes(&bytes);
+    match (String::from_utf8(bytes), parsed) {
+        (Ok(text), parsed) => Ok(LoadedMeduiSource { text, parsed }),
+        (Err(_), Err(diagnostics)) => Err(source_diagnostics_error(diagnostics)),
+        // An encoding disagreement is an internal error, never replacement characters in an edit.
+        (Err(_), Ok(_)) => Err(error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "source decoder disagreed with parser",
+        )),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // GET /api/screens/{id}
 // ---------------------------------------------------------------------------------------------
@@ -160,14 +231,12 @@ async fn screen_detail(State(state): State<Arc<AppState>>, Path(id): Path<String
         Ok(path) => path,
         Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
     };
-    let source = match tokio::task::spawn_blocking(move || std::fs::read_to_string(file_path)).await
-    {
-        Ok(Ok(source)) => source,
-        Ok(Err(_)) => return error_response(StatusCode::NOT_FOUND, format!("no such screen: {id}")),
-        Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "read task failed"),
+    let loaded = match load_medui_source(file_path, &id).await {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
     };
-
-    let outcome = compile_source_with_defaults(&state, &source);
+    let source = loaded.text;
+    let outcome = compile_parsed_with_defaults(&state, loaded.parsed);
     // A screen that parses but fails to compile still declared its own `surface:` (if any) —
     // report that instead of silently falling back to the 800x480 default, which would give the
     // frontend the wrong canvas size for the diagnostics it's about to show.
@@ -253,20 +322,13 @@ async fn frame_get(State(state): State<Arc<AppState>>, Query(params): Query<Fram
         Ok(path) => path,
         Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
     };
-    let source = match tokio::task::spawn_blocking(move || std::fs::read_to_string(file_path)).await
-    {
-        Ok(Ok(source)) => source,
-        Ok(Err(_)) => {
-            return error_response(StatusCode::NOT_FOUND, format!("no such screen: {}", params.screen));
-        }
-        Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "read task failed"),
+    let loaded = match load_medui_source(file_path, &params.screen).await {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
     };
-
-    let screen = match parse_medui_source(&source) {
+    let screen = match loaded.parsed {
         Ok(screen) => screen,
-        Err(diagnostics) => {
-            return error_response(StatusCode::UNPROCESSABLE_ENTITY, diagnostics_message(&diagnostics));
-        }
+        Err(diagnostics) => return source_diagnostics_error(diagnostics),
     };
 
     render_response(&state, screen, params.locale).await
@@ -489,13 +551,9 @@ async fn create_proposal(
         Ok(path) => path,
         Err(message) => return error_response(StatusCode::BAD_REQUEST, message),
     };
-    let read_path = file_path.clone();
-    let current_source = match tokio::task::spawn_blocking(move || std::fs::read_to_string(read_path)).await {
-        Ok(Ok(source)) => source,
-        Ok(Err(_)) => {
-            return error_response(StatusCode::NOT_FOUND, format!("no such screen: {}", request.screen_id));
-        }
-        Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, "read task failed"),
+    let current_source = match load_medui_source(file_path.clone(), &request.screen_id).await {
+        Ok(loaded) => loaded.text,
+        Err(response) => return response,
     };
 
     if sha256_hex(current_source.as_bytes()) != request.base_source_sha256 {
@@ -681,6 +739,87 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn file_endpoints_distinguish_invalid_utf8_from_missing_and_unreadable_sources() {
+        let temp = std::env::temp_dir().join(format!(
+            "trustsc-studio-source-errors-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+        std::fs::write(temp.join("invalid.medui"), b"// valid comment\r\n\xff").unwrap();
+        std::fs::create_dir_all(temp.join("directory.medui")).unwrap();
+        let app = crate::build_router(test_state_for(temp.clone(), None));
+        for (file, status, code) in [
+            (
+                "invalid.medui",
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "MEDUI-E004",
+            ),
+            ("missing.medui", StatusCode::NOT_FOUND, "MEDUI-E003"),
+            (
+                "directory.medui",
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "MEDUI-E003",
+            ),
+        ] {
+            let mut responses = Vec::new();
+            for uri in [
+                format!("/api/screens/{file}"),
+                format!("/api/frame?screen={file}"),
+            ] {
+                responses.push(
+                    app.clone()
+                        .oneshot(HttpRequest::get(uri).body(Body::empty()).unwrap())
+                        .await
+                        .unwrap(),
+                );
+            }
+            responses.push(
+                post_proposal(
+                    &app,
+                    json!({
+                        "screen_id": file,
+                        "screen": hello_screen_dto(),
+                        "base_source_sha256": "irrelevant: reading fails first",
+                        "title": "Repair screen",
+                    }),
+                )
+                .await,
+            );
+            for response in responses {
+                assert_eq!(response.status(), status, "{file}");
+                let body = json_body(response).await;
+                assert_eq!(body["code"], code, "{file}: {body}");
+                if code == "MEDUI-E004" {
+                    assert_eq!(body["diagnostics"][0]["line"], 2);
+                    assert!(body["diagnostics"][0]["column"].is_null());
+                }
+            }
+        }
+        // UTF-8 syntax errors remain editable: source and its byte-exact hash must survive.
+        let source = "// operator note: é\r\nnot a screen\r\n";
+        std::fs::write(temp.join("syntax.medui"), source).unwrap();
+        let response = app
+            .oneshot(
+                HttpRequest::get("/api/screens/syntax.medui")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["source"], source);
+        assert_eq!(body["source_sha256"], super::sha256_hex(source.as_bytes()));
+        assert!(
+            !body["compiled"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::remove_dir_all(&temp).unwrap();
     }
 
     #[tokio::test]

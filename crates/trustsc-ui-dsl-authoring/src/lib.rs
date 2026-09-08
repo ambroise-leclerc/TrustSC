@@ -285,7 +285,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
     let (layout_line, layout_header) = &lines[1];
     let layout = parse_layout(*layout_line, layout_header)?;
     let mut items = Vec::new();
-    let mut node_ids = BTreeSet::new();
+    let mut node_ids = Vec::new();
     let mut pending_safety: Option<SafetyCriticalDefinition> = None;
     let mut cursor = 2usize;
 
@@ -363,6 +363,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
         ));
     }
 
+    validate_authored_node_ids(&mut node_ids)?;
     Ok(ScreenDefinition {
         id: screen_id,
         layout,
@@ -378,7 +379,7 @@ fn parse_screen(source: &str) -> TrustScResult<ScreenDefinition> {
 fn parse_row(
     lines: &[(usize, String)],
     start: usize,
-    node_ids: &mut BTreeSet<String>,
+    node_ids: &mut Vec<(usize, String)>,
 ) -> TrustScResult<(RowDefinition, usize)> {
     let (row_line_number, _) = &lines[start];
     let row_line_number = *row_line_number;
@@ -448,7 +449,9 @@ fn parse_row(
             ))
         })?;
         match key.trim() {
-            "id" => id = Some(parse_node_identifier(*line_number, value.trim(), node_ids)?),
+            "id" => {
+                id = Some((*line_number, parse_identifier(*line_number, "Row id", value.trim())?));
+            }
             "height" => height = Some(parse_dimension(*line_number, "height", value.trim())?),
             "spacing" => {
                 spacing = Some(parse_px_allowing_zero(*line_number, "spacing", value.trim())?)
@@ -471,7 +474,7 @@ fn parse_row(
         )));
     }
 
-    let id = id.ok_or_else(|| {
+    let (id_line, id) = id.ok_or_else(|| {
         coded_at(row_line_number, code::MISSING_FIELD, format!("Row at line {row_line_number} must declare `id`"))
     })?;
     let height = height.ok_or_else(|| {
@@ -483,6 +486,7 @@ fn parse_row(
         )));
     }
 
+    node_ids.push((id_line, id.clone()));
     Ok((
         RowDefinition {
             id,
@@ -644,7 +648,7 @@ fn parse_component_properties(
     component_kind: ComponentKind,
     safety_critical: Option<SafetyCriticalDefinition>,
     properties: &[(usize, String)],
-    node_ids: &mut BTreeSet<String>,
+    node_ids: &mut Vec<(usize, String)>,
 ) -> TrustScResult<NodeDefinition> {
     let mut id = None;
     let mut width = None;
@@ -674,7 +678,12 @@ fn parse_component_properties(
         let key = key.trim();
         let value = value.trim();
         match key {
-            "id" => id = Some(parse_node_identifier(*property_line_number, value, node_ids)?),
+            "id" => {
+                id = Some((
+                    *property_line_number,
+                    parse_identifier(*property_line_number, "component id", value)?,
+                ));
+            }
             "width" => width = Some(parse_dimension(*property_line_number, "width", value)?),
             "height" => height = Some(parse_dimension(*property_line_number, "height", value)?),
             "requirement" => {
@@ -715,7 +724,7 @@ fn parse_component_properties(
         }
     }
 
-    let id = id.ok_or_else(|| {
+    let (id_line, id) = id.ok_or_else(|| {
         coded_at(line_number, code::MISSING_FIELD, format!("component at line {line_number} must declare `id`"))
     })?;
     let width = width.ok_or_else(|| {
@@ -885,6 +894,7 @@ fn parse_component_properties(
         }
     };
 
+    node_ids.push((id_line, id.clone()));
     Ok(NodeDefinition {
         id,
         width,
@@ -895,22 +905,23 @@ fn parse_component_properties(
     })
 }
 
-/// Authored IDs share one namespace across root nodes, Rows and their children.
-/// Keep the compiled-node check too: synthesized panels and caller-edited ASTs bypass this pass.
-fn parse_node_identifier(
-    line_number: usize,
-    raw: &str,
-    node_ids: &mut BTreeSet<String>,
-) -> TrustScResult<String> {
-    let id = parse_identifier(line_number, "node id", raw)?;
-    if !node_ids.insert(id.clone()) {
-        return Err(coded_at(
-            line_number,
-            code::DUPLICATE_NODE_ID,
-            format!("duplicate node id {id}"),
-        ));
+/// Check only the final ID of each authored node, in declaration order. Repeated `id:`
+/// properties retain the parser's last-value-wins behavior; overwritten values reserve nothing.
+/// Rows finish parsing after their children, so sort by the effective declaration's source line.
+/// The compiled-node check still covers synthetic panels and caller-edited ASTs.
+fn validate_authored_node_ids(node_ids: &mut [(usize, String)]) -> TrustScResult<()> {
+    node_ids.sort_by_key(|(line, _)| *line);
+    let mut seen = BTreeSet::new();
+    for (line, id) in node_ids.iter() {
+        if !seen.insert(id.as_str()) {
+            return Err(coded_at(
+                *line,
+                code::DUPLICATE_NODE_ID,
+                format!("duplicate node id {id}"),
+            ));
+        }
     }
-    Ok(id)
+    Ok(())
 }
 
 fn parse_identifier(line_number: usize, field_name: &str, raw: &str) -> TrustScResult<String> {
@@ -3538,6 +3549,70 @@ Screen InteractivePanel {
             assert_eq!(error[0].code, code::DUPLICATE_NODE_ID);
             assert_eq!(error[0].line, Some(second as u32));
             assert_eq!(error[0].column, None);
+        }
+    }
+
+    #[test]
+    fn overwritten_id_properties_do_not_reserve_authored_names() {
+        let leaf = |id| {
+            format!(
+                "Label {{\nid: {id};\nwidth: 10px;\nheight: 10px;\ntext: t(\"STR-X\");\ncolor: Theme.Colors.Title;\n}}\n"
+            )
+        };
+        let canonical = format!("{}{}", leaf("first"), leaf("second"));
+        for source in [
+            canonical.replace("id: first;", "id: second;\nid: first;"),
+            canonical.replace("id: second;", "id: first;\nid: second;"),
+            canonical.replace("id: first;", "id: first;\nid: first;"),
+        ] {
+            assert_eq!(
+                parse_medui_source(&screen_with(&source))
+                    .expect("overwritten IDs must not collide"),
+                parse_medui_source(&screen_with(&canonical)).expect("canonical IDs are unique")
+            );
+        }
+        let canonical = format!(
+            "Row {{\nid: row;\nheight: 10px;\n{} }}\n{}",
+            leaf("child"),
+            leaf("other")
+        );
+        for source in [
+            canonical.replace("id: row;", "id: other;\nid: row;"),
+            canonical.replace("id: row;", "id: child;\nid: row;"),
+            canonical.replace("id: child;", "id: row;\nid: child;"),
+            canonical.replace("id: row;", "id: row;\nid: row;"),
+            canonical
+                .replace("id: row;", "id: child;")
+                .replace("\n }", "\nid: row;\n}"),
+        ] {
+            assert_eq!(
+                parse_medui_source(&screen_with(&source))
+                    .expect("overwritten IDs must not collide"),
+                parse_medui_source(&screen_with(&canonical)).expect("canonical IDs are unique")
+            );
+        }
+    }
+
+    #[test]
+    fn final_duplicate_ids_report_the_later_effective_declaration() {
+        let leaf = "Label {\nid: shared;\nwidth: 10px;\nheight: 10px;\ntext: t(\"STR-X\");\ncolor: Theme.Colors.Title;\n}\n";
+        for body in [
+            format!("Row {{\nid: discarded;\nid: shared;\nheight: 10px;\n{leaf}}}\n"),
+            format!("Row {{\nid: discarded;\nheight: 10px;\n{leaf}id: shared;\n}}\n"),
+        ] {
+            let source = screen_with(&body);
+            let last_id_line = source
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| *line == "id: shared;")
+                .last()
+                .unwrap()
+                .0
+                + 1;
+            let errors =
+                parse_medui_source(&source).expect_err("the final row and child IDs still collide");
+            assert_eq!(errors[0].code, code::DUPLICATE_NODE_ID);
+            assert_eq!(errors[0].line, Some(last_id_line as u32));
         }
     }
 
